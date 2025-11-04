@@ -1,11 +1,16 @@
 # 📦 ISARIC HUB SA Template - Repositório de Referência Técnica
 
-Este repositório serve como exemplo **didático e técnico** da estrutura padrão adotada pelos projetos da organização NOIS.
-Atualize o readme para reflita as informações corretas do projeto.
+Este repositório contém o pacote isaric, uma implementação modular da metodologia RAPID (Reproducible Analytics for Predictive modeling, Inference, and Data preprocessing), voltada para projetos de pesquisa clínica e análise preditiva.
 
 ## 🧠 O que você encontra aqui:
-- Estrutura de diretórios
-- Configuração de CI/CD
+- Estrutura modular baseada em namespace packages
+- Implementação das etapas do framework RAPID:
+-- Data Cleaning
+-- Preprocessing
+-- Modeling
+-- Model Evaluation
+-- Validation
+-- Visualization
 - Documentação com MkDocs
 - Testes automatizados
 - Padrões de `.env`, `.gitignore`, `pyproject.toml`, etc.
@@ -19,6 +24,8 @@ Ao criar um novo projeto, use este repositório como **template** e ajuste confo
 - `tests/`: Testes automatizados com `unittest`
 - `docs/`: Documentação gerada com MkDocs
 - `config/`: Arquivos `.env` para ambientes
+- `requirements.txt`: Lista de dependências do projeto
+- `pyproject.toml`: Configuração do pacote Python
 
 ## 📚 Documentação
 
@@ -35,8 +42,8 @@ A documentação é gerada com [MkDocs](https://www.mkdocs.org/) e inclui:
 - Ambiente virtual recomendado
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # ou venv\Scripts\activate no Windows
+python -m venv .rapid
+source .rapid/bin/activate  # ou .rapid\Scripts\activate no Windows
 pip install -r requirements.txt
 
 ## ✅ Checklist de Limpeza Pós-Clonagem
