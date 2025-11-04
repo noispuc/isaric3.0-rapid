@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=65.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isaric"
+version = "0.1.0"
+description = "Modular package for implementing the RAPID methodology: reproducible analytics for predictive modeling, inference, and data preprocessing in clinical research"
+
+authors = [
+    { name = "ISARIC HUB SA" }
+]
+license = { text = "MIT" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true

@@ -13,6 +13,7 @@ __pycache__/
 env/
 venv/
 .venv/
+.rapid/
 ENV/
 env.bak/
 venv.bak/
