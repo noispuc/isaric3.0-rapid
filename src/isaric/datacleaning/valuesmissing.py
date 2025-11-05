@@ -25,3 +25,17 @@ def drop_missing_rows(df, threshold=0.5):
         pandas.DataFrame: Dataset with high-missingness rows removed.
     """
     return df[df.isnull().mean(axis=1) < threshold]
+
+
+def remove_duplicates(df):
+    """
+    Description:
+        Removes duplicate rows from the dataset.
+
+    Args:
+        df (pandas.DataFrame): Input dataset.
+
+    Returns:
+        pandas.DataFrame: Dataset with duplicates removed.
+    """
+    return df.drop_duplicates()

@@ -76,4 +76,7 @@ secrets.yml
 *.log
 workflow-temp/
 
+# 🎯 Test file
+.src/
+test_isaric.py
 
