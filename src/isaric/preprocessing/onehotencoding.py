@@ -1,3 +1,5 @@
+import pandas as pd
+
 def encode_categoricals(df):
     """
     Description:
