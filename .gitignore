@@ -28,7 +28,6 @@ build/
 
 # 📊 Jupyter e IPython
 .ipynb_checkpoints
-*.ipynb
 
 # 📷 Matplotlib, PyPlot, Plotly
 *.png
