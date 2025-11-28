@@ -7,12 +7,13 @@ name = "isaric"
 version = "0.1.0"
 description = "Modular package for implementing the RAPID methodology: reproducible analytics for predictive modeling, inference, and data preprocessing in clinical research"
 dependencies = [
-    "pandas",
-    "scikit-learn",
-    "lifelines",
-    "matplotlib",
-    "seaborn",
-    "numpy"
+    "pandas==2.3.3",
+    "numpy==2.3.5",
+    "scikit-learn==1.7.2",
+    "lifelines==0.30.0",
+    "matplotlib==3.10.7",
+	"seaborn==0.13.2",
+    "upsetplot==0.9.0"
 ]
 
 authors = [
