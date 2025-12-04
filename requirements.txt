@@ -11,6 +11,7 @@ lifelines==0.30.0
 matplotlib==3.10.7
 seaborn==0.13.2
 upsetplot==0.9.0
+plotly==5.16.0
 
 # Empacotamento e construção
 setuptools==80.9.0
