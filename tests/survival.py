@@ -39,7 +39,7 @@ class RAPID_survival:
         self.labels = None
 
     # ------------------------------------------------------------------
-    # FASE 1: PRE-PROCESSAMENTO
+    # 1: PRE-PROCESSING DATA
     # ------------------------------------------------------------------
     def preprocess_data(self, df):
         """Internal method to handle data cleaning and encoding."""
@@ -68,7 +68,7 @@ class RAPID_survival:
         return df_cox, encoded_predictors
 
     # ------------------------------------------------------------------
-    # FASE 2: FIT DO MODELO
+    # 2: MODEL FITTING
     # ------------------------------------------------------------------
     def fit(self, labels: dict = None):
         """
@@ -112,7 +112,7 @@ class RAPID_survival:
         print(f"Cox PH model fitted successfully on {len(self.model_data)} observations.")
 
     # ------------------------------------------------------------------
-    # FASE 3: SUMMARIZATION & DIAGNÓSTICO
+    # 3: SUMMARIZATION & GRAPHICS
     # ------------------------------------------------------------------
     def summary(self, fit_measures: bool = True, plots: list = None, target_time: float = None):
         """
