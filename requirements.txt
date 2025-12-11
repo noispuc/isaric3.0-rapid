@@ -1,3 +1,5 @@
+# Para trabalhar com jupyter notebook
+nbformat == 5.10.4
 
 # Manipulação de dados
 pandas==2.3.3
@@ -6,6 +8,7 @@ numpy==2.3.5
 # Modelagem e machine learning
 scikit-learn==1.7.2
 lifelines==0.30.0
+statsmodels == 0.14.5
 
 # Visualização
 matplotlib==3.10.7
