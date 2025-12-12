@@ -1,6 +1,6 @@
 # 🚀 Getting Started with `RAPID_pipeline`
 
-The `RAPID_pipeline` class is designed as a **modular and extensible structure** for implementing various Data Science models (Statistical, Survival Analysis, Machine Learning, etc.).
+The `RAPID_pipeline` is designed as a **modular and extensible structure** for implementing various Data Science models (Statistical, Survival Analysis, Machine Learning, etc.).
 
 The current implementation focuses on the **Cox Proportional Hazards (Cox PH) model** for survival analysis, providing automated preprocessing, model fitting, and a comprehensive suite of diagnostic outputs.
 
@@ -16,15 +16,17 @@ The pipeline is built on a simple three-phase methodology, which is universal fo
 | **Phase 2: Training** | `.fit()` | Selects the model type (e.g., Cox PH, Logistic Regression, Random Forest) and performs the training procedure. |
 | **Phase 3: Output/Diagnostics** | `.summary()` | Generates performance metrics, fit measures (e.g., AIC, C-Index), and produces a user-specified list of diagnostic plots. |
 
-## 2\. Installation (Mock)
+## ⚙️2\. Installation and Requirements (Mock)
+- Python 3.10+
+- [pip](https://pip.pypa.io/en/stable/)
+- Virtual Environment
 
-To use the current **Survival Analysis** module, ensure the necessary Python packages are installed, all the required packages are listeded in [requirements.txt](https://github.com/noispuc/isaric3.0-rapid/tree/main):
+To use the current **Survival Analysis** module, ensure the necessary that you have insdtalled Python in a 3.10+ version and also has [pip](https://pip.pypa.io/en/stable/). An virtual environment(venv) is recommended, all the required Python packages are listeded in [requirements.txt](https://github.com/noispuc/isaric3.0-rapid/tree/main) and the the venv can be set up with the following commands:
 
 ```bash
-# Install the core dependencies
-pip install pandas numpy matplotlib seaborn statsmodels
-# Install the specialized survival analysis library
-pip install lifelines scikit-learn plotly
+python -m venv .rapid
+source .rapid/bin/activate  # ou .rapid\Scripts\activate no Windows
+pip install -r requirements.txt
 ```
 
 ## 3\. Quickstart Guide: End-to-End Analysis (Cox PH Example)
