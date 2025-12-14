@@ -16,7 +16,7 @@ The pipeline is built on a simple three-phase methodology, which is universal fo
 | **Phase 2: Training** | `.fit()` | Selects the model type (e.g., Cox PH, Logistic Regression, Random Forest) and performs the training procedure. |
 | **Phase 3: Output/Diagnostics** | `.summary()` | Generates performance metrics, fit measures (e.g., AIC, C-Index), and produces a user-specified list of diagnostic plots. |
 
-## ⚙️2\. Installation and Requirements (Mock)
+## 2\. Installation and Requirements
 - Python 3.10+
 - [pip](https://pip.pypa.io/en/stable/)
 - Virtual Environment
