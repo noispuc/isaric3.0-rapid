@@ -24,7 +24,7 @@ class RAPID_base_regression:
             data[var] = data[var].astype('category')
 
     #Method to fit model.
-    def fit(self):
+    def fit(self, labels: dict = None):
         model = smf.glm(formula=self.formula, data=self.data, family=self.family)
         self.model_result = model.fit()
 
@@ -54,7 +54,7 @@ class RAPID_base_regression:
         result = self.model_result
         self.summary_table = result.summary2().tables[1].copy()
 
-        self._build_result_summary_df()
+        self._build_result_summary_df(labels)
 
         self.summary_df['Study'] = self.summary_df['Study'].str.replace('T.', '')
 
@@ -65,16 +65,15 @@ class RAPID_base_regression:
         self.summary_df = self.summary_df[self.summary_df['Study'] != 'Intercept']
         self._rename_cols_by_regression_type()
 
-    def _map_study_label(self, df: pd.DataFrame) -> pd.DataFrame:
-        if not self.labels:
+    def _map_study_label(self, df: pd.DataFrame, labels : dict = None) -> pd.DataFrame:
+        if not labels:
             return df
         
         df = df.copy()
         df['Study'] = df['Study'].apply(self._parse_variable_name)
         return df
 
-    def _parse_variable_name(self,var_name):
-        labels = self.labels
+    def _parse_variable_name(self, var_name, labels : dict):
         if var_name == 'Intercept':
             return labels.get('Intercept', 'Intercept')
         elif '[' in var_name:

@@ -10,13 +10,13 @@ class RAPID_linear_regression(RAPID_base_regression):
     def __init__(self, data: pd.DataFrame, outcome_str: str, predictors_list: list, regression_type: str = "Multi"):
         super().__init__(self,data,outcome_str,predictors_list,regression_type)
     
-    def fit(self):
+    def fit(self, labels: dict = None):
         """
         Fits the model, (in this case a linear regression model) using the pre-specified data and predictors.
         Stores the fitted model and summary results internally.
         """
-        super().fit()
-        self._setup_result_summary()
+        super().fit(labels)
+        self._setup_result_summary(labels)
 
 
     def summary(self):
@@ -50,7 +50,7 @@ class RAPID_linear_regression(RAPID_base_regression):
                 'p-value': 'p-value (multi)'
             }, inplace=True)
     
-    def _build_result_summary_df(self):
+    def _build_result_summary_df(self, labels):
         """
         Builds result summary dataframe for linear regression.
         """
@@ -63,7 +63,7 @@ class RAPID_linear_regression(RAPID_base_regression):
                                                      '0.975]': 'UpperCI', 
                                                      'P>|z|': 'p-value'})
         
-        self.summary_df = self._map_study_label(self.summary_df)
+        self.summary_df = self._map_study_label(self.summary_df, labels)
         self.summary_df = self.summary_df[['Study', 'Coefficient', 'LowerCI', 'UpperCI', 'p-value']]
     
     
