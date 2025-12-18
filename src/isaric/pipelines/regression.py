@@ -4,46 +4,74 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
+import pandas as pd
+import plotly.graph_objs as go
 
 
-class RAPID_base_regression:
+class RAPID_BaseRegression(ABC):
+    """
+    Abstract base class for regression analysis pipelines.
+    This class provides the foundation for regression techniques as part of the ISARIC analytical pipeline,
+    and generates reports useful for clinical research applied to epidemiological contexts.
+
+    The structure is modular, allowing for future extensions into general Machine Learning pipelines.
+    """
     def __init__(self, data: pd.DataFrame, outcome_str: str, predictors_list: list, regression_type: str = "Multi"):
-        self.data = data
+        self._validate_inputs(data, outcome_str, predictors_list, regression_type)
+        self.data = data.copy()
         self.outcome_str = outcome_str
         self.predictors_list = predictors_list
         self.regression_type = regression_type
         self._build_formula_string()
+        self.preprocess_data()
 
+    # ------------------------------------------------------------------
+    # 1: PRE-PROCESSING DATA
+    # ------------------------------------------------------------------
     def preprocess_data(self):
         data = self.data
         predictors_list = self.predictors_list
         #Convert categorical variables to the 'category' type
         categorical_vars = data.select_dtypes(include=['object', 'category']).columns.intersection(predictors_list)
         for var in categorical_vars:
-            #This loop changes the df inside the instance.
             data[var] = data[var].astype('category')
 
-    #Method to fit model.
+    # ------------------------------------------------------------------
+    # 2: MODEL FITTING
+    # ------------------------------------------------------------------
     def fit(self, labels: dict = None):
         model = smf.glm(formula=self.formula, data=self.data, family=self.family)
         self.model_result = model.fit()
+        self._setup_result_summary()
 
-    #Abstract property that determines statsmodel family for each regression.
+    # ------------------------------------------------------------------
+    # 3: SUMMARIZATION & GRAPHICS
+    # ------------------------------------------------------------------
+    def summary(self):
+        """Summary to be output by this regression."""
+        if (self.model_result is None):
+            print("Error: Model has not been fitted. Please call .fit() first.")
+            return
+
+    # ------------------------------------------------------------------
+    # Property that determines statsmodel family for each regression.
+    # ------------------------------------------------------------------
     @property
     @abstractmethod
     def family(self):
         """Statsmodels family used by this regression."""
         pass
 
-    #Abstract method to provide the summary and graphics.
-    @abstractmethod
-    def summary(self):
-        """Summary to be output by this regression."""
-        pass
-
-
     # ------------------------------------------------------------------
-    # PRIVATE METHODS (RESULT SUMMARY GENERATOR)
+    # PRIVATE METHOD (FORMULA STRING BUILDER)
+    # ------------------------------------------------------------------
+
+    def _build_formula_string(self):
+        self.formula = self.outcome_str + ' ~ ' + ' + '.join(self.predictors_list)
+        return
+    
+    # ------------------------------------------------------------------
+    # PRIVATE METHODS (RESULT SUMMARY GENERATOR FOR FIT)
     # ------------------------------------------------------------------
 
     def _setup_result_summary(self, labels : dict = None):
@@ -100,12 +128,103 @@ class RAPID_base_regression:
         pass
 
     # ------------------------------------------------------------------
-    # PRIVATE METHOD (FORMULA STRING BUILDER)
+    # PRIVATE METHODS (PLOTS FOR SUMMARY)
+    # ------------------------------------------------------------------
+    def _fig_forest_plot(self,
+        df, dictionary=None,
+        title='Forest Plot',
+        labels=['Study', 'OddsRatio', 'LowerCI', 'UpperCI'],
+        graph_id='forest-plot', graph_label='', graph_about='',
+        only_display=False):
+
+        # Ordering Values -> Descending Order
+        df = df.sort_values(by=labels[1], ascending=True)
+
+        # Error Handling
+        if not set(labels).issubset(df.columns):
+            print(df.columns)
+            error_str = f'Dataframe must contain the following columns: {labels}'
+            raise ValueError(error_str)
+
+        # Prepare Data Traces
+        traces = []
+
+        # Add the point estimates as scatter plot points
+        traces.append(
+            go.Scatter(
+                x=df[labels[1]],
+                y=df[labels[0]],
+                mode='markers',
+                name='Odds Ratio',
+                marker=dict(color='blue', size=10))
+        )
+
+        # Add the confidence intervals as lines
+        for index, row in df.iterrows():
+            traces.append(
+                go.Scatter(
+                    x=[row[labels[2]], row[labels[3]]],
+                    y=[row[labels[0]], row[labels[0]]],
+                    mode='lines',
+                    showlegend=False,
+                    line=dict(color='blue', width=2))
+            )
+
+        # Define layout
+        layout = go.Layout(
+            title=title,
+            xaxis=dict(title='Odds Ratio'),
+            yaxis=dict(
+                title='', automargin=True, tickmode='array',
+                tickvals=df[labels[0]].tolist(), ticktext=df[labels[0]].tolist()),
+            shapes=[
+                dict(
+                    type='line', x0=1, y0=-0.5, x1=1, y1=len(df[labels[0]])-0.5,
+                    line=dict(color='red', width=2)
+                )],  # Line of no effect
+            margin=dict(l=100, r=100, t=100, b=50),
+            height=600
+        )
+
+        return go.Figure(data=traces, layout=layout)
+    
+    def _display_forest_plot(self):
+        if (self.summary_df is None and self.model_result is None):
+            print("Error displaying forest plot. Please run .fit() first.")
+        graph = self._fig_forest_plot(
+        df = self.summary_df,
+        labels = self.summary_df.columns.tolist(),
+        only_display=True
+        )
+
+        graph.show()
+    
+    # ------------------------------------------------------------------
+    # PRIVATE METHODS (VALIDATION)
     # ------------------------------------------------------------------
 
-    def _build_formula_string(self):
-        self.formula = self.outcome_str + ' ~ ' + ' + '.join(self.predictors_list)
-        return
-    
-
-    
+    def _validate_inputs(self, data, outcome_str, predictors_list, regression_type):
+            # Validate inputs
+        if data is None:
+            raise ValueError("data cannot be None")
+        
+        if data.empty:
+            raise ValueError("data cannot be empty")
+        
+        if outcome_str is None or outcome_str == "":
+            raise ValueError("outcome_str cannot be None or empty")
+        
+        if predictors_list is None or len(predictors_list) == 0:
+            raise ValueError("predictors_list cannot be None or empty")
+        
+        if regression_type is None:
+            raise ValueError("regression_type cannot be None")
+        
+        # Check if outcome exists in data
+        if outcome_str not in data.columns:
+            raise ValueError(f"Outcome variable '{outcome_str}' not found in data columns")
+        
+        # Check if predictors exist in data
+        missing_predictors = [p for p in predictors_list if p not in data.columns]
+        if missing_predictors:
+            raise ValueError(f"Predictor(s) not found in data columns: {missing_predictors}")

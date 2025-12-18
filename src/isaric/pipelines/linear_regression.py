@@ -3,34 +3,39 @@ import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 
-from regression import RAPID_base_regression
+from regression import RAPID_BaseRegression
 
 
-class RAPID_linear_regression(RAPID_base_regression):
+class RAPID_LinearRegression(RAPID_BaseRegression):
+
+    """
+    Pipeline that enables linear regression analysis for continuous outcomes.
+    This class implements linear regression as part of the ISARIC analytical pipeline,
+    and generates reports useful for clinical research applied to epidemiological contexts.
+
+    The structure is modular, allowing for future extensions into general Machine Learning pipelines.
+    """
     def __init__(self, data: pd.DataFrame, outcome_str: str, predictors_list: list, regression_type: str = "Multi"):
-        super().__init__(self,data,outcome_str,predictors_list,regression_type)
+        super().__init__(data,outcome_str,predictors_list,regression_type)
+        
+    # ------------------------------------------------------------------
+    # 2: SUMMARIZATION & GRAPHICS
+    # ------------------------------------------------------------------
+    def summary(self, plots: list = None):
+        """
+        Reports the results of the linear regression, generating tables and plots.
+        """
+        super().summary()
     
-    def fit(self, labels: dict = None):
-        """
-        Fits the model, (in this case a linear regression model) using the pre-specified data and predictors.
-        Stores the fitted model and summary results internally.
-        """
-        super().fit(labels)
-        self._setup_result_summary(labels)
-
-
-    def summary(self):
-        """
-        Reports the results of the linear regression, generating publication-ready tables and plots.
-
-        Args:
-            temp
-        """
-        pass
-
+    # ------------------------------------------------------------------
+    # STATSMODEL FAMILY FOR THIS REGRESSION.
+    # ------------------------------------------------------------------
     def family(self):
         return sm.families.Gaussian
     
+    # ------------------------------------------------------------------
+    # PRIVATE METHODS (FOR CREATING SUMMARY DF AFTER FITTING MODEL)
+    # ------------------------------------------------------------------
     def _rename_cols_by_regression_type(self):
         """
         Renames summary dataframe columns for univariate or multivariate logistic regression.
@@ -65,5 +70,3 @@ class RAPID_linear_regression(RAPID_base_regression):
         
         self.summary_df = self._map_study_label(self.summary_df, labels)
         self.summary_df = self.summary_df[['Study', 'Coefficient', 'LowerCI', 'UpperCI', 'p-value']]
-    
-    
