@@ -1,4 +1,4 @@
-## ⚙️\ Installation and Requirements (Mock)
+## ⚙️Installation and Requirements (Mock)
 - Python 3.10+
 - [pip](https://pip.pypa.io/en/stable/)
 - Virtual Environment
