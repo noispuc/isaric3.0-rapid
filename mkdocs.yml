@@ -6,9 +6,7 @@ nav:
     - Installation: installation.md
     - Quick Start Guide: getting_started.md
   - User Guide:
-      - Data Preparation: data_preparation.md
       - Running the Pipeline: running_the_pipeline.md
-      - Interpreting Results: interpreting_results.md
   - Extra:
       - Development: getting_started_development.md
 theme: readthedocs

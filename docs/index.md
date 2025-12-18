@@ -26,7 +26,7 @@ The RAPID methodology transforms a clinical research question and a curated data
 
 ---
 
-## 🧭 Start Your Analysis
+## Start Your Analysis
 
 ### ❓ Why Use RAPID?
 Understand the benefits of standardization, reproducibility, and RAPID's focus on clinical research.
