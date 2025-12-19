@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 import numpy as np
 import pandas as pd
@@ -65,7 +66,6 @@ class RAPID_BaseRegression(ABC):
     # ------------------------------------------------------------------
     # PRIVATE METHOD (FORMULA STRING BUILDER)
     # ------------------------------------------------------------------
-
     def _build_formula_string(self):
         self.formula = self.outcome_str + ' ~ ' + ' + '.join(self.predictors_list)
         return
@@ -133,9 +133,8 @@ class RAPID_BaseRegression(ABC):
     def _fig_forest_plot(self,
         df, dictionary=None,
         title='Forest Plot',
-        labels=['Study', 'OddsRatio', 'LowerCI', 'UpperCI'],
-        graph_id='forest-plot', graph_label='', graph_about='',
-        only_display=False):
+        labels=['Study', 'OddsRatio', 'LowerCI', 'UpperCI'], 
+        graph_id='forest-plot', graph_label='', graph_about='', only_display=False):
 
         # Ordering Values -> Descending Order
         df = df.sort_values(by=labels[1], ascending=True)
@@ -188,7 +187,7 @@ class RAPID_BaseRegression(ABC):
 
         return go.Figure(data=traces, layout=layout)
     
-    def _display_forest_plot(self):
+    def _generate_forest_plot(self):
         if (self.summary_df is None and self.model_result is None):
             print("Error displaying forest plot. Please run .fit() first.")
         graph = self._fig_forest_plot(
@@ -197,7 +196,7 @@ class RAPID_BaseRegression(ABC):
         only_display=True
         )
 
-        graph.show()
+        return graph
     
     # ------------------------------------------------------------------
     # PRIVATE METHODS (VALIDATION)
@@ -228,3 +227,42 @@ class RAPID_BaseRegression(ABC):
         missing_predictors = [p for p in predictors_list if p not in data.columns]
         if missing_predictors:
             raise ValueError(f"Predictor(s) not found in data columns: {missing_predictors}")
+        
+    # ------------------------------------------------------------------
+    # PRIVATE METHODS (ASSUMPTIONS)
+    # ------------------------------------------------------------------
+    def _evaluate_multicolinearity(self):
+        """Check whether independent variables are perfectly correlated with each other."""
+        X = pd.get_dummies(self.data[self.predictors_list], drop_first=True)
+        X = sm.add_constant(X)
+
+        X = X.astype(int)
+
+        vif_data = pd.DataFrame()
+        vif_data["Variable"] = X.columns
+        vif_data["VIF"] = [
+            variance_inflation_factor(X.values, i)
+            for i in range(X.shape[1])
+        ]
+        self.vif_data = vif_data[vif_data["Variable"] != "const"]
+
+    # ------------------------------------------------------------------
+    # PRIVATE METHODS (REPORT)
+    # ------------------------------------------------------------------
+
+    def _report_forest_plot(self):
+        graph = self._generate_forest_plot()
+        graph.show()
+
+    def _report_multicollinearity(self, vif_threshold):
+        """Report VIF and flag problematic variables"""
+        print("\nVariance Inflation Factor (VIF):")
+        print(self.vif_data)
+        
+        problematic_vif = self.vif_data[self.vif_data['VIF'] > vif_threshold]
+        
+        if not problematic_vif.empty:
+            print(f"\nVariables with VIF > {vif_threshold}:")
+            print(problematic_vif)
+        else:
+            print(f"\nNo variables with VIF > {vif_threshold}")
