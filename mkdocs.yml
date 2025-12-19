@@ -6,7 +6,7 @@ nav:
     - Installation: installation.md
     - Quick Start Guide: getting_started.md
   - User Guide:
-      - Running the Pipeline: running_the_pipeline.md
+      - Running the Pipeline Survival Example: running_the_pipeline.md
   - Extra:
       - Development: getting_started_development.md
 theme: readthedocs
