@@ -1,19 +1,17 @@
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
+import plotly.graph_objs as go
 import scipy.stats as stats
 import seaborn as sns
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import (make_scorer, mean_absolute_error,
+                             mean_squared_error, r2_score)
+from sklearn.model_selection import KFold, cross_val_score
+from statsmodels.stats.stattools import durbin_watson
 
 from regression import RAPID_BaseRegression
-import plotly.graph_objs as go
-from statsmodels.stats.stattools import durbin_watson
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import r2_score
-from sklearn.model_selection import KFold, cross_val_score
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import make_scorer, mean_squared_error
 
 class RAPID_LinearRegression(RAPID_BaseRegression):
 
@@ -30,7 +28,7 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
     # SUMMARIZATION & GRAPHICS
     # ------------------------------------------------------------------
-    def summary(self, assumptions: bool = False, performance: bool = False, plots: list = None, k_folds: int = 5, vif_threshold: float = 5.0):
+    def summary(self, assumptions: bool = False, performance: bool = False, plots: list = None, cross_val: bool = False, k_folds: int = 5, vif_threshold: float = 5.0):
         """
         Reports the results of the linear regression, generating tables and plots.
 
@@ -48,7 +46,7 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
             self._summary_assumptions()
         
         if (performance):
-            self._summary_performance()
+            self._summary_performance(cross_val, k_folds)
         
         if (plots):
             self._summary_plots(plots)
@@ -56,8 +54,9 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
     # STATSMODEL FAMILY FOR THIS REGRESSION.
     # ------------------------------------------------------------------
+    @property
     def family(self):
-        return sm.families.Gaussian
+        return sm.families.Gaussian()
     
     # ------------------------------------------------------------------
     # PRIVATE METHODS (FOR CREATING SUMMARY DF AFTER FITTING MODEL)
@@ -112,11 +111,12 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         self._report_influential_outliers()
 
 
-    def _summary_performance(self):
+    def _summary_performance(self, cross_val, n_splits):
         self._evaluate_mse()
         self._evaluate_mae()
         self._evaluate_r2()
-        self._evaluate_cross_validation()
+        if(cross_val):
+            self._evaluate_cross_validation(n_splits)
 
         self._report_mse()
         self._report_mae()
@@ -124,9 +124,10 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         self._report_r2()
         self._report_adjusted_r2()
 
-        self._report_cv_mse()
-        self._report_cv_mean_mse()
-        self._report_cv_sd_mse
+        if (cross_val):
+            self._report_cv_mse()
+            self._report_cv_mean_mse()
+            self._report_cv_sd_mse
 
     def _summary_plots(self, plots):
         if "forest_plot" in plots:

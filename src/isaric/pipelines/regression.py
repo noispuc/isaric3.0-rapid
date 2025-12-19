@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
-from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objs as go
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
-import pandas as pd
-import plotly.graph_objs as go
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 
 class RAPID_BaseRegression(ABC):

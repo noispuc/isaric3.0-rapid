@@ -1,14 +1,12 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import log_loss
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import precision_score, recall_score, f1_score
-from sklearn.metrics import roc_auc_score, roc_curve
-import matplotlib.pyplot as plt
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score,
+                             log_loss, precision_score, recall_score,
+                             roc_auc_score, roc_curve)
 from sklearn.model_selection import cross_val_score
 
 from regression import RAPID_BaseRegression
@@ -38,7 +36,7 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
     # 2: SUMMARIZATION & GRAPHICS
     # ------------------------------------------------------------------
     def summary(self, 
-                diagnostics: bool = True,
+                assumptions: bool = True,
                 performance: bool = True,
                 plots: list = None,
                 cross_val: bool = False,
@@ -58,7 +56,7 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
         super().summary()
         
         # Run each section
-        if diagnostics:
+        if assumptions:
             self._summary_assumptions(vif_threshold)
         
         if performance:
@@ -81,8 +79,9 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
     # STATSMODEL FAMILY FOR THIS REGRESSION.
     # ------------------------------------------------------------------
+    @property
     def family(self):
-        return sm.families.Binomial
+        return sm.families.Binomial()
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (FOR CREATING THE RESULT DF AFTER FITTING MODEL)
@@ -189,13 +188,13 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
         if 'roc_curve' in plots:
             self._report_roc_curve()
 
-    def _summary_cross_validation(self):
+    def _summary_cross_validation(self, cv_folds):
         """Run cross-validation"""
         print("\n" + "="*60)
-        print(f"CROSS-VALIDATION (5-Fold)")
+        print(f"CROSS-VALIDATION ({cv_folds}-Fold)")
         print("="*60 + "\n")
         
-        self._evaluate_cross_validation()
+        self._evaluate_cross_validation(cv_folds)
 
         self._report_cv_scores()
         self._report_cv_mean()
@@ -281,7 +280,7 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
         self.f1 = f1_score(y, y_pred_class, zero_division=0)
 
     def _evaluate_cross_validation(self, cv_folds):
-        X_cv = pd.get_dummies(self.data[[self.predictors_list]], drop_first=True).astype(float)
+        X_cv = pd.get_dummies(self.data[self.predictors_list], drop_first=True).astype(float)
         y_cv = self.data[self.outcome_str].astype(int)
 
         clf = LogisticRegression(max_iter=1000)
@@ -351,7 +350,7 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
         print("Confusion Matrix:\n", self.cm)
 
     def _report_roc_curve(self):
-        fig = self._generate_roc_curve_plot
+        fig = self._generate_roc_curve()
         fig.show()
     
     def _report_epv(self):
