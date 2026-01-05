@@ -35,7 +35,7 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         Args:
             diagnostics (bool): If True, runs assumption checks (Independence of Errors, Normality of Errors, Multicolinearity, Influential Outliers, Mean of Errors)
             performance (bool): If True, calculates performance metrics (MSE, RMSE, MAE, R^2, Adjusted R^2)
-            plots (list, optional): List of plots ['forest_plot', 'residuals_vs_fitted', 'homoscedasticity', 'qq_plot']
+            plots (list, optional): List of plots ['forest_plot', 'residuals_vs_fitted', 'qq_plot']
             cross_val (bool): Whether or not to run cross validation.
             k_folds (int): number of cross validation folds (default: 5.0)
             vif_threshold (float): Threshold for flagging multicollinearity (default: 5.0)
@@ -101,12 +101,10 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
     def _summary_assumptions(self):
         self._evaluate_independence_of_errors()
-        self._evaluate_homoscedasticity()
         self._evaluate_normality_of_errors_shapiro_wilk()
         self._evaluate_influential_outliers()
 
         self._report_independence_of_errors()
-        self._report_homoscedasticity()
         self._report_normality_of_errors_shapiro()
         self._report_influential_outliers()
 
@@ -136,8 +134,6 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
             self._report_linearity()
         if "qq_plot" in plots:
             self._report_normality_of_errors_figure()
-        if "homoscedasticity" in plots:
-            self._report_homoscedasticity()
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (ASSUMPTIONS)
@@ -186,26 +182,6 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
 
     def _evaluate_independence_of_errors(self):
         self.dw = durbin_watson(self.validation_model.resid)
-
-    def _evaluate_homoscedasticity(self):
-        fig = go.Figure()
-
-        fig.add_trace(go.Scatter(
-            x=self.validation_model.fittedvalues,
-            y=self.validation_model.resid,
-            mode='markers',
-            marker=dict(color='blue', size=8)
-        ))
-
-        fig.add_hline(y=0, line_dash='dash', line_color='red')
-
-        fig.update_layout(
-            title='Residuals vs Adjusted Values',
-            xaxis_title='Adjusted Values',
-            yaxis_title='Residuals',
-            yaxis_range=[min(self.validation_model.resid)*1.1, max(self.validation_model.resid)*1.1]
-        )
-        return fig
     
     def _evaluate_normality_of_errors_qq_plot(self):
         fig = go.Figure()
@@ -304,10 +280,6 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
             print("→ Indicates negative autocorrelation of residuals.")
         else:
             print("→ Residuals are likely independent.")
-
-    def _report_homoscedasticity(self):
-        fig = self._evaluate_homoscedasticity()
-        fig.show()
 
     def _report_normality_of_errors_figure(self):
         fig = self._evaluate_normality_of_errors_qq_plot()
