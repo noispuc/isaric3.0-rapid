@@ -1,4 +1,4 @@
-# 📦 ISARIC HUB SA Template - Repositório de Referência Técnica
+# 📦 ISARIC HUB SA - RAPID
 
 Este repositório contém o pacote isaric, uma implementação modular da metodologia RAPID (Reproducible Analytics for Predictive modeling, Inference, and Data preprocessing), voltada para projetos de pesquisa clínica e análise preditiva.
 
