@@ -25,7 +25,7 @@ class FormulaProcessor:
             intercept: Boolean to include or exclude the intercept (+1 or -1).
             
         Returns:
-            A formula string (e.g., 'time + event ~ age + sex + 1').
+            A formula string (e.g., 'y ~ x1 + x2 + 1').
         """
         y_str = " + ".join(target_cols)
         x_str = " + ".join(predictor_cols)
@@ -65,27 +65,30 @@ class RapidPreprocessor:
     formula = FormulaProcessor
     
     @staticmethod
-    def prepare_data(df, target_cols, predictor_cols, intercept=True):
+    def prepare_data(df, formula=None, target_cols=None, predictor_cols=None, intercept=True):
         """
         High-level helper to prepare data for statistical models.
-        Automatically builds the formula and generates matrices.
         
         Args:
             df: Input DataFrame.
-            target_cols: List of target column names.
-            predictor_cols: List of predictor column names.
-            intercept: Whether to include an intercept term.
+            formula: Optional. Full R-style formula string. If provided, overrides col lists.
+            target_cols: Optional. List of target column names.
+            predictor_cols: Optional. List of predictor column names.
+            intercept: Whether to include an intercept term (only used if formula is None).
             
         Returns:
             y: Target matrix.
             X: Feature matrix (encoded and transformed).
             predictors: List of resulting column names in X.
         """
-        # Build formula internally
-        formula_str = FormulaProcessor.build_formula(target_cols, predictor_cols, intercept)
+        # Logic to decide between provided formula or building one from lists
+        if formula is None:
+            if target_cols is None or predictor_cols is None:
+                raise ValueError("Either 'formula' or both 'target_cols' and 'predictor_cols' must be provided.")
+            
+            formula = FormulaProcessor.build_formula(target_cols, predictor_cols, intercept)
         
-        # Get matrices using the generated formula
-        y, X = FormulaProcessor.get_matrices(df, formula_str)
+        y, X = FormulaProcessor.get_matrices(df, formula)
         
         return y, X, X.columns.tolist()
 
@@ -94,30 +97,39 @@ class RapidPreprocessor:
 # EXAMPLE USAGE
 # ============================================================================
 
-def example_usage():
-    """Demonstrate usage of the modular preprocessing utilities."""
+def test_preprocessing():
+    """Demonstrate the different ways to use the preprocessor."""
     
     data = pd.DataFrame({
         'time': [10, 12, 15, 20],
         'event': [1, 0, 1, 1],
         'age': [25, 30, 35, 40],
-        'group': ['A', 'B', 'A', 'C'],
-        'bmi': [22.5, 27.0, 24.1, 29.0]
+        'treatment': ['Placebo', 'Drug', 'Placebo', 'Drug'],
+        'sex': ['M', 'F', 'M', 'F']
     })
-    
-    # User only provides lists of columns, the module handles the formula
-    y_mat, X_mat, predictors = RapidPreprocessor.prepare_data(
-        df=data,
-        target_cols=['time', 'event'],
-        predictor_cols=['age', 'group', 'bmi'],
-        intercept=True
+
+    # OPTION 1: Simple lists (Convenience)
+    print("--- Option 1: Using lists ---")
+    y1, X1, cols1 = RapidPreprocessor.prepare_data(
+        df=data, 
+        target_cols=['time', 'event'], 
+        predictor_cols=['age', 'sex']
     )
+    print(f"Columns: {cols1}")
+
+    # OPTION 2: Full Formula (Power & Control)
+    # We specify 'Placebo' as the reference and add an interaction between age and treatment
+    print("\n--- Option 2: Using complex formula ---")
+    complex_formula = "time + event ~ age * C(treatment, Treatment(reference='Placebo')) + sex"
     
-    print("Processed Predictors:", predictors)
-    print("\nFeature Matrix (X):")
-    print(X_mat.head())
+    y2, X2, cols2 = RapidPreprocessor.prepare_data(
+        df=data, 
+        formula=complex_formula
+    )
+    print(f"Columns: {cols2}")
+    print(X2.head())
 
 
 if __name__ == "__main__":
-    # example_usage()
+    # test_preprocessing()
     pass
