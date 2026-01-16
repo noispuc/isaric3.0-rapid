@@ -110,3 +110,45 @@ class ModelAssumptionTester:
             "context": context,
             "status": status
         }
+    
+    def test_cooks_distance(self, threshold: Optional[float] = None) -> Dict[str, Any]:
+        """
+        O(np^2) influence diagnostic using QR Decomposition.
+        Avoids creating the O(n^2) Hat Matrix.
+        
+        Args:
+            threshold: Custom threshold for influential points (default: 4/n)
+        """
+        if self.n <= self.p + 1:
+            raise ValueError(f"Need n > p+1: n={self.n}, p={self.p}")
+        
+        # Add intercept for leverage calculation
+        X_mat = np.column_stack([np.ones(self.n), self.X.values])
+
+        # QR Decomposition for numerically stable leverage: diag(Q @ Q.T)
+        Q, _ = np.linalg.qr(X_mat)
+        leverage = np.sum(Q**2, axis=1)
+
+        # Degrees of freedom and MSE
+        dof = self.n - self.p - 1
+        mse = np.sum(self.residuals**2) / dof
+
+        # Studentized residuals
+        std_res = self.residuals / np.sqrt(mse * np.maximum(1 - leverage, 1e-10))
+
+        # Cook's D = (r_i^2 / (p+1)) * (h_i / (1-h_i))
+        cooks_d = (std_res**2 / (self.p + 1)) * (
+            leverage / np.maximum(1 - leverage, 1e-10)
+        )
+
+        # Determine influential points
+        thresh = threshold if threshold is not None else 4 / self.n
+        influential_idx = np.where(cooks_d > thresh)[0]
+
+        return {
+            "cooks_distance": cooks_d,
+            "max_distance": float(np.max(cooks_d)),
+            "influential_indices": influential_idx.tolist(),
+            "threshold": float(thresh),
+            "n_influential": len(influential_idx)
+        }
