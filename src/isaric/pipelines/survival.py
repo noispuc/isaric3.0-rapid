@@ -5,6 +5,7 @@ from lifelines import CoxPHFitter
 from sklearn.metrics import roc_curve, roc_auc_score
 
 # importing new module for plotting
+from rapid_preprocess import RapidPreprocessor
 from rapid_plots import RapidPlots
 
 
@@ -30,80 +31,73 @@ class RAPID_survival:
 
     # ------------------------------------------------------------------
     # 1: PRE-PROCESSING DATA
-    # ------------------------------------------------------------------
-    def preprocess_data(self, df):
-        """
-        Handles data cleaning, one-hot encoding for categorical variables,
-        and removal of missing values before model fitting.
-        """
-        df = df.copy()
-        
-        # Identify categorical columns within the predictors list
-        categorical_vars = df.select_dtypes(include=['object', 'category']).columns.intersection(self.predictors)
-        
-        for var in categorical_vars:
-            df[var] = df[var].astype('category')
+    # -----------------------------------------------------------------
 
-        # Convert categorical variables into dummy/indicator variables
-        df = pd.get_dummies(df, columns=categorical_vars, drop_first=True)
-        
-        # Ensure duration and event columns are numeric types
-        df[self.duration_col] = pd.to_numeric(df[self.duration_col], errors='coerce')
-        df[self.event_col] = pd.to_numeric(df[self.event_col], errors='coerce')
+    def preprocess_data(self, formula=None):
+        """Generates matrices and auto-cleans problematic columns (singularities)."""
+        # 1. Generate raw matrices
+        y, X, _ = RapidPreprocessor.prepare_data(
+            df=self.data, formula=formula,
+            target_cols=[self.duration_col, self.event_col],
+            predictor_cols=self.predictors, intercept=False
+        )
 
-        # Update the list of predictors to include the new encoded columns
-        encoded_predictors = [c for c in df.columns if c in self.predictors or any(c.startswith(p + '_') for p in categorical_vars)]
-        
-        # Drop rows with NaN values in required columns to prevent model failure
-        all_cols = [self.duration_col, self.event_col] + encoded_predictors
-        df_cox = df.dropna(subset=all_cols).copy()
-        
-        return df_cox[all_cols], encoded_predictors
+        # 2. Drop NaNs before cleaning (prevents late-stage variance issues)
+        combined = pd.concat([y, X], axis=1).dropna()
+        X_clean = combined[X.columns].copy()
+        y_clean = combined[y.columns].copy()
 
+        # 3. Defensive Cleaning: Remove Constant Columns
+        constant_cols = [c for c in X_clean.columns if X_clean[c].nunique() <= 1]
+        if constant_cols:
+            print(f"DEBUG: Dropping constant columns: {constant_cols}")
+            X_clean.drop(columns=constant_cols, inplace=True)
+
+        # 4. Defensive Cleaning: Remove Perfect Collinearity (The -1.0/1.0 issue)
+        # This handles the redundant 'period' columns automatically
+        if X_clean.T.duplicated().any():
+            redundant = X_clean.columns[X_clean.T.duplicated()].tolist()
+            print(f"DEBUG: Dropping perfectly collinear columns: {redundant}")
+            X_clean = X_clean.loc[:, ~X_clean.T.duplicated()]
+
+        self.model_data = pd.concat([y_clean, X_clean], axis=1)
+        return self.model_data, X_clean.columns.tolist()
+    
     # ------------------------------------------------------------------
     # 2: MODEL FITTING
     # ------------------------------------------------------------------
-    def fit(self, labels=None):
+    def fit(self, labels=None, penalizer=0.1):
         """
         Trains the Cox Proportional Hazards model and prepares the Hazard Ratio table.
+        Args:
+            labels: Dictionary to map variable names to readable labels.
+            penalizer: L2 regularization parameter (default 0.1 for stability).
         """
+        if self.model_data is None:
+            self.preprocess_data()
+        
         self.labels = labels
-        self.model_data, current_predictors = self.preprocess_data(self.data)
-
-        # Filter predictors to ensure they are valid Python identifiers for the formula
-        valid_predictors = [p for p in current_predictors if str(p).isidentifier()]
-
-        # Initialize and fit the lifelines CoxPHFitter
-        self.cph_model = CoxPHFitter()
+        # Penalizer=0.1 ensures the matrix is invertible even with near-collinearity
+        self.cph_model = CoxPHFitter(penalizer=penalizer)
         self.cph_model.fit(
-            self.model_data,
-            duration_col=self.duration_col,
-            event_col=self.event_col,
-            formula=" + ".join(valid_predictors)
+            self.model_data, 
+            duration_col=self.duration_col, 
+            event_col=self.event_col
         )
 
-        # Build the summary table with Hazard Ratios and Confidence Intervals
+        # Integrated Summary Building
         summary = self.cph_model.summary.copy()
         summary['HR'] = np.exp(summary['coef'])
         summary['CI_lower'] = np.exp(summary['coef'] - 1.96 * summary['se(coef)'])
         summary['CI_upper'] = np.exp(summary['coef'] + 1.96 * summary['se(coef)'])
+        summary['p-value'] = summary['p'].apply(lambda p: "<0.001" if p < 0.001 else f"{p:.3f}")
         
-        # Format p-values for clinical publication standards
-        summary['p_adj'] = summary['p'].apply(lambda p: "<0.001" if p < 0.001 else f"{p:.3f}")
-
-        # Reset index to turn predictors into a column
-        summary_df = summary[['HR', 'CI_lower', 'CI_upper', 'p_adj']].reset_index()
-
-        # FIX: Dynamically identify the first column (the index) and rename it to 'Variable'
-        first_col_name = summary_df.columns[0] 
-        summary_df.rename(columns={first_col_name: 'Variable', 'p_adj': 'p-value'}, inplace=True)
-
-        # Apply labels if provided
+        df_res = summary[['HR', 'CI_lower', 'CI_upper', 'p-value']].reset_index()
+        df_res.rename(columns={df_res.columns[0]: 'Variable'}, inplace=True)
         if self.labels:
-            summary_df['Variable'] = summary_df['Variable'].map(self.labels).fillna(summary_df['Variable'])
-
-        self.summary_results = summary_df
-
+            df_res['Variable'] = df_res['Variable'].map(self.labels).fillna(df_res['Variable'])
+        
+        self.summary_results = df_res
     # ------------------------------------------------------------------
     # 3: SUMMARIZATION & GRAPHICS
     # ------------------------------------------------------------------
@@ -133,9 +127,6 @@ class RAPID_survival:
         """
         Internal dispatcher to call the RapidPlots module for specific visualizations.
         """
-        # Select the first predictor for residual analysis plots
-        first_var = self.model_data.columns[2]
-
 
         if 'forest_plot' in plots_list:
             # Generate interactive Forest Plot using the new module
