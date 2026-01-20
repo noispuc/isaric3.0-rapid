@@ -5,7 +5,7 @@ import plotly.io as pio
 import pandas as pd
 import warnings
 # Import the updated survival class
-from pipelines/modules/rapid_plots.py import RAPID_survival
+from pipelines.modules.rapid_plots.py import RAPID_survival
 
 # Ignore standard runtime warnings during optimization steps
 warnings.filterwarnings('ignore', category=RuntimeWarning)
