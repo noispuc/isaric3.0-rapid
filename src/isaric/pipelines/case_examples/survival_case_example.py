@@ -4,7 +4,7 @@ import plotly.io as pio
 import pandas as pd
 import warnings
 # Import the updated survival class
-from survival_preprocess import RAPID_survival
+from survival import RAPID_survival
 
 # Ignore standard runtime warnings during optimization steps
 warnings.filterwarnings('ignore', category=RuntimeWarning)
@@ -39,14 +39,15 @@ pipeline_c1 = RAPID_survival(
 )
 
 print("\n--- PHASE: DATA PREPARATION (CASE 1) ---")
-# NEW STEP: Prepare matrices before fitting
+#This now triggers _data_cleaning() and _preprocessing() internally
 pipeline_c1.preprocess_data()
 
 print("\n--- PHASE: MODEL FITTING (CASE 1) ---")
-pipeline_c1.fit()
-
+# This now triggers _modeling() and _model_evaluation() internally
+pipeline_c1.fit(penalizer=0.1)
 
 print("\n--- PHASE: SUMMARY AND DIAGNOSTICS (CASE 1) ---")
+# This now triggers _visualization() internally
 pipeline_c1.summary(
     plots=['forest_plot', 'roc_auc'], 
     target_time=40.0
@@ -60,7 +61,7 @@ print("="*20 + " USER CASE 1 COMPLETE " + "="*20)
 # =================================================================
 print("\n" + "="*20 + " STARTING USER CASE 2 " + "="*20)
 
-# Manual Pre-processing: Calculate duration from admission and outcome dates
+# Manual Pre-processing: Pre-processing specific to Case 2 before passing to the pipeline
 df_cox_prep = df_map.copy()
 df_cox_prep['dates_admdate'] = pd.to_datetime(df_cox_prep['dates_admdate'], errors='coerce')
 df_cox_prep['outco_date'] = pd.to_datetime(df_cox_prep['outco_date'], errors='coerce')
