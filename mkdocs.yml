@@ -4,10 +4,12 @@ nav:
     - Home: index.md
     - Installation: installation.md
     - Getting Started with RAPID: getting_started.md
-  - User Guide:
-      - Data Preparation: data_preparation.md
-      - Running the Pipeline: running_the_pipeline.md
-      - Interpreting Results: interpreting_results.md
-  - Extra:
-      - Development: getting_started_development.md
+  - Tutorials:
+    - Running the Pipeline: running_the_pipeline.md
+  - Documentation:
+    - Models:
+      - RAPID_LogisticRegression: logistic_regression.md
+      - RAPID_LinearRegression: linear_regression.md
+      - RAPID_survival: survival.md
+
 theme: readthedocs
