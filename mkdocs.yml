@@ -2,6 +2,7 @@ site_name: ISARIC 3.0 Rapid Pipeline Documentation
 nav: 
   - Getting Started:
     - Home: index.md
+    - Why RAPID?: why_rapid.md
     - Installation: installation.md
     - Getting Started with RAPID: getting_started.md
   - Tutorials:

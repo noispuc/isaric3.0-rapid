@@ -131,5 +131,4 @@ def test_preprocessing():
 
 
 if __name__ == "__main__":
-    # test_preprocessing()
-    pass
+    test_preprocessing()

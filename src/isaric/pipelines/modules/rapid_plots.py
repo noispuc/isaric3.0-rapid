@@ -592,8 +592,8 @@ class ConfusionMatrixPlot:
         
         fig.update_layout(
             title=title,
-            xaxis_title='Predicted Label',
-            yaxis_title='True Label',
+            xaxis_title='Predicted',
+            yaxis_title='True',
             height=height,
             width=width,
             yaxis=dict(autorange='reversed')  # Put 0,0 in top-left

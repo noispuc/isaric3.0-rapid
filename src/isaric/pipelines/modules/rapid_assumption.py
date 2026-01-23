@@ -32,16 +32,15 @@ class ModelAssumptionTester:
         if y_pred is not None:
             return np.array(y_pred).flatten()
         
-        # Priority: .predict() (sklearn/lifelines) -> .fittedvalues (statsmodels)
-        if hasattr(self.model, 'predict'):
-            return self.model.predict(self.X)
         if hasattr(self.model, 'fittedvalues'):
             return np.array(self.model.fittedvalues).flatten()
+        if hasattr(self.model, 'predict'):
+            return self.model.predict(self.X)
         
         raise ValueError("Model must have a .predict() method or .fittedvalues attribute.")
 
     def test_c_index(self, event: Optional[np.ndarray] = None) -> float:
-        """O(n log n) Concordance Index calculation via lifelines."""
+        """Concordance Index calculation via lifelines."""
         # Defaults to all events observed (1) if event array is None
         e = event if event is not None else np.ones_like(self.y)
         return concordance_index(self.y, -self.y_pred, e)
@@ -54,7 +53,7 @@ class ModelAssumptionTester:
             # This will take a random sample of the data up to the maximum allowed limit.
             res_sample = np.random.choice(res_sample, 5000, replace=False)
         stat, p = shapiro(res_sample)
-        return {"statistic": stat, "p_value": p, "is_normal": p > 0.05}
+        return {"statistic": stat, "p_value": p}
 
     def test_durbin_watson(self) -> float:
         """Durbin-Watson test for autocorrelation (Independence of errors)."""
@@ -62,14 +61,18 @@ class ModelAssumptionTester:
 
     def test_vif(self) -> pd.DataFrame:
         """Variance Inflation Factor for multicollinearity."""
-        # Constant is required for valid VIF calculation in statsmodels
-        X_with_const = self.X.assign(constant=1.0)
-        vif_df = pd.DataFrame()
-        vif_df["feature"] = self.X.columns
-        vif_df["VIF"] = [
-            variance_inflation_factor(X_with_const.values, i) 
-            for i in range(self.p)
-        ]
+        X = self.X
+
+        if not any(col.lower() in ("intercept", "const") for col in X.columns):
+            X = X.assign(constant=1.0)
+
+        vif_df = pd.DataFrame({
+            "feature": X.columns,
+            "VIF": [
+                variance_inflation_factor(X.values, i)
+                for i in range(X.shape[1])
+            ]
+        })
         return vif_df
 
     def test_epv(self, event: Optional[np.ndarray] = None) -> Dict[str, Any]:

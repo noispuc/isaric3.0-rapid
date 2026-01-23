@@ -4,103 +4,160 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objs as go
 import statsmodels.api as sm
-import statsmodels.formula.api as smf
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
+from isaric.pipelines.modules.rapid_preprocess import RapidPreprocessor
+from isaric.pipelines.modules.rapid_assumption import ModelAssumptionTester
+from .pipeline import RAPID_Pipeline
 
-class RAPID_BaseRegression(ABC):
-    """
-    Abstract base class for regression analysis pipelines.
-    This class provides the foundation for regression techniques as part of the ISARIC analytical pipeline,
-    and generates reports useful for clinical research applied to epidemiological contexts.
 
-    The structure is modular, allowing for future extensions into general Machine Learning pipelines.
-    """
+
+class RAPID_BaseRegression(RAPID_Pipeline):
     def __init__(self, data: pd.DataFrame, outcome_str: str, predictors_list: list, regression_type: str = "Multi"):
-        self._validate_inputs(data, outcome_str, predictors_list, regression_type)
+        self._run_data_validations(data, outcome_str, predictors_list, regression_type)
         self.data = data.copy()
         self.outcome_str = outcome_str
         self.predictors_list = predictors_list
         self.regression_type = regression_type
-        self._build_formula_string()
         self.preprocess_data()
 
     # ------------------------------------------------------------------
-    # 1: PRE-PROCESSING DATA
+    # PUBLIC METHODS
     # ------------------------------------------------------------------
     def preprocess_data(self):
-        data = self.data
-        predictors_list = self.predictors_list
-        #Convert categorical variables to the 'category' type
-        categorical_vars = data.select_dtypes(include=['object', 'category']).columns.intersection(predictors_list)
-        for var in categorical_vars:
-            data[var] = data[var].astype('category')
+        self._data_cleaning()
+        self._preprocessing()
 
-    # ------------------------------------------------------------------
-    # 2: MODEL FITTING
-    # ------------------------------------------------------------------
-    def fit(self, labels: dict = None):
-        model = smf.glm(formula=self.formula, data=self.data, family=self.family)
-        self.model_result = model.fit()
-        self._setup_result_summary()
+    def fit(self, labels: dict = None, cross_val: bool = True, n_splits: int = 5):
+        """
+        Fits the model. 
+        Calculates assumption tests, performance metrics and optionally performs cross validation.
 
-    # ------------------------------------------------------------------
-    # 3: SUMMARIZATION & GRAPHICS
-    # ------------------------------------------------------------------
+        Args:
+            labels(dict): Maps variable names to human legible names for display.
+            cross_val(bool): Whether or not to perform cross validation.
+            n_splits(int): Number of splits for cross validation (default: 5).
+
+        """
+        if (self.X is None or self.y is None):
+            print("Please run preprocess_data before fitting model.")
+        self._modeling()
+        self._model_evaluation(labels=labels, cv=cross_val, splits=n_splits)
+
     def summary(self):
-        """Summary to be output by this regression."""
-        if (self.model_result is None):
-            print("Error: Model has not been fitted. Please call .fit() first.")
+        """
+        Summary to be output by this regression
+        """
+        if self.model is None:
+            print("self.model does not exist. Fit the model before calling summary.")
             return
 
     # ------------------------------------------------------------------
-    # Property that determines statsmodel family for each regression.
+    # ASSUMPTION TESTING (SHARED)
+    # ------------------------------------------------------------------        
+
+    def _setup_assumption_tester(self):
+        self.assumption_tester = ModelAssumptionTester(model=self.model, X=self.X, y=self.y, y_pred=self.model.fittedvalues)
+
+    def _evaluate_vif(self):
+        self.vif_results = self.assumption_tester.test_vif()
+        
+    def _evaluate_influential_outliers(self):
+        #In the rapid assumption module, there is a model agnostic computation for cook's distance
+        #However, this is not used in this computation because the statsmodels implementation falls back on C and is much faster.
+        influence = self.model.get_influence()
+        self.cooks_d = influence.cooks_distance[0]
+
+        threshold = 4 / len(self.cooks_d)
+        self.influential_outliers_threshold = threshold
+
+        self.influential_points = [i for i, val in enumerate(self.cooks_d) if val > threshold]
+
     # ------------------------------------------------------------------
-    @property
-    @abstractmethod
-    def family(self):
-        """Statsmodels family used by this regression."""
+    # ASSUMPTION REPORTING (SHARED)
+    # ------------------------------------------------------------------   
+
+    def _report_vif(self, vif_threshold=5):
+        df = self.vif_results.copy()
+        df = df[~df['feature'].str.lower().isin(['constant', 'intercept', 'const'])]
+        df = df.sort_values('VIF', ascending=False)
+        
+        print("\nVariance Inflation Factor (VIF):")
+        print(df.to_string(index=False))
+        
+        problematic = df[df['VIF'] > vif_threshold]
+        
+        if not problematic.empty:
+            print(f"\nVariables with VIF > {vif_threshold}:")
+            print(problematic[['feature', 'VIF']].to_string(index=False))
+        else:
+            print(f"\nNo variables with VIF > {vif_threshold}")
+
+    def _report_influential_outliers(self):
+        print(f"Above limit points ({self.influential_outliers_threshold:.3f}): {self.influential_points}")
+    # ------------------------------------------------------------------
+    # PRIVATE METHODS (FOLLOWING THE STANDARD ISARIC PIPELINE STRUCTURE)
+    # ------------------------------------------------------------------
+    def _data_cleaning(self):
+        self.data = self.data.dropna()
+    
+    def _preprocessing(self):
+        self.y, self.X, self.XList = RapidPreprocessor.prepare_data(
+        df=self.data,
+        target_cols=[self.outcome_str],
+        predictor_cols=self.predictors_list,
+        intercept=True
+        )
+    
+    def _modeling(self):
+        model = sm.GLM(endog=self.y, exog=self.X, family=self.family)
+        self.model = model.fit()
+
+    def _model_evaluation(self, labels, cv = False, splits = 5):
+        self._setup_result_summary(labels)
+        self._test_performance_metrics()
+        if cv:
+            self._test_cross_validation(splits)
+        self._test_assumptions()
+
+    def _validation():
+        pass
+
+    def _visualization():
         pass
 
     # ------------------------------------------------------------------
-    # PRIVATE METHOD (FORMULA STRING BUILDER)
+    # NECESSARY DATA VALIDATIONS BEFORE PREPROCESSING
     # ------------------------------------------------------------------
-    def _build_formula_string(self):
-        self.formula = self.outcome_str + ' ~ ' + ' + '.join(self.predictors_list)
-        return
-    
+    def _run_data_validations(self, data, outcome_str, predictors_list, regression_type):
+        self._validate_inputs(data, outcome_str, predictors_list, regression_type)
     # ------------------------------------------------------------------
     # PRIVATE METHODS (RESULT SUMMARY GENERATOR FOR FIT)
     # ------------------------------------------------------------------
-
-    def _setup_result_summary(self, labels : dict = None):
+    def _setup_result_summary(self, labels: dict = None):
         """
         Builds all generic parts of the result summary and calls
         abstract methods to build parts specific to different regression types.
         """
-        result = self.model_result
+        result = self.model
         self.summary_table = result.summary2().tables[1].copy()
-
         self._build_result_summary_df(labels)
-
-        self.summary_df['Study'] = self.summary_df['Study'].str.replace('T.', '')
-
+        self.summary_df['Variable'] = self.summary_df['Variable'].str.replace('T.', '')
         for col in self.summary_df.columns[1:-1]:
             self.summary_df[col] = self.summary_df[col].round(3)
-
         self.summary_df['p-value'] = self.summary_df['p-value'].apply(lambda x: f'{x:.4f}')
-        self.summary_df = self.summary_df[self.summary_df['Study'] != 'Intercept']
+        self.summary_df = self.summary_df[self.summary_df['Variable'] != 'Intercept']
         self._rename_cols_by_regression_type()
 
-    def _map_study_label(self, df: pd.DataFrame, labels : dict = None) -> pd.DataFrame:
+    def _map_variable_label(self, df: pd.DataFrame, labels: dict = None) -> pd.DataFrame:
         if not labels:
             return df
         
         df = df.copy()
-        df['Study'] = df['Study'].apply(self._parse_variable_name)
+        df['Variable'] = df['Variable'].apply(lambda x: self._parse_variable_name(x, labels))
         return df
 
-    def _parse_variable_name(self, var_name, labels : dict):
+    def _parse_variable_name(self, var_name, labels: dict):
         if var_name == 'Intercept':
             return labels.get('Intercept', 'Intercept')
         elif '[' in var_name:
@@ -127,78 +184,19 @@ class RAPID_BaseRegression(ABC):
         pass
 
     # ------------------------------------------------------------------
-    # PRIVATE METHODS (PLOTS FOR SUMMARY)
+    # PRIVATE METHODS (MODEL EVALUATION)
     # ------------------------------------------------------------------
-    def _fig_forest_plot(self,
-        df, dictionary=None,
-        title='Forest Plot',
-        labels=['Study', 'OddsRatio', 'LowerCI', 'UpperCI'], 
-        graph_id='forest-plot', graph_label='', graph_about='', only_display=False):
+    def _test_performance_metrics(self):
+        pass
 
-        # Ordering Values -> Descending Order
-        df = df.sort_values(by=labels[1], ascending=True)
+    def _test_assumptions(self):
+        pass
 
-        # Error Handling
-        if not set(labels).issubset(df.columns):
-            print(df.columns)
-            error_str = f'Dataframe must contain the following columns: {labels}'
-            raise ValueError(error_str)
+    def _test_cross_validation(self):
+        pass
 
-        # Prepare Data Traces
-        traces = []
-
-        # Add the point estimates as scatter plot points
-        traces.append(
-            go.Scatter(
-                x=df[labels[1]],
-                y=df[labels[0]],
-                mode='markers',
-                name='Odds Ratio',
-                marker=dict(color='blue', size=10))
-        )
-
-        # Add the confidence intervals as lines
-        for index, row in df.iterrows():
-            traces.append(
-                go.Scatter(
-                    x=[row[labels[2]], row[labels[3]]],
-                    y=[row[labels[0]], row[labels[0]]],
-                    mode='lines',
-                    showlegend=False,
-                    line=dict(color='blue', width=2))
-            )
-
-        # Define layout
-        layout = go.Layout(
-            title=title,
-            xaxis=dict(title='Odds Ratio'),
-            yaxis=dict(
-                title='', automargin=True, tickmode='array',
-                tickvals=df[labels[0]].tolist(), ticktext=df[labels[0]].tolist()),
-            shapes=[
-                dict(
-                    type='line', x0=1, y0=-0.5, x1=1, y1=len(df[labels[0]])-0.5,
-                    line=dict(color='red', width=2)
-                )],  # Line of no effect
-            margin=dict(l=100, r=100, t=100, b=50),
-            height=600
-        )
-
-        return go.Figure(data=traces, layout=layout)
-    
-    def _generate_forest_plot(self):
-        if (self.summary_df is None and self.model_result is None):
-            print("Error displaying forest plot. Please run .fit() first.")
-        graph = self._fig_forest_plot(
-        df = self.summary_df,
-        labels = self.summary_df.columns.tolist(),
-        only_display=True
-        )
-
-        return graph
-    
     # ------------------------------------------------------------------
-    # PRIVATE METHODS (VALIDATION)
+    # PRIVATE METHODS (USER INPUT VALIDATION)
     # ------------------------------------------------------------------
 
     def _validate_inputs(self, data, outcome_str, predictors_list, regression_type):
@@ -228,40 +226,8 @@ class RAPID_BaseRegression(ABC):
             raise ValueError(f"Predictor(s) not found in data columns: {missing_predictors}")
         
     # ------------------------------------------------------------------
-    # PRIVATE METHODS (ASSUMPTIONS)
+    # PROPERTY (STATSMODEL FAMILY)
     # ------------------------------------------------------------------
-    def _evaluate_multicolinearity(self):
-        """Check whether independent variables are perfectly correlated with each other."""
-        X = pd.get_dummies(self.data[self.predictors_list], drop_first=True)
-        X = sm.add_constant(X)
-
-        X = X.astype(int)
-
-        vif_data = pd.DataFrame()
-        vif_data["Variable"] = X.columns
-        vif_data["VIF"] = [
-            variance_inflation_factor(X.values, i)
-            for i in range(X.shape[1])
-        ]
-        self.vif_data = vif_data[vif_data["Variable"] != "const"]
-
-    # ------------------------------------------------------------------
-    # PRIVATE METHODS (REPORT)
-    # ------------------------------------------------------------------
-
-    def _report_forest_plot(self):
-        graph = self._generate_forest_plot()
-        graph.show()
-
-    def _report_multicollinearity(self, vif_threshold):
-        """Report VIF and flag problematic variables"""
-        print("\nVariance Inflation Factor (VIF):")
-        print(self.vif_data)
-        
-        problematic_vif = self.vif_data[self.vif_data['VIF'] > vif_threshold]
-        
-        if not problematic_vif.empty:
-            print(f"\nVariables with VIF > {vif_threshold}:")
-            print(problematic_vif)
-        else:
-            print(f"\nNo variables with VIF > {vif_threshold}")
+    @property
+    def family():
+        pass
