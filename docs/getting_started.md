@@ -2,7 +2,7 @@
 
 The `RAPID_pipeline` is designed as a **modular and extensible structure** for implementing various Data Science models (Statistical, Survival Analysis, Machine Learning, etc.).
 
-The current implementation focuses on the **Cox Proportional Hazards (Cox PH) model** for survival analysis, providing automated preprocessing, model fitting, and a comprehensive suite of diagnostic outputs.
+The current implementation focuses on **Logistic Regression, Linear Regression and Cox Proportional Hazards (Cox PH) model (survival analysis)** , providing automated preprocessing, model fitting, and a comprehensive suite of diagnostic outputs.
 
 Its core goal is to automate data preprocessing, model fitting, and the generation of publication-ready tables and diagnostic plots in a single, reusable object.
 
@@ -28,6 +28,3 @@ python -m venv .rapid
 source .rapid/bin/activate  # ou .rapid\Scripts\activate no Windows
 pip install -r requirements.txt
 ```
-### 3\. Examples
-Want to know how to instantiate and run a full survival analysis by defining the problem's scope (Duration, Event, Predictors) and letting the pipeline handle the rest?
-* **[Go to: Running The Ppeline](running_the_pipeline.md)**
