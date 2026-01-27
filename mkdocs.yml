@@ -4,9 +4,13 @@ nav:
     - Home: index.md
     - Why RAPID?: why_rapid.md
     - Installation: installation.md
-    - Quick Start Guide: getting_started.md
-  - User Guide:
-      - Running the Pipeline Survival Example: running_the_pipeline.md
-  - Extra:
-      - Development: getting_started_development.md
+    - Getting Started with RAPID: getting_started.md
+  - Tutorials:
+    - Running the Pipeline: running_the_pipeline.md
+  - Documentation:
+    - Models:
+      - RAPID_LogisticRegression: logistic_regression.md
+      - RAPID_LinearRegression: linear_regression.md
+      - RAPID_survival: survival.md
+
 theme: readthedocs

@@ -4,6 +4,7 @@ nbformat == 5.10.4
 # Manipulação de dados
 pandas==2.3.3
 numpy==2.3.5
+formulaic==1.2.1
 
 # Modelagem e machine learning
 scikit-learn==1.7.2
