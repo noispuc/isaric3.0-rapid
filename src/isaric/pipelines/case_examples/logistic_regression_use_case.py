@@ -1,6 +1,6 @@
 import pandas as pd
 import warnings
-from isaric.pipelines.modules.regression import RAPID_LogisticRegression
+from isaric.pipelines.logistic_regression import RAPID_LogisticRegression
 
 # Ignore standard runtime warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
