@@ -18,7 +18,7 @@ from sklearn.model_selection import KFold, cross_val_score
 from statsmodels.stats.stattools import durbin_watson
 
 from isaric.pipelines.modules.rapid_plots import ResidualPlots, ForestPlot
-from .regression import RAPID_BaseRegression
+from isaric.pipelines.regression import RAPID_BaseRegression
 from isaric.pipelines.modules.rapid_assumption import ModelAssumptionTester
 
 class RAPID_LinearRegression(RAPID_BaseRegression):
