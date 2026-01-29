@@ -98,6 +98,6 @@ pipeline.summary(plots=['forest_plot', 'roc_auc'], target_time=28)
 ### Notes
 
 > [!IMPORTANT]
-> This pipeline automatically drops rows with `NaN` values in the `duration_col`, `event_col`, or `predictors` list during the cleaning phase to ensure mathematical consistency in the Cox model.
+> In this version, survival analysis is conducted solely using the listwise deletion method to address missing data.
 
 ---

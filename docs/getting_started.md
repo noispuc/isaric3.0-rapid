@@ -12,16 +12,15 @@ The pipeline is built on a simple three-phase methodology, which is universal fo
 
 | Phase | Method | Role in the Pipeline |
 | :--- | :--- | :--- |
-| **Phase 1: Preprocessing** | `.preprocess_data()` | Handles data cleaning, missing value removal, and feature transformation (e.g., one-hot encoding). |
-| **Phase 2: Training** | `.fit()` | Selects the model type (e.g., Cox PH, Logistic Regression, Random Forest) and performs the training procedure. |
-| **Phase 3: Output/Diagnostics** | `.summary()` | Generates performance metrics, fit measures (e.g., AIC, C-Index), and produces a user-specified list of diagnostic plots. |
+| **Phase 1: Training** | `.fit()` | Selects the model type (e.g., Cox PH, Logistic Regression, Random Forest) and performs the training procedure. |
+| **Phase 2: Output/Diagnostics** | `.summary()` | Generates performance metrics, fit measures (e.g., AIC, C-Index), and produces a user-specified list of diagnostic plots. |
 
 ## 2\. Installation and Requirements
 - Python 3.10+
 - [pip](https://pip.pypa.io/en/stable/)
 - Virtual Environment
 
-To use the current **Survival Analysis** module, ensure the necessary that you have insdtalled Python in a 3.10+ version and also has [pip](https://pip.pypa.io/en/stable/). An virtual environment(venv) is recommended, all the required Python packages are listeded in [requirements.txt](https://github.com/noispuc/isaric3.0-rapid/tree/main) and the the venv can be set up with the following commands:
+To use the current **Survival Analysis** module, ensure the necessary that you have installed Python in a 3.10+ version and also has [pip](https://pip.pypa.io/en/stable/). An virtual environment(venv) is recommended, all the required Python packages are listeded in [requirements.txt](https://github.com/noispuc/isaric3.0-rapid/tree/main) and the the venv can be set up with the following commands:
 
 ```bash
 python -m venv .rapid

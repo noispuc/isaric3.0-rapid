@@ -6,7 +6,7 @@ Welcome to the official documentation for the **RAPID Methodology** (Reusable An
 
 RAPID is a robust analytical structure, adapted by ISARIC, which integrates software engineering principles to formalize and standardize the entire analytical workflow in clinical research concerning infectious diseases.
 
-Our core objective is to ensure that analyses are **Automated, Reproducible, Transparent, Efficient, and Robust**.
+Our core objective is to ensure that analyses are **Reproducible, Transparent, Efficient, and Robust**.
 
 ---
 

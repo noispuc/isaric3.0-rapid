@@ -17,10 +17,10 @@ Healthcare data is notoriously messy. Often, the code used for one study cannot 
 
 Writing the "Methods" and "Results" sections of a paper is time-consuming. RAPID is designed to generate outputs that meet **ISARIC and international clinical standards**:
 
-* **Automated Tables**: Generates Markdown tables with HRs, 95% Confidence Intervals, and adjusted p-values ready to be copied into manuscripts.
+* **Table Generation**: Generates Markdown tables with HRs, 95% Confidence Intervals, and adjusted p-values ready to be copied into manuscripts.
 * **Standardized Visualization**: Produces Forest Plots and Residual plots that follow a consistent aesthetic suitable for high-impact journals.
 
-##3. Designed for CollaborationRAPID is not just a script; it is a **framework**.
+##3. Designed for Collaboration RAPID is not just a script; it is a **framework**.
 
 * **For the Senior Researcher**: Ensures that all junior researchers in the lab are using the same validated methods.
 * **For the Data Scientist**: Provides a clean API to integrate new Machine Learning methods without reinventing the wheel.
