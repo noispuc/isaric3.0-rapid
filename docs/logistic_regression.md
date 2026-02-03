@@ -29,15 +29,6 @@ This class inherits from `RAPID_BaseRegression` and implements a modular structu
 
 ### Methods
 
-#### `preprocess_data()`
-
-Triggers the internal cleaning and preprocessing workflow, including handling missing values and design matrix generation with optional intercept term.
-
-* **Returns:**  
-  * None (modifies internal attributes `self.X`, `self.y`, `self.XList`)
-
----
-
 #### `fit(labels=None, cross_val=True, n_splits=5)`
 
 Executes the full modeling sequence. If the data has not been preprocessed, it runs `preprocess_data` automatically. Performs model fitting, assumption testing, performance metric calculation, and optional cross-validation.
@@ -70,50 +61,6 @@ Reports the logistic regression findings and triggers visualization and diagnost
     * `'roc_curve'` - ROC curve with AUC score
     * `'confusion_matrix'` - Confusion matrix heatmap
   * **vif_threshold** (*float, default=5.0*): Threshold for flagging problematic multicollinearity (VIF > threshold).
-
----
-
-### Parent Class: `RAPID_BaseRegression`
-
-The `RAPID_LogisticRegression` class inherits core functionality from `RAPID_BaseRegression`, which provides:
-
-#### Common Attributes
-* **data** (*pd.DataFrame*): Copy of the input dataset
-* **outcome_str** (*str*): Outcome variable name
-* **predictors_list** (*list*): List of predictor variable names
-* **regression_type** (*str*): Type of regression ('Uni' or 'Multi')
-* **X** (*pd.DataFrame*): Design matrix with predictors
-* **y** (*pd.Series*): Outcome vector
-* **model** (*statsmodels GLM result*): Fitted regression model
-* **summary_df** (*pd.DataFrame*): Results summary with odds ratios and CIs
-
-#### Shared Methods
-* **preprocess_data()**: Data cleaning and preprocessing
-* **fit()**: Model fitting with evaluation
-* **summary()**: Abstract method for reporting (implemented by subclasses)
-
-#### Assumption Testing (Inherited)
-* **_setup_assumption_tester()**: Initializes the `ModelAssumptionTester`
-* **_evaluate_vif()**: Calculates Variance Inflation Factors
-* **_report_vif()**: Reports VIF results with threshold-based warnings
-
----
-
-### Internal Workflow (Methods)
-
-As a subclass of `RAPID_BaseRegression`, this class implements several private methods:
-
-| Method | Description |
-| --- | --- |
-| `_data_cleaning` | Removes rows with missing values in outcome and predictor columns. |
-| `_preprocessing` | Uses `RapidPreprocessor` to create design matrix with intercept. |
-| `_modeling` | Fits a statsmodels GLM with Binomial family (logistic link function). |
-| `_model_evaluation` | Executes assumption tests, performance metrics, and cross-validation. |
-| `_test_assumptions` | Runs VIF and influential outlier diagnostics. |
-| `_test_performance_metrics` | Calculates accuracy, precision, recall, F1, log loss, and AUC. |
-| `_test_cross_validation` | Performs k-fold cross-validation using sklearn. |
-| `_build_result_summary_df` | Constructs summary DataFrame with odds ratios and confidence intervals. |
-| `_rename_cols_by_regression_type` | Adds (uni) or (multi) suffixes to column names. |
 
 ---
 
