@@ -1,25 +1,12 @@
 import numpy as np
 import pandas as pd
-import plotly.graph_objs as go
-import scipy.stats as stats
-import seaborn as sns
 import statsmodels.api as sm
-import statsmodels.formula.api as smf
 
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import (
-    make_scorer,
-    mean_absolute_error,
-    mean_squared_error,
-    r2_score,
-)
-from sklearn.model_selection import KFold, cross_val_score
-
-from statsmodels.stats.stattools import durbin_watson
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import KFold
 
 from isaric.pipelines.modules.rapid_plots import ResidualPlots, ForestPlot
 from isaric.pipelines.regression import RAPID_BaseRegression
-from isaric.pipelines.modules.rapid_assumption import ModelAssumptionTester
 
 class RAPID_LinearRegression(RAPID_BaseRegression):
 
@@ -78,30 +65,21 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     def _visualization(self, assumptions: bool = True, performance: bool = False, cross_validation: bool = False, 
                        plots: list = None, vif_threshold: float = 5.0):
         if (assumptions):
-            self._report_independence_of_errors()
-            self._report_normality_of_errors_shapiro()
-            self._report_vif(vif_threshold)
-            self._report_influential_outliers()
+            self._report_assumptions(vif_threshold)
         if (performance):
-            self._report_mse()
-            self._report_rmse()
-            self._report_mae()
-            self._report_r2()
-            self._report_adjusted_r2()
+            self._report_performance()
         if (cross_validation):
             if not hasattr(self, 'cv_mse_scores') or self.cv_mse_scores is None:
                 print("Cross validation not performed after fit, cannot show results.")
             else:
-                self._report_cv_mse()
-                self._report_cv_mean_mse()
-                self._report_cv_sd_mse()
+                self._report_cv_metrics()
         if plots is not None:
             if('forest_plot' in plots):
-                self._report_forest_plot()
+                self._forest_plot()
             if('residuals_vs_fitted' in plots):
-                self._report_residuals_vs_fitted_plot()
+                self._residuals_vs_fitted()
             if('qq_plot' in plots):
-                self._report_qq_plot()
+                self._qq_plot()
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (ASSUMPTION TESTS EVALUATION)
@@ -114,43 +92,59 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         shapiro_test_results = self.assumption_tester.test_normality()
         self.shapiro_wilk_test_statistic = shapiro_test_results["statistic"]
         self.shapiro_wilk_p_value = shapiro_test_results["p_value"]
-    
-    def _evaluate_influential_outliers(self):
-        #In the rapid assumption module, there is a model agnostic computation for cook's distance
-        #However, this is not used in this computation because the statsmodels implementation falls back on C and is much faster.
-        influence = self.model.get_influence()
-        self.cooks_d = influence.cooks_distance[0]
 
-        threshold = 4 / len(self.cooks_d)
-        self.influential_outliers_threshold = threshold
-
-        self.influential_points = [i for i, val in enumerate(self.cooks_d) if val > threshold]
-
-    # ------------------------------------------------------------------
-    # PRIVATE METHODS (ASSUMPTION TESTS VISUALIZATION)
-    # ------------------------------------------------------------------
-    def _report_independence_of_errors(self):
-        print(f'Durbin-Watson Statistic: {self.dw:.3f}')
+    def _build_assumption_metrics_df(self, vif_threshold: float = 5.0):
+        """
+        Build a dataframe containing all assumption test metrics.
+        """
+        # Durbin-Watson interpretation
         if self.dw < 1.5:
-            print("→ Indicates positive autocorrelation of residuals.")
+            dw_interpretation = "Positive autocorrelation"
         elif self.dw > 2.5:
-            print("→ Indicates negative autocorrelation of residuals.")
+            dw_interpretation = "Negative autocorrelation"
         else:
-            print("→ Residuals are likely independent.")
-
-    def _report_normality_of_errors_shapiro(self):
-        print("=" * 60)
-        print(f"Shapiro–Wilk test statistic: {self.shapiro_wilk_test_statistic:.4f}")
-        print(f"Shapiro–Wilk p-value: {self.shapiro_wilk_p_value:.4f}")
-
+            dw_interpretation = "Residuals likely independent"
+        
+        # Shapiro-Wilk interpretation
         if self.shapiro_wilk_p_value > 0.05:
-            print("Residuals appear to be normally distributed (fail to reject H0).")
+            shapiro_interpretation = "Normally distributed (fail to reject H0)"
         else:
-            print("Residuals do not appear to be normally distributed (reject H0).")
+            shapiro_interpretation = "Not normally distributed (reject H0)"
+        
+        # Truncate influential points to first 5
+        influential_points_display = self.influential_points[:5]
+        if len(self.influential_points) > 5:
+            influential_points_str = f"{influential_points_display} ... ({len(self.influential_points)} total)"
+        else:
+            influential_points_str = str(self.influential_points)
+        
+        # Build the dataframe
+        assumption_data = {
+            'Test': [
+                'Durbin-Watson',
+                'Shapiro-Wilk Statistic',
+                'Shapiro-Wilk p-value',
+                'Influential Outliers Threshold',
+                'Number of Influential Points'
+            ],
+            'Value': [
+                f"{self.dw:.3f}",
+                f"{self.shapiro_wilk_test_statistic:.4f}",
+                f"{self.shapiro_wilk_p_value:.4f}",
+                f"{self.influential_outliers_threshold:.3f}",
+                len(self.influential_points)
+            ],
+            'Interpretation': [
+                dw_interpretation,
+                shapiro_interpretation,
+                '',
+                f"Points above threshold: {influential_points_str}",
+                ''
+            ]
+        }
+        
+        self.assumption_metrics_df = pd.DataFrame(assumption_data)
 
-    def _report_influential_outliers(self):
-        print(f"Above limit points ({self.influential_outliers_threshold:.3f}): {self.influential_points}")
-    
     # ------------------------------------------------------------------
     # PRIVATE METHODS (PERFORMANCE METRICS EVALUATION)
     # ------------------------------------------------------------------
@@ -169,42 +163,98 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         self.adjusted_r2 = 1 - (1 - self.r2) * ((n - 1) / (n - p - 1))
 
     def _evaluate_cross_validation(self, n_splits):
-        model_cv = LinearRegression()
+        """
+        Perform k-fold cross-validation using the same statsmodels GLM.
+        """
         kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-        mse_scorer = make_scorer(mean_squared_error, greater_is_better=False)
-        cv_mse_scores = cross_val_score(model_cv, self.X, self.y, cv=kf, scoring=mse_scorer)
-        self.cv_mse_scores = -cv_mse_scores
+        cv_mse_scores = []
+        
+        for train_idx, test_idx in kf.split(self.X):
+            # Split data
+            X_train, X_test = self.X.iloc[train_idx], self.X.iloc[test_idx]
+            y_train, y_test = self.y.iloc[train_idx], self.y.iloc[test_idx]
+            
+            # Fit statsmodels GLM on training fold
+            model_fold = sm.GLM(endog=y_train, exog=X_train, family=self.family)
+            result_fold = model_fold.fit()
+            
+            # Predict on test fold
+            y_pred = result_fold.predict(X_test)
+            
+            # Calculate MSE for this fold
+            mse = mean_squared_error(y_test, y_pred)
+            cv_mse_scores.append(mse)
+        
+        self.cv_mse_scores = np.array(cv_mse_scores)
+
+    def _build_performance_metrics_df(self):
+        """
+        Build a dataframe containing all performance metrics.
+        """
+        performance_data = {
+            'Metric': [
+                'Mean Squared Error (MSE)',
+                'Root Mean Squared Error (RMSE)',
+                'Mean Absolute Error (MAE)',
+                'R² (Coefficient of Determination)',
+                'Adjusted R²'
+            ],
+            'Value': [
+                f"{self.mse:.6f}",
+                f"{self.rmse:.6f}",
+                f"{self.mae:.6f}",
+                f"{self.r2:.6f}",
+                f"{self.adjusted_r2:.6f}"
+            ]
+        }
+        
+        self.performance_metrics_df = pd.DataFrame(performance_data)
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (PERFORMANCE METRICS VISUALIZATION)
     # ------------------------------------------------------------------
-    def _report_mse(self):
-        print("Mean Squared Error (MSE):", self.mse)
-
-    def _report_rmse(self):
-        print("Root Mean Squared Error (RMSE):", self.rmse)
-
-    def _report_mae(self):
-        print("Mean Absolute Error (MAE):", self.mae)
-
-    def _report_r2(self):
-        print("R² (Coefficient of Determination):", self.r2)
-    
-    def _report_adjusted_r2(self):
-        print("Adjusted R²:", self.adjusted_r2)
+    def _report_performance(self):
+        """
+        Report performance metrics as a formatted dataframe.
+        """
+        if self.performance_metrics_df is None:
+            self._build_performance_metrics_df()
+        
+        print("=" * 80)
+        print("PERFORMANCE METRICS")
+        print("=" * 80)
+        print(self.performance_metrics_df.to_string(index=False))
+        print("=" * 80)
     
     # ------------------------------------------------------------------
     # PRIVATE METHODS (CROSS VALIDATION METRICS VISUALIZATION)
     # ------------------------------------------------------------------
 
-    def _report_cv_mse(self):
-        print("Cross-Validation Mean Squared Errors (MSE):", self.cv_mse_scores)
+    def _report_cv_metrics(self):
+        """
+        Report cross-validation metrics as a formatted dataframe.
+        """
+        cv_data = {
+            'Metric': [
+                'Mean CV MSE',
+                'Standard Deviation of CV MSE',
+                'Individual Fold MSEs'
+            ],
+            'Value': [
+                f"{np.mean(self.cv_mse_scores):.6f}",
+                f"{np.std(self.cv_mse_scores):.6f}",
+                ', '.join([f"{score:.6f}" for score in self.cv_mse_scores])
+            ]
+        }
+        
+        cv_df = pd.DataFrame(cv_data)
+        
+        print("=" * 80)
+        print("CROSS-VALIDATION METRICS")
+        print("=" * 80)
+        print(cv_df.to_string(index=False))
+        print("=" * 80)
     
-    def _report_cv_mean_mse(self):
-        print("Mean CV MSE:", np.mean(self.cv_mse_scores))
-    
-    def _report_cv_sd_mse(self):
-        print("Standard Deviation of CV MSE:", np.std(self.cv_mse_scores))
     # ------------------------------------------------------------------
     # PRIVATE METHODS (RESULT SUMMARY GENERATOR FOR FIT)
     # ------------------------------------------------------------------
@@ -255,30 +305,27 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     # PLOT GENERATION AND REPORTING
     # ------------------------------------------------------------------
 
-    def _generate_residuals_vs_fitted_plot(self):
-        return ResidualPlots.residuals_vs_fitted(
+    def _residuals_vs_fitted(self):
+        """Generate and display residuals vs fitted values plot."""
+        fig = ResidualPlots.residuals_vs_fitted(
             residuals=self.model.resid_response,
             fitted_values=self.model.fittedvalues,
             title="Residuals vs Adjusted Values",
             xlabel="Adjusted Values",
             ylabel="Residuals"
         )
-    
-    def _report_residuals_vs_fitted_plot(self):
-        fig = self._generate_residuals_vs_fitted_plot()
         fig.show()
     
-    def _generate_qq_plot(self):
-        return ResidualPlots.qq_plot(
-        residuals=self.model.resid_response,
-        title='Normality of Errors: Q-Q Plot'
+    def _qq_plot(self):
+        """Generate and display Q-Q plot for normality assessment."""
+        fig = ResidualPlots.qq_plot(
+            residuals=self.model.resid_response,
+            title='Normality of Errors: Q-Q Plot'
         )
-    
-    def _report_qq_plot(self):
-        fig = self._generate_qq_plot()
         fig.show()
     
-    def _generate_forest_plot(self):
+    def _forest_plot(self):
+        """Generate and display forest plot."""
         # Use the summary_df BEFORE the (uni)/(multi) renaming
         # Or create a clean copy
         df = self.summary_df.copy()
@@ -297,10 +344,6 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
             null_value=0.0,
             log_scale=False
         )
-        return fig
-    
-    def _report_forest_plot(self):
-        fig = self._generate_forest_plot()
         fig.show()
 
     # ------------------------------------------------------------------
@@ -311,6 +354,7 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         self._evaluate_mse()
         self._evaluate_mae()
         self._evaluate_r2()
+        self._build_performance_metrics_df()
 
     def _test_assumptions(self):
         self._setup_assumption_tester()
@@ -318,6 +362,7 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         self._evaluate_vif()
         self._evaluate_normality_of_errors_shapiro_wilk()
         self._evaluate_influential_outliers()
+        self._build_assumption_metrics_df()
     
     def _test_cross_validation(self, n_splits):
         self._evaluate_cross_validation(n_splits)

@@ -1,32 +1,37 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 
-import numpy as np
 import pandas as pd
-import plotly.graph_objs as go
 import statsmodels.api as sm
-from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 from isaric.pipelines.modules.rapid_preprocess import RapidPreprocessor
 from isaric.pipelines.modules.rapid_assumption import ModelAssumptionTester
-from .pipeline import RAPID_Pipeline
+from .pipeline import RAPID_BasePipeline
 
 
 
-class RAPID_BaseRegression(RAPID_Pipeline):
+class RAPID_BaseRegression(RAPID_BasePipeline):
     def __init__(self, data: pd.DataFrame, outcome_str: str, predictors_list: list, regression_type: str = "Multi"):
         self._run_data_validations(data, outcome_str, predictors_list, regression_type)
         self.data = data.copy()
         self.outcome_str = outcome_str
         self.predictors_list = predictors_list
         self.regression_type = regression_type
-        self.preprocess_data()
+        self.performance_metrics_df = None
+        self.assumption_metrics_df = None
+        self._preprocess_data()
+    
+    # ------------------------------------------------------------------
+    # DATA PREPROCESSING
+    # ------------------------------------------------------------------
+
+    def _preprocess_data(self):
+        self._data_cleaning()
+        self._preprocessing()
+
 
     # ------------------------------------------------------------------
     # PUBLIC METHODS
     # ------------------------------------------------------------------
-    def preprocess_data(self):
-        self._data_cleaning()
-        self._preprocessing()
 
     def fit(self, labels: dict = None, cross_val: bool = True, n_splits: int = 5):
         """
@@ -60,11 +65,13 @@ class RAPID_BaseRegression(RAPID_Pipeline):
         self.assumption_tester = ModelAssumptionTester(model=self.model, X=self.X, y=self.y, y_pred=self.model.fittedvalues)
 
     def _evaluate_vif(self):
-        self.vif_results = self.assumption_tester.test_vif()
+        self.vif_df = self.assumption_tester.test_vif()
         
     def _evaluate_influential_outliers(self):
-        #In the rapid assumption module, there is a model agnostic computation for cook's distance
-        #However, this is not used in this computation because the statsmodels implementation falls back on C and is much faster.
+        """
+        Evaluates influential outliers using Cook's distance.
+        This is shared between linear and logistic regression.
+        """
         influence = self.model.get_influence()
         self.cooks_d = influence.cooks_distance[0]
 
@@ -77,27 +84,96 @@ class RAPID_BaseRegression(RAPID_Pipeline):
     # ASSUMPTION REPORTING (SHARED)
     # ------------------------------------------------------------------   
 
-    def _report_vif(self, vif_threshold=5):
-        df = self.vif_results.copy()
-        df = df[~df['feature'].str.lower().isin(['constant', 'intercept', 'const'])]
-        df = df.sort_values('VIF', ascending=False)
-        
-        print("\nVariance Inflation Factor (VIF):")
-        print(df.to_string(index=False))
-        
-        problematic = df[df['VIF'] > vif_threshold]
-        
-        if not problematic.empty:
-            print(f"\nVariables with VIF > {vif_threshold}:")
-            print(problematic[['feature', 'VIF']].to_string(index=False))
-        else:
-            print(f"\nNo variables with VIF > {vif_threshold}")
+    @abstractmethod
+    def _build_assumption_metrics_df(self, vif_threshold: float = 5.0):
+        """
+        Build assumption metrics dataframe.
+        Each regression type implements its own specific assumptions.
+        """
+        pass
 
-    def _report_influential_outliers(self):
-        print(f"Above limit points ({self.influential_outliers_threshold:.3f}): {self.influential_points}")
+    def _report_assumptions(self, vif_threshold: float = 5.0):
+        """
+        Report assumption test results as a formatted dataframe.
+        This is shared between linear and logistic regression.
+        """
+        if self.assumption_metrics_df is None:
+            self._build_assumption_metrics_df(vif_threshold)
+        
+        print("=" * 80)
+        print("ASSUMPTION TEST RESULTS")
+        print("=" * 80)
+        print(self.assumption_metrics_df.to_string(index=False))
+        print("=" * 80)
+        
+        # Report VIF table
+        self._report_vif_table(vif_threshold)
+        
+        # Report influential outliers details
+        self._report_influential_outliers_details()
+    
+    def _report_vif_table(self, vif_threshold: float = 5.0):
+        """
+        Report VIF table for multicollinearity check.
+        This is shared between linear and logistic regression.
+        """
+        if hasattr(self, 'vif_df') and self.vif_df is not None:
+            print("\n")
+            print("=" * 80)
+            print("VARIANCE INFLATION FACTOR (VIF) - MULTICOLLINEARITY CHECK")
+            print("=" * 80)
+            
+            # Filter out intercept/constant and add interpretation column
+            vif_display = self.vif_df.copy()
+            vif_display = vif_display[~vif_display['feature'].str.lower().isin(['intercept', 'const', 'constant'])]
+            vif_display['Interpretation'] = vif_display['VIF'].apply(
+                lambda x: 'High multicollinearity' if x > vif_threshold else 'Acceptable'
+            )
+            
+            print(vif_display.to_string(index=False))
+            print("=" * 80)
+            print(f"Note: VIF > {vif_threshold} indicates potential multicollinearity issues")
+            print("=" * 80)
+    
+    def _report_influential_outliers_details(self):
+        """
+        Report detailed information about influential outliers.
+        This is shared between linear and logistic regression.
+        """
+        if hasattr(self, 'influential_points') and len(self.influential_points) > 0:
+            print("\n")
+            print("=" * 80)
+            print("INFLUENTIAL OUTLIERS DETAILS")
+            print("=" * 80)
+            print(f"Threshold (4/n): {self.influential_outliers_threshold:.6f}")
+            print(f"Number of influential points: {len(self.influential_points)}")
+            print(f"Influential point indices: {self.influential_points}")
+            print("=" * 80)
+    
+    # ------------------------------------------------------------------
+    # PERFORMANCE METRICS (ABSTRACT - DIFFERENT FOR EACH REGRESSION)
+    # ------------------------------------------------------------------
+    
+    @abstractmethod
+    def _build_performance_metrics_df(self):
+        """
+        Build performance metrics dataframe.
+        Each regression type has different metrics.
+        """
+        pass
+    
+    @abstractmethod
+    def _report_performance(self):
+        """
+        Report performance metrics.
+        Each regression type implements its own reporting.
+        """
+        pass
+
     # ------------------------------------------------------------------
     # PRIVATE METHODS (FOLLOWING THE STANDARD ISARIC PIPELINE STRUCTURE)
     # ------------------------------------------------------------------
+
     def _data_cleaning(self):
         self.data = self.data.dropna()
     
@@ -112,6 +188,7 @@ class RAPID_BaseRegression(RAPID_Pipeline):
     def _modeling(self):
         model = sm.GLM(endog=self.y, exog=self.X, family=self.family)
         self.model = model.fit()
+        
 
     def _model_evaluation(self, labels, cv = False, splits = 5):
         self._setup_result_summary(labels)

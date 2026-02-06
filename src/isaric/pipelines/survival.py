@@ -7,10 +7,10 @@ from sklearn.metrics import roc_curve, roc_auc_score
 # importing new module for plotting
 from rapid_preprocess import RapidPreprocessor
 from rapid_plots import RapidPlots
-from pipeline import RAPID_Pipeline
+from pipeline import RAPID_BasePipeline
 
 
-class RAPID_survival(RAPID_Pipeline):
+class RAPID_survival(RAPID_BasePipeline):
     """
     Pipeline that enables [Survival analysis]. 
     This class implements the technique of [survival analysis] as part of the ISARIC analytical pipeline, 

@@ -1,22 +1,15 @@
 import numpy as np
 import pandas as pd
-import plotly.graph_objs as go
-import scipy.stats as stats
-import seaborn as sns
 import statsmodels.api as sm
-import statsmodels.formula.api as smf
 
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score,
                              log_loss, precision_score, recall_score,
                              roc_auc_score, roc_curve)
-from sklearn.model_selection import KFold, cross_val_score
+from sklearn.model_selection import KFold
 
-from statsmodels.stats.stattools import durbin_watson
 
 from isaric.pipelines.modules.rapid_plots import ROCPlot, ForestPlot, ConfusionMatrixPlot
 from isaric.pipelines.regression import RAPID_BaseRegression
-from isaric.pipelines.modules.rapid_assumption import ModelAssumptionTester
 
 class RAPID_LogisticRegression(RAPID_BaseRegression):
 
@@ -39,29 +32,22 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
     def _visualization(self, assumptions: bool = True, performance: bool = False, cross_validation: bool = False, 
                        plots: list = None, vif_threshold: float = 5.0):
         if (assumptions):
-            self._report_vif(vif_threshold)
-            self._report_epv()
-            self._report_influential_outliers()
+            self._report_assumptions(vif_threshold)
         if (performance):
-            self._report_accuracy()
-            self._report_logloss()
-            self._report_precision()
-            self._report_recall()
-            self._report_f1()
+            self._report_performance()
         if (cross_validation):
             if not hasattr(self, 'cross_val_scores') or self.cross_val_scores is None:
                 print("Cross validation not performed after fit, cannot show results.")
             else:
-                self._report_cv_scores()
-                self._report_cv_mean()
-                self._report_cv_std()
+                self._report_cv_metrics()
         if plots is not None:
             if('forest_plot' in plots):
-                self._report_forest_plot()
+                self._forest_plot()
             if('roc_curve' in plots):
-                self._report_roc_curve()
+                self._roc_curve()
             if('confusion_matrix' in plots):
-                self._report_confusion_matrix()
+                self._confusion_matrix()
+    
     # ------------------------------------------------------------------
     # PRIVATE METHODS (PERFORMANCE METRICS EVALUATION)
     # ------------------------------------------------------------------
@@ -89,15 +75,31 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
         y_pred_class = (y_pred_prob >= self.classification_threshold).astype(int)
         self.f1 = f1_score(self.y, y_pred_class, zero_division=0)
 
-    def _evaluate_cross_validation(self, n_folds):
-        clf = LogisticRegression(max_iter=1000)
-        self.cross_val_scores = cross_val_score(
-            clf, 
-            self.X, 
-            self.y, 
-            cv=n_folds, 
-            scoring="accuracy"
-        )
+    def _evaluate_cross_validation(self, n_splits):
+        """
+        Perform k-fold cross-validation using the same statsmodels GLM.
+        """
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+        cv_accuracy_scores = []
+        
+        for train_idx, test_idx in kf.split(self.X):
+            # Split data
+            X_train, X_test = self.X.iloc[train_idx], self.X.iloc[test_idx]
+            y_train, y_test = self.y.iloc[train_idx], self.y.iloc[test_idx]
+            
+            # Fit statsmodels GLM on training fold
+            model_fold = sm.GLM(endog=y_train, exog=X_train, family=self.family)
+            result_fold = model_fold.fit()
+            
+            # Predict on test fold
+            y_pred_prob = result_fold.predict(X_test)
+            y_pred_class = (y_pred_prob >= self.classification_threshold).astype(int)
+            
+            # Calculate accuracy for this fold
+            accuracy = accuracy_score(y_test, y_pred_class)
+            cv_accuracy_scores.append(accuracy)
+        
+        self.cross_val_scores = np.array(cv_accuracy_scores)
     
     def _evaluate_auc_score(self):
         self.auc = roc_auc_score(self.y, self.model.fittedvalues)
@@ -109,24 +111,59 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
 
         self.cm = confusion_matrix(self.y, y_pred_class)
 
+    def _build_performance_metrics_df(self):
+        """
+        Build a dataframe containing all performance metrics for logistic regression.
+        """
+        performance_data = {
+            'Metric': [
+                'Accuracy',
+                'Log Loss',
+                'Precision',
+                'Recall',
+                'F1 Score',
+                'AUC-ROC'
+            ],
+            'Value': [
+                f"{self.accuracy:.6f}",
+                f"{self.logloss:.6f}",
+                f"{self.precision:.6f}",
+                f"{self.recall:.6f}",
+                f"{self.f1:.6f}",
+                f"{self.auc:.6f}"
+            ]
+        }
+        
+        self.performance_metrics_df = pd.DataFrame(performance_data)
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (PERFORMANCE METRICS VISUALIZATIONS)
     # ------------------------------------------------------------------
-    def _report_accuracy(self):
-        print("Accuracy:", self.accuracy)
+    def _report_performance(self):
+        """
+        Report performance metrics as a formatted dataframe.
+        """
+        if self.performance_metrics_df is None:
+            self._build_performance_metrics_df()
+        
+        print("=" * 80)
+        print("PERFORMANCE METRICS")
+        print("=" * 80)
+        print(self.performance_metrics_df.to_string(index=False))
+        print("=" * 80)
+        
+        # Also report confusion matrix summary
+        if hasattr(self, 'cm'):
+            print("\n")
+            print("=" * 80)
+            print("CONFUSION MATRIX")
+            print("=" * 80)
+            print(f"True Negatives:  {self.cm[0, 0]}")
+            print(f"False Positives: {self.cm[0, 1]}")
+            print(f"False Negatives: {self.cm[1, 0]}")
+            print(f"True Positives:  {self.cm[1, 1]}")
+            print("=" * 80)
 
-    def _report_logloss(self):
-        print("Log Loss:", self.logloss)
-
-    def _report_precision(self):
-        print("Precision:", round(self.precision, 4))
-
-    def _report_recall(self):
-        print("Recall:", round(self.recall, 4))
-
-    def _report_f1(self):
-        print("F1 Score:", round(self.f1, 4))
     # ------------------------------------------------------------------
     # PRIVATE METHODS (ASSUMPTIONS EVALUATION)
     # ------------------------------------------------------------------
@@ -153,38 +190,64 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
         epv_result = self.assumption_tester.test_epv()
         self.epv = epv_result['epv']
 
-    def _evaluate_influential_outliers(self):
-        influence = self.model.get_influence()
+    def _build_assumption_metrics_df(self, vif_threshold: float = 5.0):
+        """
+        Build a dataframe containing assumption test metrics for logistic regression.
+        """
+        # Truncate influential points to first 5
+        influential_points_display = self.influential_points[:5]
+        if len(self.influential_points) > 5:
+            influential_points_str = f"{list(influential_points_display)} ... ({len(self.influential_points)} total)"
+        else:
+            influential_points_str = str(list(self.influential_points))
         
-        self.cooks_d = influence.cooks_distance[0]
-        self.leverage = influence.hat_matrix_diag
-        self.pearson_resid = self.model.resid_pearson
-        self.deviance_resid = self.model.resid_deviance
-        self.dfbetas = influence.dfbetas
-        self.model_nobs = self.model.nobs
-        self.influential_outliers_threshold = 4/self.model.nobs
+        assumption_data = {
+            'Test': [
+                'Events Per Variable (EPV)',
+                'Influential Outliers Threshold',
+                'Number of Influential Points'
+            ],
+            'Value': [
+                f"{self.epv:.2f}",
+                f"{self.influential_outliers_threshold:.6f}",
+                len(self.influential_points)
+            ],
+            'Interpretation': [
+                'Warning: EPV < 10 may lead to unstable estimates' if self.epv < 10 else 'Acceptable',
+                f"Points above threshold: {influential_points_str}",
+                ''
+            ]
+        }
         
-        self.influential_points = np.where(self.cooks_d > (4 / self.model.nobs))[0]
-
-    # ------------------------------------------------------------------
-    # PRIVATE METHODS (ASSUMPTIONS VISUALIZATION)
-    # ------------------------------------------------------------------
-    def _report_epv(self):
-        print(f"Events Per Variable (EPV): {self.epv:.2f}")
-        if self.epv < 10:
-            print("Warning: EPV < 10 may lead to unstable estimates\n")
+        self.assumption_metrics_df = pd.DataFrame(assumption_data)
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (CROSS VALIDATION METRICS VISUALIZATION)
     # ------------------------------------------------------------------
-    def _report_cv_scores(self):
-        print("Cross-Validation Accuracies:", self.cross_val_scores)
-
-    def _report_cv_mean(self):
-        print("Mean Accuracy:", self.cross_val_scores.mean())
-
-    def _report_cv_std(self):
-        print("Standard Deviation:", self.cross_val_scores.std())
+    def _report_cv_metrics(self):
+        """
+        Report cross-validation metrics as a formatted dataframe.
+        """
+        cv_data = {
+            'Metric': [
+                'Mean Accuracy',
+                'Standard Deviation',
+                'Individual Fold Accuracies'
+            ],
+            'Value': [
+                f"{self.cross_val_scores.mean():.6f}",
+                f"{self.cross_val_scores.std():.6f}",
+                ', '.join([f"{score:.6f}" for score in self.cross_val_scores])
+            ]
+        }
+        
+        cv_df = pd.DataFrame(cv_data)
+        
+        print("=" * 80)
+        print("CROSS-VALIDATION METRICS")
+        print("=" * 80)
+        print(cv_df.to_string(index=False))
+        print("=" * 80)
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (FOR CREATING THE RESULT DF AFTER FITTING MODEL)
@@ -238,19 +301,17 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
     # PLOT GENERATION AND REPORTING
     # ------------------------------------------------------------------
-    def _generate_confusion_matrix(self):
-        return ConfusionMatrixPlot.plot(
-        confusion_matrix=self.cm,
-        class_names=['Negative', 'Positive'],
-        title='Confusion Matrix'
+    def _confusion_matrix(self):
+        """Generate and display confusion matrix plot."""
+        fig = ConfusionMatrixPlot.plot(
+            confusion_matrix=self.cm,
+            class_names=['Negative', 'Positive'],
+            title='Confusion Matrix'
         )
-
-    def _report_confusion_matrix(self):
-        fig = self._generate_confusion_matrix()
         fig.show()
 
-    def _generate_forest_plot(self):
-        """Generate forest plot for odds ratios."""
+    def _forest_plot(self):
+        """Generate and display forest plot for odds ratios."""
         df = self.summary_df.copy()
         
         # Strip the (uni)/(multi) suffixes if they exist
@@ -267,13 +328,10 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
             null_value=1.0,  # For OR, null value is 1 (not 0!)
             log_scale=True   # Use log scale for odds ratios
         )
-        return fig
-
-    def _report_forest_plot(self):
-        fig = self._generate_forest_plot()
         fig.show()
 
-    def _generate_roc_curve(self):
+    def _roc_curve(self):
+        """Generate and display ROC curve."""
         y_scores = self.model.fittedvalues
         fpr, tpr, _ = roc_curve(self.y, y_scores)
         self.auc = roc_auc_score(self.y, y_scores)
@@ -285,11 +343,6 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
             title='ROC Curve - Logistic Regression',
             label=f'Logistic Regression (AUC = {self.auc:.3f})'
         )
-
-        return fig
-
-    def _report_roc_curve(self):
-        fig = self._generate_roc_curve()
         fig.show()
 
     # ------------------------------------------------------------------
@@ -304,12 +357,14 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
         self._evaluate_f1_score()
         self._evaluate_auc_score()
         self._evaluate_confusion_matrix()
+        self._build_performance_metrics_df()
 
     def _test_assumptions(self):
         self._setup_assumption_tester()
         self._evaluate_vif()
         self._evaluate_influential_outliers()
         self._evaluate_epv()
+        self._build_assumption_metrics_df()
     
     def _test_cross_validation(self, n_splits):
         self._evaluate_cross_validation(n_splits)
