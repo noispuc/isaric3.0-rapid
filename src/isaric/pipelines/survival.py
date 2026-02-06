@@ -28,7 +28,7 @@ class RAPID_survival(RAPID_Pipeline):
         
         self.cph_model = None
         self.model_data = None 
-        self.summary_results = None
+        self.summary_df = None
         self.labels = None
 
     # ------------------------------------------------------------------
@@ -69,7 +69,7 @@ class RAPID_survival(RAPID_Pipeline):
 
         print("\n" + "="*50)
         print("COX PROPORTIONAL HAZARDS ESTIMATES")
-        print(self.summary_results.to_markdown(index=False))
+        print(self.summary_df.to_markdown(index=False))
         print(f"\nConcordance Index (C-Index): {self.cph_model.concordance_index_:.3f}")
         
         if plots:
@@ -129,7 +129,7 @@ class RAPID_survival(RAPID_Pipeline):
         if self.labels:
             df_res['Variable'] = df_res['Variable'].map(self.labels).fillna(df_res['Variable'])
         
-        self.summary_results = df_res
+        self.summary_df = df_res
 
     def _validation(self):
         """
@@ -144,7 +144,7 @@ class RAPID_survival(RAPID_Pipeline):
         if 'forest_plot' in plots_list:
             # The error happened here. We must pass the column names explicitly.
             RapidPlots.forest.plot(
-                df=self.summary_results,
+                df=self.summary_df,
                 effect_col='HR',          # The Hazard Ratio column
                 lower_col='CI_lower',     # The Confidence Interval Lower Bound
                 upper_col='CI_upper',     # The Confidence Interval Upper Bound
