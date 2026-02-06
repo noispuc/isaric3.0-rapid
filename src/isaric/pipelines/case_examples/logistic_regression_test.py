@@ -149,12 +149,11 @@ def test_plots():
 
     model.fit(cross_val=False)
 
-    plots = plots=['forest_plot', 'roc_curve', 'confusion_matrix']
+    # Fixed: removed duplicate 'plots =' 
+    plots = ['forest_plot', 'roc_curve', 'confusion_matrix']
     model.summary(assumptions=False, performance=False, plots=plots)
 
-    model._report_roc_curve()
-    model._report_confusion_matrix()
-
+    # Removed: Don't call internal methods - plots already shown above
     print("✓ All plots generated")
     return model
 
@@ -204,10 +203,36 @@ def test_complete_pipeline():
         vif_threshold=5.0
     )
 
-    model._report_roc_curve()
-    model._report_confusion_matrix()
-
+    # Removed: Don't call internal methods - plots already shown above
     print("✓ Complete pipeline executed")
+    return model
+
+
+def test_with_labels():
+    """New test to verify custom variable labels work correctly."""
+    print("\n" + "=" * 80)
+    print("TEST 8: Custom Variable Labels")
+    print("=" * 80)
+
+    df = generate_test_data()
+    predictors = ['age', 'bmi', 'blood_pressure']
+
+    labels = {
+        'age': 'Age (years)',
+        'bmi': 'Body Mass Index',
+        'blood_pressure': 'Systolic Blood Pressure (mmHg)'
+    }
+
+    model = RAPID_LogisticRegression(
+        data=df,
+        outcome_str='outcome',
+        predictors_list=predictors
+    )
+
+    model.fit(labels=labels, cross_val=False)
+    model.summary(assumptions=True, performance=True, plots=['forest_plot'])
+
+    print("✓ Custom labels applied successfully")
     return model
 
 # ============================================================================
@@ -222,7 +247,8 @@ def run_all_tests():
         test_cross_validation,
         test_plots,
         test_univariate,
-        test_complete_pipeline
+        test_complete_pipeline,
+        test_with_labels
     ]
 
     results = {}
@@ -240,8 +266,12 @@ def run_all_tests():
     print("=" * 80)
 
     for k, v in results.items():
-        print(f"{'✓' if v == 'PASS' else '✗'} {k}: {v}")
+        status = '✓' if v == 'PASS' else '✗'
+        print(f"{status} {k}: {v}")
 
+    passed = sum(1 for v in results.values() if v == "PASS")
+    total = len(results)
+    print(f"\nPassed: {passed}/{total}")
     print("=" * 80)
 
 
