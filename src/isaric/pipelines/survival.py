@@ -1,12 +1,12 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import warnings
 from lifelines import CoxPHFitter
-from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.metrics import (roc_curve, roc_auc_score)
 
-# importing new module for plotting
-from rapid_preprocess import RapidPreprocessor
-from rapid_plots import RapidPlots
+
+from isaric.pipelines.modules.rapid_preprocess import RapidPreprocessor
+from isaric.pipelines.modules.rapid_plots import RapidPlots
 from pipeline import RAPID_BasePipeline
 
 
@@ -32,7 +32,7 @@ class RAPID_survival(RAPID_BasePipeline):
         self.labels = None
 
     # ------------------------------------------------------------------
-    # 1: PRE-PROCESSING DATA
+    # PUBLIC METHODS
     # -----------------------------------------------------------------
 
     def preprocess_data(self, formula=None):
@@ -43,9 +43,7 @@ class RAPID_survival(RAPID_BasePipeline):
         self._preprocessing(formula)
         return self.model_data
     
-    # ------------------------------------------------------------------
-    # 2: MODEL FITTING
-    # ------------------------------------------------------------------
+  
     def fit(self, labels=None, penalizer=0.1):
         """
         Executes the modeling and evaluation sequence.
@@ -56,9 +54,8 @@ class RAPID_survival(RAPID_BasePipeline):
         self.labels = labels
         self._modeling(penalizer)
         self._model_evaluation()
-    # ------------------------------------------------------------------
-    # 3: SUMMARIZATION & GRAPHICS
-    # ------------------------------------------------------------------
+    
+
     def summary(self, plots=None, target_time=None):
         """
         Reports model findings and generates visualizations.
@@ -76,7 +73,7 @@ class RAPID_survival(RAPID_BasePipeline):
             self._visualization(plots, target_time)
 
     # ------------------------------------------------------------------
-    # PRIVATE METHODS (REQUIRED BY RAPID_Pipeline)
+    # PRIVATE METHODS (FOLLOWING THE STANDARD ISARIC PIPELINE STRUCTURE)
     # ------------------------------------------------------------------
     def _data_cleaning(self):
         """
