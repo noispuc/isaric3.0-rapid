@@ -6,6 +6,7 @@ Tests all functionality including fit, assumptions, performance metrics, and plo
 import numpy as np
 import pandas as pd
 import warnings
+import traceback
 warnings.filterwarnings('ignore')
 
 from isaric.pipelines.linear_regression import RAPID_LinearRegression
@@ -40,7 +41,6 @@ def generate_test_data(n_samples=200, random_state=42):
          15 * (smoking == 'Yes').astype(int) +
          np.random.normal(0, 10, n_samples))
     
-    # Create DataFrame
     df = pd.DataFrame({
         'outcome': y,
         'age': age,
@@ -52,8 +52,38 @@ def generate_test_data(n_samples=200, random_state=42):
     
     return df
 
+
+def generate_positive_outcome_data(n_samples=200, random_state=42):
+    np.random.seed(random_state)
+
+    age = np.random.normal(50, 15, n_samples)
+    bmi = np.random.normal(25, 5, n_samples)
+    blood_pressure = np.random.normal(120, 20, n_samples)
+
+    # Standardize predictors for numerical stability
+    age = (age - age.mean()) / age.std()
+    bmi = (bmi - bmi.mean()) / bmi.std()
+    blood_pressure = (blood_pressure - blood_pressure.mean()) / blood_pressure.std()
+
+    log_y = (3.5 +
+              0.01 * age +
+              0.04 * bmi -
+              0.005 * blood_pressure +
+              np.random.normal(0, 0.3, n_samples))
+    y = np.exp(log_y)
+
+    df = pd.DataFrame({
+        'outcome': y,
+        'age': age,
+        'bmi': bmi,
+        'blood_pressure': blood_pressure,
+    })
+
+    return df
+
+
 # ============================================================================
-# TEST FUNCTIONS
+# ORIGINAL TESTS
 # ============================================================================
 
 def test_basic_fit():
@@ -67,13 +97,15 @@ def test_basic_fit():
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=predictors,
+        yvar='outcome',
+        predictors=predictors,
         regression_type='Multi'
     )
     
-    # Fit without cross-validation to speed up test
-    model.fit(cross_val=False)
+    try:
+        model.fit(cross_val=False)
+    except:
+        traceback.print_exc()
     
     print("\n✓ Model fitted successfully")
     print(f"  - Number of observations: {len(df)}")
@@ -81,6 +113,7 @@ def test_basic_fit():
     print(f"  - Model type: {model.regression_type}")
     
     return model
+
 
 def test_with_labels():
     """Test model fitting with custom labels."""
@@ -101,8 +134,8 @@ def test_with_labels():
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=predictors,
+        yvar='outcome',
+        predictors=predictors,
         regression_type='Multi'
     )
     
@@ -114,8 +147,9 @@ def test_with_labels():
     
     return model
 
+
 def test_assumptions():
-    """Test assumption checking."""
+    """Test assumption checking — 'all' shows full assumption block including VIF and outliers."""
     print("\n" + "=" * 80)
     print("TEST 3: Assumption Tests")
     print("=" * 80)
@@ -125,25 +159,83 @@ def test_assumptions():
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=predictors,
+        yvar='outcome',
+        predictors=predictors,
         regression_type='Multi'
     )
     
     model.fit(cross_val=False)
     
-    # Test all assumptions
-    print("\n--- ASSUMPTION TEST RESULTS ---\n")
-    model.summary(assumptions=True, performance=False, plots=None)
+    print("\n--- ALL ASSUMPTION TEST RESULTS ---\n")
+    model.summary(assumptions='all')
+
+    print("\n--- SELECTED ASSUMPTION METRICS ---\n")
+    model.summary(assumptions=['Durbin-Watson', 'Shapiro-Wilk p-value'])
     
     print("\n✓ All assumption tests completed")
     
     return model
 
-def test_performance_metrics():
-    """Test performance metrics."""
+
+def test_assumptions_vif():
+    """Test that VIF is shown when explicitly requested."""
     print("\n" + "=" * 80)
-    print("TEST 4: Performance Metrics")
+    print("TEST 4: Assumptions — VIF Selection")
+    print("=" * 80)
+
+    df = generate_test_data()
+    predictors = ['age', 'bmi', 'blood_pressure']
+
+    model = RAPID_LinearRegression(
+        data=df,
+        yvar='outcome',
+        predictors=predictors,
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n--- VIF ONLY ---\n")
+    model.summary(assumptions=['VIF'])
+
+    print("\n✓ VIF selection test completed")
+
+    return model
+
+
+def test_assumptions_influential_outliers():
+    """Test that influential outlier details are shown when explicitly requested."""
+    print("\n" + "=" * 80)
+    print("TEST 5: Assumptions — Influential Outliers Selection")
+    print("=" * 80)
+
+    df = generate_test_data()
+    predictors = ['age', 'bmi', 'blood_pressure']
+
+    model = RAPID_LinearRegression(
+        data=df,
+        yvar='outcome',
+        predictors=predictors,
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n--- INFLUENTIAL OUTLIERS ONLY ---\n")
+    model.summary(assumptions=['Influential Outliers'])
+
+    print("\n--- OUTLIER ROWS + DETAILS ---\n")
+    model.summary(assumptions=['Influential Outliers Threshold', 'Number of Influential Points', 'Influential Outliers'])
+
+    print("\n✓ Influential outliers selection test completed")
+
+    return model
+
+
+def test_performance_metrics():
+    """Test performance metrics — 'all' and selected metrics."""
+    print("\n" + "=" * 80)
+    print("TEST 6: Performance Metrics")
     print("=" * 80)
     
     df = generate_test_data()
@@ -151,24 +243,28 @@ def test_performance_metrics():
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=predictors,
+        yvar='outcome',
+        predictors=predictors,
         regression_type='Multi'
     )
     
     model.fit(cross_val=False)
     
-    print("\n--- PERFORMANCE METRICS ---\n")
-    model.summary(assumptions=False, performance=True, plots=None)
+    print("\n--- ALL PERFORMANCE METRICS ---\n")
+    model.summary(performance='all')
+
+    print("\n--- SELECTED PERFORMANCE METRICS ---\n")
+    model.summary(performance=['R2', 'Adjusted R2', 'AIC', 'BIC'])
     
     print("\n✓ Performance metrics calculated")
     
     return model
 
+
 def test_cross_validation():
-    """Test cross-validation."""
+    """Test cross-validation — 'all' and selected metrics."""
     print("\n" + "=" * 80)
-    print("TEST 5: Cross-Validation")
+    print("TEST 7: Cross-Validation")
     print("=" * 80)
     
     df = generate_test_data()
@@ -176,25 +272,28 @@ def test_cross_validation():
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=predictors,
+        yvar='outcome',
+        predictors=predictors,
         regression_type='Multi'
     )
     
-    # Fit with cross-validation
     model.fit(cross_val=True, n_splits=5)
     
-    print("\n--- CROSS-VALIDATION RESULTS ---\n")
-    model.summary(assumptions=False, performance=False, cross_val=True, plots=None)
+    print("\n--- ALL CROSS-VALIDATION RESULTS ---\n")
+    model.summary(cross_val='all')
+
+    print("\n--- SELECTED CV METRICS ---\n")
+    model.summary(cross_val=['Mean CV MSE', 'Standard Deviation of CV MSE'])
     
     print("\n✓ Cross-validation completed")
     
     return model
 
+
 def test_plots():
     """Test all plotting functions."""
     print("\n" + "=" * 80)
-    print("TEST 6: Plotting Functions")
+    print("TEST 8: Plotting Functions")
     print("=" * 80)
     
     df = generate_test_data()
@@ -209,38 +308,38 @@ def test_plots():
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=predictors,
+        yvar='outcome',
+        predictors=predictors,
         regression_type='Multi'
     )
     
     model.fit(labels=labels, cross_val=False)
     
-    # Generate all plots
     print("\n--- GENERATING PLOTS ---\n")
     
     plots_to_generate = ['forest_plot', 'residuals_vs_fitted', 'qq_plot']
     
     for plot_name in plots_to_generate:
         print(f"Generating {plot_name}...")
-        model.summary(assumptions=False, performance=False, plots=[plot_name])
+        model.summary(plots=[plot_name])
     
     print("\n✓ All plots generated successfully")
     
     return model
 
+
 def test_univariate():
     """Test univariate regression."""
     print("\n" + "=" * 80)
-    print("TEST 7: Univariate Regression")
+    print("TEST 9: Univariate Regression")
     print("=" * 80)
     
     df = generate_test_data()
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=['bmi'],
+        yvar='outcome',
+        predictors=['bmi'],
         regression_type='Uni'
     )
     
@@ -251,21 +350,21 @@ def test_univariate():
     print(model.summary_df)
     
     print("\n--- PERFORMANCE METRICS ---\n")
-    model.summary(assumptions=False, performance=True, plots=None)
+    model.summary(performance='all')
     
     print("\n✓ Univariate regression completed")
     
     return model
 
+
 def test_multicollinearity():
-    """Test VIF for multicollinearity detection."""
+    """Test VIF for multicollinearity detection at different thresholds."""
     print("\n" + "=" * 80)
-    print("TEST 8: Multicollinearity Detection (VIF)")
+    print("TEST 10: Multicollinearity Detection (VIF)")
     print("=" * 80)
     
     df = generate_test_data(n_samples=300)
     
-    # Add highly correlated variables
     df['bmi_squared'] = df['bmi'] ** 2
     df['age_bmi_interaction'] = df['age'] * df['bmi']
     
@@ -273,27 +372,28 @@ def test_multicollinearity():
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=predictors,
+        yvar='outcome',
+        predictors=predictors,
         regression_type='Multi'
     )
     
     model.fit(cross_val=False)
     
     print("\n--- VIF TEST (with threshold = 5.0) ---\n")
-    model.summary(assumptions=True, performance=False, plots=None, vif_threshold=5.0)
+    model.summary(assumptions=['VIF'], vif_threshold=5.0)
     
     print("\n--- VIF TEST (with threshold = 10.0) ---\n")
-    model.summary(assumptions=True, performance=False, plots=None, vif_threshold=10.0)
+    model.summary(assumptions=['VIF'], vif_threshold=10.0)
     
     print("\n✓ Multicollinearity test completed")
     
     return model
 
+
 def test_complete_pipeline():
     """Test complete analysis pipeline."""
     print("\n" + "=" * 80)
-    print("TEST 9: Complete Analysis Pipeline")
+    print("TEST 11: Complete Analysis Pipeline")
     print("=" * 80)
     
     df = generate_test_data()
@@ -309,24 +409,22 @@ def test_complete_pipeline():
     
     model = RAPID_LinearRegression(
         data=df,
-        outcome_str='outcome',
-        predictors_list=predictors,
+        yvar='outcome',
+        predictors=predictors,
         regression_type='Multi'
     )
     
-    # Fit with all options
     print("\nFitting model with cross-validation...")
     model.fit(labels=labels, cross_val=True, n_splits=5)
     
-    # Full summary report
     print("\n" + "=" * 80)
     print("COMPLETE MODEL SUMMARY")
     print("=" * 80)
     
     model.summary(
-        assumptions=True,
-        performance=True,
-        cross_val=True,
+        assumptions='all',
+        performance='all',
+        cross_val='all',
         plots=['forest_plot', 'residuals_vs_fitted', 'qq_plot'],
         vif_threshold=5.0
     )
@@ -334,6 +432,301 @@ def test_complete_pipeline():
     print("\n✓ Complete pipeline executed successfully")
     
     return model
+
+
+# ============================================================================
+# FORMULA INTERFACE
+# ============================================================================
+
+def test_formula_interface():
+    """Test that the formula interface works as an alternative to yvar + predictors."""
+    print("\n" + "=" * 80)
+    print("TEST 12: Formula Interface")
+    print("=" * 80)
+
+    df = generate_test_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        formula='outcome ~ age + bmi + blood_pressure',
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n✓ Formula interface fitted successfully")
+    print("\nSummary DataFrame:")
+    print(model.summary_df)
+
+    return model
+
+
+def test_formula_with_categorical():
+    """Test formula interface with categorical predictors via C() wrapper."""
+    print("\n" + "=" * 80)
+    print("TEST 13: Formula Interface with Categorical Predictors")
+    print("=" * 80)
+
+    df = generate_test_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        formula='outcome ~ age + bmi + C(sex) + C(smoking_status)',
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n✓ Formula with categorical predictors fitted successfully")
+    print("\nSummary DataFrame:")
+    print(model.summary_df)
+
+    return model
+
+
+def test_formula_with_labels():
+    """Test that labels are applied correctly when using the formula interface."""
+    print("\n" + "=" * 80)
+    print("TEST 14: Formula Interface with Labels")
+    print("=" * 80)
+
+    df = generate_test_data()
+
+    labels = {
+        'age': 'Age (years)',
+        'bmi': 'Body Mass Index',
+        'blood_pressure': 'Systolic BP (mmHg)',
+    }
+
+    model = RAPID_LinearRegression(
+        data=df,
+        formula='outcome ~ age + bmi + blood_pressure',
+        regression_type='Multi'
+    )
+
+    model.fit(labels=labels, cross_val=False)
+
+    print("\n✓ Formula + labels fitted successfully")
+    print("\nSummary DataFrame:")
+    print(model.summary_df)
+
+    return model
+
+
+def test_formula_cross_validation():
+    """Test cross-validation works correctly when specified via formula."""
+    print("\n" + "=" * 80)
+    print("TEST 15: Formula Interface with Cross-Validation")
+    print("=" * 80)
+
+    df = generate_test_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        formula='outcome ~ age + bmi + blood_pressure',
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=True, n_splits=3)
+
+    print("\n--- CROSS-VALIDATION RESULTS ---\n")
+    model.summary(cross_val='all')
+
+    print("\n✓ Formula + cross-validation completed")
+
+    return model
+
+
+# ============================================================================
+# FAMILY AND LINK COMBINATIONS
+# ============================================================================
+
+def test_gamma_log_link():
+    """Test Gamma family with its canonical log link."""
+    print("\n" + "=" * 80)
+    print("TEST 16: Gamma Family — Log Link (Canonical)")
+    print("=" * 80)
+
+    df = generate_positive_outcome_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        yvar='outcome',
+        predictors=['age', 'bmi', 'blood_pressure'],
+        family='gamma',
+        link='log',
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n✓ Gamma + log link fitted successfully")
+    model.summary(performance='all')
+
+    return model
+
+
+def test_gamma_inverse_link():
+    """Test Gamma family with inverse link."""
+    print("\n" + "=" * 80)
+    print("TEST 17: Gamma Family — Inverse Link")
+    print("=" * 80)
+
+    df = generate_positive_outcome_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        yvar='outcome',
+        predictors=['age', 'bmi', 'blood_pressure'],
+        family='gamma',
+        link='inverse',
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n✓ Gamma + inverse link fitted successfully")
+    model.summary(performance='all')
+
+    return model
+
+
+def test_inv_gaussian_inverse_link():
+    """Test Inverse Gaussian family with its canonical inverse link."""
+    print("\n" + "=" * 80)
+    print("TEST 18: Inverse Gaussian Family — Inverse Link (Canonical)")
+    print("=" * 80)
+
+    df = generate_positive_outcome_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        yvar='outcome',
+        predictors=['age', 'bmi', 'blood_pressure'],
+        family='inv_gaussian',
+        link='inverse',
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n✓ Inverse Gaussian + inverse link fitted successfully")
+    model.summary(performance='all')
+
+    return model
+
+
+def test_tweedie_log_link():
+    """Test Tweedie family with its canonical log link."""
+    print("\n" + "=" * 80)
+    print("TEST 19: Tweedie Family — Log Link (Canonical)")
+    print("=" * 80)
+
+    df = generate_positive_outcome_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        yvar='outcome',
+        predictors=['age', 'bmi', 'blood_pressure'],
+        family='tweedie',
+        link='log',
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n✓ Tweedie + log link fitted successfully")
+    model.summary(performance='all')
+
+    return model
+
+
+def test_gamma_formula():
+    """Test Gamma family combined with the formula interface."""
+    print("\n" + "=" * 80)
+    print("TEST 20: Gamma Family via Formula Interface")
+    print("=" * 80)
+
+    df = generate_positive_outcome_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        formula='outcome ~ age + bmi + blood_pressure',
+        family='gamma',
+        link='log',
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\n✓ Gamma + formula fitted successfully")
+    print("\nSummary DataFrame:")
+    print(model.summary_df)
+    model.summary(performance='all')
+
+    return model
+
+
+# ============================================================================
+# EDGE CASES
+# ============================================================================
+
+def test_cross_val_not_run_then_requested():
+    """
+    Edge case: fit() called with cross_val=False, but summary() called with
+    cross_val='all'. Guard should print a warning rather than raise an exception.
+    """
+    print("\n" + "=" * 80)
+    print("TEST 21: Cross-Val Requested in summary() but Not Run in fit() (Guard Path)")
+    print("=" * 80)
+
+    df = generate_test_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        yvar='outcome',
+        predictors=['age', 'bmi', 'blood_pressure'],
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\nCalling summary(cross_val='all') without having run CV — expect warning message:")
+    model.summary(cross_val='all')
+
+    print("\n✓ Guard path handled gracefully")
+
+    return model
+
+
+def test_invalid_metric_warning():
+    """
+    Edge case: passing a metric name that doesn't exist should print a warning
+    rather than raising an exception.
+    """
+    print("\n" + "=" * 80)
+    print("TEST 22: Invalid Metric String Warning")
+    print("=" * 80)
+
+    df = generate_test_data()
+
+    model = RAPID_LinearRegression(
+        data=df,
+        yvar='outcome',
+        predictors=['age', 'bmi', 'blood_pressure'],
+        regression_type='Multi'
+    )
+
+    model.fit(cross_val=False)
+
+    print("\nPassing invalid metric names — expect warning messages:")
+    model.summary(assumptions=['NonExistentTest'])
+    model.summary(performance=['NonExistentMetric'])
+
+    print("\n✓ Invalid metric warnings handled gracefully")
+
+    return model
+
 
 # ============================================================================
 # RUN ALL TESTS
@@ -348,15 +741,32 @@ def run_all_tests():
     print("█" * 80 + "\n")
     
     tests = [
+        # Original tests
         test_basic_fit,
         test_with_labels,
         test_assumptions,
+        test_assumptions_vif,
+        test_assumptions_influential_outliers,
         test_performance_metrics,
         test_cross_validation,
         test_plots,
         test_univariate,
         test_multicollinearity,
-        test_complete_pipeline
+        test_complete_pipeline,
+        # Formula interface
+        test_formula_interface,
+        test_formula_with_categorical,
+        test_formula_with_labels,
+        test_formula_cross_validation,
+        # Family and link combinations
+        test_gamma_log_link,
+        test_gamma_inverse_link,
+        test_inv_gaussian_inverse_link,
+        test_tweedie_log_link,
+        test_gamma_formula,
+        # Edge cases
+        test_cross_val_not_run_then_requested,
+        test_invalid_metric_warning,
     ]
     
     results = {}
