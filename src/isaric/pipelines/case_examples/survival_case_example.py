@@ -1,4 +1,3 @@
-import plotly.io as pio
 # This forces Plotly to save an HTML file and try to open it in the browser
 #pio.renderers.default = "browser"
 import pandas as pd
@@ -10,7 +9,7 @@ from survival import RAPID_survival
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 
-# --- 1. Data Loading ---
+# --- 1. Data Loading ---   
 try:
     print("--- 1. Loading DataFrames ---")
     # Load model and map datasets from CSV files
@@ -26,6 +25,8 @@ except FileNotFoundError:
 # =================================================================
 print("\n" + "="*20 + " STARTING USER CASE 1 " + "="*20)
 
+# 1. Instantiation
+# predictors_list is handled internally by the class
 pipeline_c1 = RAPID_survival(
     data=df_model,
     duration_col='HospitalLengthStay_trunc',
@@ -37,18 +38,23 @@ pipeline_c1 = RAPID_survival(
         'Vent_Resource'
     ]
 )
+# 2. Fit
+# Standard labels for clean reporting
+labels_c1 = {
+    'period': 'Period',
+    'Idade_Agrupada2': 'Age Group',
+    'obesity': 'Obesity'
+}
 
-print("\n--- PHASE: DATA PREPARATION (CASE 1) ---")
-#This now triggers _data_cleaning() and _preprocessing() internally
-pipeline_c1.preprocess_data()
+print("Fitting Model Case 1...")
+# Note: Preprocessing (cleaning and matrix generation) happens inside fit()
+pipeline_c1.fit(labels=labels_c1, penalizer=0.1)
 
-print("\n--- PHASE: MODEL FITTING (CASE 1) ---")
-# This now triggers _modeling() and _model_evaluation() internally
-pipeline_c1.fit(penalizer=0.1)
-
-print("\n--- PHASE: SUMMARY AND DIAGNOSTICS (CASE 1) ---")
-# This now triggers _visualization() internally
+# 3. Summary
+# Using boolean flags for performance and assumptions as standardized
 pipeline_c1.summary(
+    performance=True,
+    assumptions=True,
     plots=['forest_plot', 'roc_auc'], 
     target_time=40.0
 )
@@ -59,39 +65,39 @@ print("="*20 + " USER CASE 1 COMPLETE " + "="*20)
 # =================================================================
 #                           USER CASE 2
 # =================================================================
-print("\n" + "="*20 + " STARTING USER CASE 2 " + "="*20)
+print("\n" + "="*20 + " STARTING USER CASE 2 (df_map processing) " + "="*20)
 
-# Manual Pre-processing: Pre-processing specific to Case 2 before passing to the pipeline
+# 1. Specific data preparation for df_map
 df_cox_prep = df_map.copy()
-df_cox_prep['dates_admdate'] = pd.to_datetime(df_cox_prep['dates_admdate'], errors='coerce')
-df_cox_prep['outco_date'] = pd.to_datetime(df_cox_prep['outco_date'], errors='coerce')
-df_cox_prep['duration_col'] = (df_cox_prep['outco_date'] - df_cox_prep['dates_admdate']).dt.days
+# Converting dates and calculating duration
+df_cox_prep['duration_col'] = (pd.to_datetime(df_cox_prep['outco_date']) - 
+                               pd.to_datetime(df_cox_prep['dates_admdate'])).dt.days
+# Mapping outcomes to binary
+df_cox_prep['outcome_binary'] = df_cox_prep['outco_binary_outcome'].map(
+    {"Death": 1, "Censored": 0, "Discharged": 0}
+)
 
-df_cox_prep['outcome_binary'] = df_cox_prep['outco_binary_outcome'].map({
-    "Death": 1, "Censored": 0, "Discharged": 0
-})
-
+# 2. Instantiation with processed df_map
 pipeline_c2 = RAPID_survival(
     data=df_cox_prep,
     duration_col='duration_col',
     event_col='outcome_binary',
-    predictors=[
-        'demog_sex', 'demog_healthcare',
-        'comor_hypertensi', 'comor_chrkidney', 'comor_liverdisease', 'comor_obesity'
-    ]
+    predictors=['demog_sex', 'comor_hypertensi', 'comor_obesity']
 )
 
-print("\n--- PHASE: PRE-PROCESSING (CASE 2) ---")
-pipeline_c2.preprocess_data()
+# 3. Fit using a Custom Formula
+# This allows testing interactions like Sex * Obesity
+custom_formula = "duration_col + outcome_binary ~ demog_sex * comor_obesity + comor_hypertensi"
 
-print("\n--- PHASE: MODEL FITTING (CASE 2) ---")
-pipeline_c2.fit(penalizer=0.1)
+print("Fitting Model Case 2 with Formula...")
+pipeline_c2.fit(formula=custom_formula, penalizer=0.1)
 
-print("\n--- PHASE: SUMMARY AND DIAGNOSTICS (CASE 2) ---")
+# 4. Summary with Martingale Residuals
+# Useful for checking linearity of continuous predictors
 pipeline_c2.summary(
-    plots=['forest_plot', 'roc_auc'], 
-    target_time=12.0
+    performance=True,
+    assumptions=True,
+    plots=['martingale']
 )
-
 
 print("\n" + "="*20 + " ALL CASES COMPLETE " + "="*20)
