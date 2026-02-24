@@ -4,9 +4,9 @@ import warnings
 from lifelines import CoxPHFitter
 from sklearn.metrics import roc_curve, roc_auc_score
 
-from rapid_preprocess import RapidPreprocessor
-from rapid_plots import RapidPlots
-from pipeline import RAPID_BasePipeline
+from isaric.pipelines.modules.rapid_preprocess import RapidPreprocessor
+from isaric.pipelines.modules.rapid_plots import RapidPlots
+from isaric.pipelines.pipeline import RAPID_BasePipeline
 
 
 class RAPID_survival(RAPID_BasePipeline):

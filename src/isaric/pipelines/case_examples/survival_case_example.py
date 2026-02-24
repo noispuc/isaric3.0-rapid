@@ -3,7 +3,7 @@
 import pandas as pd
 import warnings
 # Import the updated survival class
-from survival import RAPID_survival
+from isaric.pipelines.survival import RAPID_survival
 
 # Ignore standard runtime warnings during optimization steps
 warnings.filterwarnings('ignore', category=RuntimeWarning)
@@ -13,8 +13,8 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 try:
     print("--- 1. Loading DataFrames ---")
     # Load model and map datasets from CSV files
-    df_model = pd.read_csv('df_model.csv')
-    df_map = pd.read_csv('df_map.csv')
+    df_model = pd.read_csv('isaric3.0-rapid/data/df_model.csv')
+    df_map = pd.read_csv('isaric3.0-rapid/data/df_map.csv')
     print(f"Datasets loaded successfully. Rows in Case 1: {len(df_model)}.")
 except FileNotFoundError:
     print("ERROR: CSV files not found in the execution directory. Check 'df_model.csv' and 'df_map.csv'.")
