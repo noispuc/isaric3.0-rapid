@@ -2,8 +2,8 @@
 #pio.renderers.default = "browser"
 import pandas as pd
 import warnings
-# Import the updated survival class
-from isaric.pipelines.survival import RAPID_survival
+
+from isaric.pipelines.survival_cox import RAPID_survival_cox
 
 # Ignore standard runtime warnings during optimization steps
 warnings.filterwarnings('ignore', category=RuntimeWarning)
@@ -27,7 +27,7 @@ print("\n" + "="*20 + " STARTING USER CASE 1 " + "="*20)
 
 # 1. Instantiation
 # predictors_list is handled internally by the class
-pipeline_c1 = RAPID_survival(
+pipeline_c1 = RAPID_survival_cox(
     data=df_model,
     duration_col='HospitalLengthStay_trunc',
     event_col='HospitalDischargeCode_trunc_bin',
@@ -78,7 +78,7 @@ df_cox_prep['outcome_binary'] = df_cox_prep['outco_binary_outcome'].map(
 )
 
 # 2. Instantiation with processed df_map
-pipeline_c2 = RAPID_survival(
+pipeline_c2 = RAPID_survival_cox(
     data=df_cox_prep,
     duration_col='duration_col',
     event_col='outcome_binary',

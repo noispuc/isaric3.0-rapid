@@ -9,22 +9,22 @@ from isaric.pipelines.modules.rapid_plots import RapidPlots
 from isaric.pipelines.pipeline import RAPID_BasePipeline
 
 
-class RAPID_survival(RAPID_BasePipeline):
+class RAPID_survival_cox(RAPID_BasePipeline):
     """
     Pipeline that enables [Survival analysis]. 
-    This class implements the technique of [survival analysis] as part of the ISARIC analytical pipeline, 
+    This class implements the technique of [survival-cox analysis] as part of the ISARIC analytical pipeline, 
     and generates reports useful for clinical research applied to epidemiological contexts.
     
     The structure is modular, allowing for future extensions into general Machine Learning pipelines.
     This class inherits from RAPID_Pipeline and implements all required abstract methods.
     """
 
-    def __init__(self, data: pd.DataFrame, duration_col: str, event_col: str, predictors: list, regression_type: str = "Multi"):
+    def __init__(self, data: pd.DataFrame, duration_col: str, event_col: str, predictors: list, method: str = "Multi"):
         self.data = data
         self.duration_col = duration_col
         self.event_col = event_col
         self.predictors = predictors
-        self.regression_type = regression_type
+        self.method = method
         
         self.fitted_model = None
         self.model_data = None 
@@ -97,7 +97,7 @@ class RAPID_survival(RAPID_BasePipeline):
 
     def _modeling(self, penalizer):
         """
-        Fits the survival model using the Cox Proportional Hazards algorithm.
+        Fits the survival_cox model using the Cox Proportional Hazards algorithm.
         """
         self.fitted_model = CoxPHFitter(penalizer=penalizer)
         self.fitted_model.fit(
@@ -241,7 +241,7 @@ class RAPID_survival(RAPID_BasePipeline):
             lower_col='LowerCI',
             upper_col='UpperCI',
             label_col='Variable',
-            title=f'Hazard Ratios ({self.regression_type})',
+            title=f'Hazard Ratios ({self.method})',
             null_value=1.0,
             log_scale=True
         ).show()

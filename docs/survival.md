@@ -1,8 +1,8 @@
 # `rapid_survival.RAPID_survival`
 
-`class survival_pipeline.RAPID_survival(data, duration_col, event_col, predictors)` [[source]](https://www.google.com/search?q=https://github.com/your-repo/survival_pipeline.py)
+`class survival_pipeline.RAPID_survival_cox(data, duration_col, event_col, predictors)` [[source]](https://www.google.com/search?q=https://github.com/your-repo/survival_pipeline.py)
 
-The `RAPID_survival` class is a specialized pipeline designed for **Survival Analysis** within epidemiological contexts. It facilitates the end-to-end workflow from raw data cleaning to the estimation of Cox Proportional Hazards models and the generation of clinical reports.
+The `RAPID_survival_cox` class is a specialized pipeline designed for **Survival Analysis** within epidemiological contexts. It facilitates the end-to-end workflow from raw data cleaning to the estimation of Cox Proportional Hazards models and the generation of clinical reports.
 
 This class inherits from `RAPID_Pipeline` and implements a modular structure that ensures consistency across different analytical tasks.
 
@@ -21,24 +21,12 @@ A list of feature names to be used as covariates in the survival model.
 
 ### Methods
 
-#### `preprocess_data(formula=None)`
-
-Triggers the internal cleaning and preprocessing workflow, including handling missing values and design matrix generation.
-
-* **Parameters:**
-* **formula** (*str, optional*): An R-style formula for specifying complex interactions or transformations.
-
-
-* **Returns:**
-* **model_data** (*pd.DataFrame*): The processed dataframe ready for modeling.
-
-
-
-#### `fit(labels=None, penalizer=0.1)`
+#### `fit(formula=None, labels=None, penalizer=0.1)`
 
 Executes the full modeling sequence. If the data has not been preprocessed, it runs `preprocess_data` automatically.
 
 * **Parameters:**
+* **formula** (*str, optional*): A dictionary mapping internal column names to "pretty" labels for reporting.
 * **labels** (*dict, optional*): A dictionary mapping internal column names to "pretty" labels for reporting.
 * **penalizer** (*float, default=0.1*): L2 regularization parameter to improve model stability and prevent overfitting.
 
@@ -52,22 +40,6 @@ Reports the Cox model findings and triggers visualization tools.
 * **plots** (*list of str, optional*): Types of plots to generate. Supported: `['forest_plot', 'roc_auc']`.
 * **target_time** (*float, optional*): The specific time point used for calculating ROC curves and AUC.
 
-
-
----
-
-### Internal Workflow (Abstract Methods)
-
-As a subclass of `RAPID_Pipeline`, this class implements several private methods that handle the heavy lifting:
-
-| Method | Description |
-| --- | --- |
-| `_data_cleaning` | Removes rows with missing values in critical columns. |
-| `_preprocessing` | Uses `RapidPreprocessor` to handle collinearity and zero-variance features. |
-| `_modeling` | Fits the `lifelines.CoxPHFitter` to the prepared data. |
-| `_model_evaluation` | Calculates Hazard Ratios (HR), Confidence Intervals, and p-values. |
-
----
 
 ### Examples
 
