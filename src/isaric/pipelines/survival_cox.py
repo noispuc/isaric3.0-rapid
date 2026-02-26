@@ -9,7 +9,7 @@ from isaric.pipelines.modules.rapid_plots import RapidPlots
 from isaric.pipelines.pipeline import RAPID_BasePipeline
 
 
-class RAPID_survival_cox(RAPID_BasePipeline):
+class RAPID_SurvivalCox(RAPID_BasePipeline):
     """
     Pipeline that enables [Survival analysis]. 
     This class implements the technique of [survival-cox analysis] as part of the ISARIC analytical pipeline, 

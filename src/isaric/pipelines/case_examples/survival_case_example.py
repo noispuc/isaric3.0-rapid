@@ -3,7 +3,7 @@
 import pandas as pd
 import warnings
 
-from isaric.pipelines.survival_cox import RAPID_survival_cox
+from isaric.pipelines.survival_cox import RAPID_SurvivalCox
 
 # Ignore standard runtime warnings during optimization steps
 warnings.filterwarnings('ignore', category=RuntimeWarning)

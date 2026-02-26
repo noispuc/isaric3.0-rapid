@@ -25,6 +25,8 @@ class MyNewModel(RAPID_Pipeline):
 
 We utilize **Abstract Base Classes (ABCs)** to define the skeleton of our algorithms. This enforcement ensures that developers implement the necessary logic before the code can even be instantiated.
 
+> All new pipelines must inherit from `RAPID_Pipeline` available at as it implement a modular structure that ensures consistency across different analytical tasks.
+
 * **Mandatory Implementation:** You are required to override specific abstract methods defined in the parent classes.
 * **Validation:** Use the `@abstractmethod` decorator from the `abc` module when proposing new base structures.
 * **Internal Logic:** Always use the internal helper methods provided by `RAPID_Pipeline` for data validation and logging to keep the scientific output consistent.
@@ -52,7 +54,7 @@ Consistency in naming conventions is non-negotiable. This prevents confusion whe
 
 ---
 
-## ✅ Contribution Checklist
+## ✅ Contribution Pull Request (PR) Checklist
 
 Before submitting a Pull Request, ensure that:
 
@@ -63,19 +65,3 @@ Before submitting a Pull Request, ensure that:
 * [ ] Documentation strings (Docstrings) follow the NumPy/SciPy format.
 
 ---
-
-
-### Internal Workflow (Abstract Methods)
-
-As a subclass of `RAPID_Pipeline`, this class implements several private methods that handle the heavy lifting:
-
-| Method | Description |
-| --- | --- |
-| `_data_cleaning` | Removes rows with missing values in critical columns. |
-| `_preprocessing` | Uses `RapidPreprocessor` to handle collinearity and zero-variance features. |
-| `_modeling` | Fits the `lifelines.CoxPHFitter` to the prepared data. |
-| `_model_evaluation` | Calculates Hazard Ratios (HR), Confidence Intervals, and p-values. |
-
----
-
-> All new pipelines must inherit from `RAPID_Pipeline` available at as it implement a modular structure that ensures consistency across different analytical tasks.

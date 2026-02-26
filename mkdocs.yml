@@ -11,7 +11,7 @@ nav:
     - Models:
       - RAPID_LogisticRegression: logistic_regression.md
       - RAPID_LinearRegression: linear_regression.md
-      - RAPID_survival: survival.md
+      - RAPID_survival_cox: survival.md
   - For contributors and developers:
     - Guidelines: contributors_and_developers.md
 
