@@ -1,8 +1,11 @@
-# `rapid_survival.RAPID_survival`
+# `survival_cox.RAPID_survival_cox`
 
 `class survival_pipeline.RAPID_survival_cox(data, duration_col, event_col, predictors)` [[source]](https://www.google.com/search?q=https://github.com/your-repo/survival_pipeline.py)
 
-The `RAPID_survival_cox` class is a specialized pipeline designed for **Survival Analysis** within epidemiological contexts. It facilitates the end-to-end workflow from raw data cleaning to the estimation of Cox Proportional Hazards models and the generation of clinical reports.
+>The Cox Proportional Hazards Model is a widely used method in survival analysis to assess the effect of predictor variables on survival time. It is particularly valuable because it does not require specifying the underlying distribution of survival times, making it a semi-parametric model.
+---
+
+The `RAPID_survival_cox` class is a specialized pipeline designed for **Survival Analysis** within epidemiological contexts. It facilitates the end-to-end workflow from raw data to the estimation of Cox Proportional Hazards models and the generation of clinical reports.
 
 This class inherits from `RAPID_Pipeline` and implements a modular structure that ensures consistency across different analytical tasks.
 
@@ -12,9 +15,9 @@ This class inherits from `RAPID_Pipeline` and implements a modular structure tha
 The input dataset containing the variables for analysis.
 * **duration_col** (*str*):
 The name of the column representing time-to-event (e.g., days until discharge or death).
-* **event_col** (*str*):
+* **dependent_var** (*str*):
 The name of the binary column where `1` indicates the event occurred and `0` indicates censoring.
-* **predictors** (*list of str*):
+* **independent_vars** (*list of str*):
 A list of feature names to be used as covariates in the survival model.
 
 ---
@@ -26,7 +29,7 @@ A list of feature names to be used as covariates in the survival model.
 Executes the full modeling sequence. If the data has not been preprocessed, it runs `preprocess_data` automatically.
 
 * **Parameters:**
-* **formula** (*str, optional*): A dictionary mapping internal column names to "pretty" labels for reporting.
+* **formula** (*str, optional*):  R-style formula string from lists of column names for data transformation using formulas.
 * **labels** (*dict, optional*): A dictionary mapping internal column names to "pretty" labels for reporting.
 * **penalizer** (*float, default=0.1*): L2 regularization parameter to improve model stability and prevent overfitting.
 
@@ -69,7 +72,10 @@ pipeline.summary(plots=['forest_plot', 'roc_auc'], target_time=28)
 
 ### Notes
 
-> [!IMPORTANT]
+> [! IMPORTANT]
+
 > In this version, survival analysis is conducted solely using the listwise deletion method to address missing data.
 
+> To implement the Cox Proportional we used the <code>lifelines</code> library — a specialized package for survival analysis. It provides easy-to-use tools for fitting and interpreting models like Kaplan-Meier, Cox Proportional Hazards, and more. You can learn more about it's own official documentation at:
+https://lifelines.readthedocs.io
 ---

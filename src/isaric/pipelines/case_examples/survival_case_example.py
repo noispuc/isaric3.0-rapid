@@ -26,12 +26,12 @@ except FileNotFoundError:
 print("\n" + "="*20 + " STARTING USER CASE 1 " + "="*20)
 
 # 1. Instantiation
-# predictors_list is handled internally by the class
+# independent_vars_list is handled internally by the class
 pipeline_c1 = RAPID_survival_cox(
     data=df_model,
-    duration_col='HospitalLengthStay_trunc',
-    event_col='HospitalDischargeCode_trunc_bin',
-    predictors=[
+    duration_var='HospitalLengthStay_trunc',
+    dependent_var='HospitalDischargeCode_trunc_bin',
+    independent_vars=[
         'period', 'Idade_Agrupada2', 'ChronicHealthStatusName', 'obesity',
         'IsImmunossupression', 'IsSteroidsUse', 'IsSevereCopd', 'IsChfNyha',
         'cancer', 'ResourceIsRenalReplacementTherapy', 'ResourceIsVasopressors',
@@ -70,7 +70,7 @@ print("\n" + "="*20 + " STARTING USER CASE 2 (df_map processing) " + "="*20)
 # 1. Specific data preparation for df_map
 df_cox_prep = df_map.copy()
 # Converting dates and calculating duration
-df_cox_prep['duration_col'] = (pd.to_datetime(df_cox_prep['outco_date']) - 
+df_cox_prep['duration_var'] = (pd.to_datetime(df_cox_prep['outco_date']) - 
                                pd.to_datetime(df_cox_prep['dates_admdate'])).dt.days
 # Mapping outcomes to binary
 df_cox_prep['outcome_binary'] = df_cox_prep['outco_binary_outcome'].map(
@@ -80,20 +80,20 @@ df_cox_prep['outcome_binary'] = df_cox_prep['outco_binary_outcome'].map(
 # 2. Instantiation with processed df_map
 pipeline_c2 = RAPID_survival_cox(
     data=df_cox_prep,
-    duration_col='duration_col',
-    event_col='outcome_binary',
-    predictors=['demog_sex', 'comor_hypertensi', 'comor_obesity']
+    duration_var='duration_var',
+    dependent_var='outcome_binary',
+    independent_vars=['demog_sex', 'comor_hypertensi', 'comor_obesity']
 )
 
 # 3. Fit using a Custom Formula
 # This allows testing interactions like Sex * Obesity
-custom_formula = "duration_col + outcome_binary ~ demog_sex * comor_obesity + comor_hypertensi"
+custom_formula = "duration_var + outcome_binary ~ demog_sex * comor_obesity + comor_hypertensi"
 
 print("Fitting Model Case 2 with Formula...")
 pipeline_c2.fit(formula=custom_formula, penalizer=0.1)
 
 # 4. Summary with Martingale Residuals
-# Useful for checking linearity of continuous predictors
+# Useful for checking linearity of continuous independent_vars
 pipeline_c2.summary(
     performance=True,
     assumptions=True,

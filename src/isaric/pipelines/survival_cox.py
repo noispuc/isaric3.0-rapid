@@ -19,11 +19,11 @@ class RAPID_survival_cox(RAPID_BasePipeline):
     This class inherits from RAPID_Pipeline and implements all required abstract methods.
     """
 
-    def __init__(self, data: pd.DataFrame, duration_col: str, event_col: str, predictors: list, method: str = "Multi"):
+    def __init__(self, data: pd.DataFrame, duration_var: str, dependent_var: str, independent_vars: list, method: str = "Multi"):
         self.data = data
-        self.duration_col = duration_col
-        self.event_col = event_col
-        self.predictors = predictors
+        self.duration_var = duration_var
+        self.dependent_var = dependent_var
+        self.independent_vars = independent_vars
         self.method = method
         
         self.fitted_model = None
@@ -68,7 +68,7 @@ class RAPID_survival_cox(RAPID_BasePipeline):
         """
         Handles initial data sanitization and missing values.
         """
-        required_cols = [self.duration_col, self.event_col] + self.predictors
+        required_cols = [self.duration_var, self.dependent_var] + self.independent_vars
         self.data = self.data.dropna(subset=required_cols)
     
     def _preprocessing(self, formula):
@@ -80,8 +80,8 @@ class RAPID_survival_cox(RAPID_BasePipeline):
         y, X, _ = RapidPreprocessor.prepare_data(
             df=self.data,
             formula=formula,
-            target_cols=[self.duration_col, self.event_col],
-            predictor_cols=self.predictors, 
+            target_cols=[self.duration_var, self.dependent_var],
+            predictor_cols=self.independent_vars, 
             intercept=False
         )
 
@@ -102,8 +102,8 @@ class RAPID_survival_cox(RAPID_BasePipeline):
         self.fitted_model = CoxPHFitter(penalizer=penalizer)
         self.fitted_model.fit(
             self.model_data, 
-            duration_col=self.duration_col, 
-            event_col=self.event_col
+            duration_var=self.duration_var, 
+            dependent_var=self.dependent_var
         )
     
     # ------------------------------------------------------------------
@@ -253,10 +253,10 @@ class RAPID_survival_cox(RAPID_BasePipeline):
         """
         residuals = self.fitted_model.compute_residuals(self.model_data, 'martingale')
         
-        # We iterate over model_data columns instead of predictors 
+        # We iterate over model_data columns instead of predictors(independent_vars) 
         # to handle formula-generated names (like demog_sex[T.Male])
         cols_to_plot = [c for c in self.model_data.columns 
-                        if c not in [self.duration_col, self.event_col]]
+                        if c not in [self.duration_var, self.dependent_var]]
 
         for col in cols_to_plot:
             # Only plot for continuous-like variables (more than 10 unique values)
@@ -282,8 +282,8 @@ class RAPID_survival_cox(RAPID_BasePipeline):
         """
         Internal helper for ROC calculation and rendering.
         """
-        T = self.model_data[self.duration_col]
-        E = self.model_data[self.event_col]
+        T = self.model_data[self.duration_var]
+        E = self.model_data[self.dependent_var]
         risk_scores = self.fitted_model.predict_partial_hazard(self.model_data).values
         
         mask = (T <= target_time) & (E == 1) | (T > target_time)
