@@ -9,8 +9,7 @@ In this phase, you load your data and define the specific columns necessary for 
 
 ```python
 import pandas as pd
-# Assuming the file is saved as rapid_pipeline.py
-from rapid_pipeline import RAPID_pipeline 
+from src.isaric.pipelines.survival_cox.py import RAPID_SurvivalCox 
 
 # Load your prepared dataset (Example: df_model.csv from User Case 1)
 try:
@@ -20,9 +19,9 @@ except FileNotFoundError:
     exit()
 
 # Define the necessary columns
-DURATION_COL = 'HospitalLengthStay_trunc'
-EVENT_COL = 'HospitalDischargeCode_trunc_bin'
-PREDICTORS = [
+DURATION_VAR = 'HospitalLengthStay_trunc'
+DEPENDENT_VAR = 'HospitalDischargeCode_trunc_bin'
+INDEPENDENT_VARS = [
     'period', 'Idade_Agrupada2', 'ChronicHealthStatusName', 'obesity',
     'IsImmunossupression', 'IsSteroidsUse', 'IsSevereCopd', 'IsChfNyha',
     'cancer', 'ResourceIsRenalReplacementTherapy', 'ResourceIsVasopressors',
@@ -39,9 +38,9 @@ The `.fit()` method calls the internal `.preprocess_data()` to clean and encode 
 # 1. Initialize the Pipeline (Note: Class name adapted for the tutorial)
 cox_pipeline = RAPID_pipeline(
     data=df_model,
-    duration_col=DURATION_COL,
-    event_col=EVENT_COL,
-    predictors=PREDICTORS
+    duration_var=DURATION_COL,
+    dependent_var=EVENT_COL,
+    independent_vars=PREDICTORS
 )
 
 # 2. Fit the Model (Phase 2)
@@ -49,10 +48,16 @@ print("\n--- PHASE 2: FITTING THE MODEL ---")
 cox_pipeline.fit() 
 # Output: Cox PH model fitted successfully on XXXXX observations.
 ```
+In the 'fit' method you can also use data 
+
 
 ### 1.3. Running the Full Summary and Diagnostics (Phase 3)
 
 The `.summary()` method automatically prints the publication-ready table, model fit metrics, and generates all requested plots.
+
+---
+> [!IMPORTANT] As many assumptions and validation metrics in the Survival-Cox method are visualized as graphics, they are called in "plots" and not "assumptions"
+--- 
 
 ```python
 # List the plots you want to generate
@@ -83,6 +88,8 @@ The output table (generated first by `.summary()`) provides the primary interpre
 
   * **HR \> 1**: The covariate **increases** the risk of the event (shorter survival).
   * **HR \< 1**: The covariate **decreases** the risk of the event (longer survival).
+  
+
 
 ### 2.2. Checking Proportional Hazards (PH) Assumption
 
@@ -90,6 +97,11 @@ The PH assumption requires that the effect of a covariate remains constant over 
 
   * **Method:** `_plot_schoenfeld_residuals(covariate_name)` (Called internally by `.summary()`)
   * **Interpretation:** The statistical test output and the plot of Schoenfeld residuals confirm if the assumption holds.
+
+
+---
+> [!IMPORTANT] As many assumptions and validation metrics in the Survival-Cox method are visualized as graphics, they are called in "plots" and not "assumptions"
+--- 
 
 ### 2.3. Checking Linearity (Martingale/Deviance Residuals)
 
