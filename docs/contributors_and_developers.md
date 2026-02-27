@@ -5,6 +5,8 @@ Thank you for your interest in contributing to the RAPID Pipeline development!
  To maintain consistency, cientific integrity and performance of our tools, across biostatistical analyses and machine learning models, we follow a strict architectural pattern. All contributors must adhere to the standards outlined below.
 
 ---
+> 🔍 It is highly important to follow the PEP 8 style guide to keep the code readable, clean, and consistent. 
+---
 
 ## The RAPID_Pipeline Base Class
 
@@ -39,7 +41,6 @@ To provide a unified experience for biostatisticians and researchers, every mode
 
 1. **`.fit(data, **params)`**: The primary method for training or fitting the statistical model. It must handle data validation internally.
 2. **`.summary()`**: Must return a structured overview of the results (e.g., coefficients, p-values, confidence intervals). This is the "scientific" view of the model.
-3. **`.report()`**: Generates a comprehensive, human-readable output (often in Markdown or LaTeX) suitable for clinical or biological research documentation.
 
 ---
 
@@ -60,8 +61,9 @@ Before submitting a Pull Request, ensure that:
 
 * [ ] Your class inherits from `RAPID_Pipeline`.
 * [ ] All abstract methods are fully implemented.
-* [ ] The `fit`, `summary`, and `report` methods follow the library's output standards.
+* [ ] The `fit` and `summary`methods follow the library's output standards.
 * [ ] Type hints are included for all arguments and return values.
-* [ ] Documentation strings (Docstrings) follow the NumPy/SciPy format.
+* [ ] Documentation follow correct format.
+* [ ] The new class follow PEP 8 style guide
 
 ---

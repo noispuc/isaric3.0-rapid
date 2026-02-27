@@ -32,6 +32,8 @@ Executes the full modeling sequence.
 
 * **Parameters:**
 * **formula** (*str, optional*):  R-style formula string from lists of column names for data transformation using formulas.
+
+    Formulas are useful because they provide a concise and explicit specification for how data should be prepared for a model.
 * **labels** (*dict, optional*): A dictionary mapping internal column names to "pretty" labels for reporting.
 * **penalizer** (*float, default=0.1*): L2 regularization parameter to improve model stability and prevent overfitting.
 
@@ -62,7 +64,7 @@ Reports the Cox model findings and triggers visualization tools.
 Below is a standard implementation of the survival pipeline:
 
 ```python
-from survival_pipeline import RAPID_survival
+from survival_cox import RAPID_SurvivalCox
 
 # 1. Initialize the pipeline
 pipeline = RAPID_SurvivalCox(
@@ -87,7 +89,34 @@ pipeline.summary(
 
 ```
 
-### Notes
+Here is a similar example but with the use of formulas
+
+```python
+# Instantiation with processed df_map
+pipeline_c2 = RAPID_SurvivalCox(
+    data=df_map,
+    duration_var='duration_var',
+    dependent_var='outcome_binary',
+    independent_vars=['demog_sex', 'comor_hypertensi', 'comor_obesity']
+)
+
+# 3. Fit using a Custom Formula
+# This allows testing interactions like Sex * Obesity
+custom_formula = "duration_var + outcome_binary ~ demog_sex * comor_obesity + comor_hypertensi"
+
+print("Fitting Model Case 2 with Formula...")
+pipeline_c2.fit(formula=custom_formula, penalizer=0.1)
+
+# 4. Summary with Martingale Residuals
+# Useful for checking linearity of continuous independent_vars
+pipeline_c2.summary(
+    performance=True,
+    assumptions=True,
+    plots=['martingale']
+)
+
+```
+### Development notes
 
 > [! IMPORTANT]
 
@@ -95,6 +124,9 @@ pipeline.summary(
 
 > To implement the Cox Proportional we used the <code>lifelines</code> library — a specialized package for survival analysis. It provides easy-to-use tools for fitting and interpreting models like Kaplan-Meier, Cox Proportional Hazards, and more. You can learn more about it's own official documentation at:
 https://lifelines.readthedocs.io
+
+> To implement the formulas for personalized X and y matrices generation we used <code>Formulaic</code>. A high-performance implementation of Wilkinson formulas for Python, which are very useful for transforming dataframes into a form suitable for ingestion into various modelling frameworksYou can learn more about it's own official documentation at:
+https://matthewwardrop.github.io/formulaic/latest/
 ---
 ### Statistical Notes
 **1. Hazard Function in the Cox Model**

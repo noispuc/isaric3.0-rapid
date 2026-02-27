@@ -27,7 +27,7 @@ print("\n" + "="*20 + " STARTING USER CASE 1 " + "="*20)
 
 # 1. Instantiation
 # independent_vars_list is handled internally by the class
-pipeline_c1 = RAPID_survival_cox(
+pipeline_c1 = RAPID_SurvivalCox(
     data=df_model,
     duration_var='HospitalLengthStay_trunc',
     dependent_var='HospitalDischargeCode_trunc_bin',
@@ -78,7 +78,7 @@ df_cox_prep['outcome_binary'] = df_cox_prep['outco_binary_outcome'].map(
 )
 
 # 2. Instantiation with processed df_map
-pipeline_c2 = RAPID_survival_cox(
+pipeline_c2 = RAPID_SurvivalCox(
     data=df_cox_prep,
     duration_var='duration_var',
     dependent_var='outcome_binary',
