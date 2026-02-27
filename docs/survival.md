@@ -1,19 +1,21 @@
 # `survival_cox.RAPID_SurvivalCox`
 
-`class survival_pipeline.RAPID_SurvivalCox(data, duration_col, event_col, predictors)` [[source]](https://github.com/noispuc/isaric3.0-rapid/blob/main/src/isaric/pipelines/)
+`class survival_pipeline.RAPID_SurvivalCox(data, duration_var, dependent_var, independent_vars)` [[source]](https://github.com/noispuc/isaric3.0-rapid/blob/main/src/isaric/pipelines/)
 
->The Cox Proportional Hazards Model is a widely used method in survival analysis to assess the effect of predictor variables on survival time. It is particularly valuable because it does not require specifying the underlying distribution of survival times, making it a semi-parametric model.
+> Suvival analysis is a branch of statistics dedicated to analysing the time until one or more events occur (time-to-event). The Cox Proportional Hazards Model is a semi-parametric regression model used to assess the effect of predictor variables on survival time. It does not require specifying the underlying distribution of survival times, only that the hazard ratio between any two individuals remains constant over time. 
+
+
 ---
 
 The `RAPID_SurvivalCox` class is a specialized pipeline designed for **Survival Analysis** within epidemiological contexts. It facilitates the end-to-end workflow from raw data to the estimation of Cox Proportional Hazards models and the generation of clinical reports.
 
-This class inherits from `RAPID_Pipeline` and implements a modular structure that ensures consistency across different analytical tasks.
+
 
 ### Parameters
 
 * **data** (*pd.DataFrame*):
 The input dataset containing the variables for analysis.
-* **duration_col** (*str*):
+* **duration_var** (*str*):
 The name of the column representing time-to-event (e.g., days until discharge or death).
 * **dependent_var** (*str*):
 The name of the binary column where `1` indicates the event occurred and `0` indicates censoring.
@@ -26,7 +28,7 @@ A list of feature names to be used as covariates in the survival model.
 
 #### `fit(formula=None, labels=None, penalizer=0.1)`
 
-Executes the full modeling sequence. If the data has not been preprocessed, it runs `preprocess_data` automatically.
+Executes the full modeling sequence.
 
 * **Parameters:**
 * **formula** (*str, optional*):  R-style formula string from lists of column names for data transformation using formulas.
@@ -35,12 +37,23 @@ Executes the full modeling sequence. If the data has not been preprocessed, it r
 
 
 
-#### `summary(plots=None, target_time=None)`
+#### `summary(assumptions=False, performance=True, plots=None, target_time=None)`
 
 Reports the Cox model findings and triggers visualization tools.
 
 * **Parameters:**
-* **plots** (*list of str, optional*): Types of plots to generate. Supported: `['forest_plot', 'roc_auc']`.
+ * **assumptions** (*bool, default=False*): If `True`, displays results of assumption tests including:
+    * Multicollinearity (VIF)
+    * Influential Outliers (Cook's Distance, Leverage, DFBetas)
+ * **performance** (*bool, default=False*): If `True`, displays classification performance metrics including:
+    * Accuracy
+    * Precision
+    * Recall
+    * F1 Score
+    * Log Loss
+    * ROC AUC Score
+* **plots** (*list of str, optional*): Types of plots to generate. Supported options:
+    * `['forest_plot', 'roc_auc', 'martingale']`.
 * **target_time** (*float, optional*): The specific time point used for calculating ROC curves and AUC.
 
 
@@ -79,6 +92,177 @@ pipeline.summary(plots=['forest_plot', 'roc_auc'], target_time=28)
 > To implement the Cox Proportional we used the <code>lifelines</code> library — a specialized package for survival analysis. It provides easy-to-use tools for fitting and interpreting models like Kaplan-Meier, Cox Proportional Hazards, and more. You can learn more about it's own official documentation at:
 https://lifelines.readthedocs.io
 ---
+### Statistical Notes
+**1. Hazard Function in the Cox Model**
+
+<dd>
+
+The hazard function, denoted as $h(t)$, represents the instantaneous risk of an event occurring at time $t$, given survival up to that time. The Cox model assumes that this hazard function can be expressed as:
+
+$$
+h(t | X) = h_0(t) e^{(\beta_1 X_1 + \beta_2 X_2 + ... + \beta_p X_p)}
+$$
+
+where:
+
+
+*   $h_0(t)$ is the baseline hazard function, representing the risk when all predictor variables are zero.
+*   $X_1, X_2, ..., X_p$ are the predictor variables (covariates).
+*   $\beta_1, \beta_2, ..., \beta_p$ are the coefficients that measure the impact of each predictor on survival.
+
+
+This formulation allows us to analyze the effect of covariates on survival without making assumptions about the baseline hazard $h_0(t)$.
+
+<dt>
+
+**2. Proportional Hazards Assumption**
+
+<dd>
+
+The term proportional hazards comes from the assumption that the hazard ratios between individuals remain constant over time. That is, the effect of a covariate does not change as time progresses. Mathematically, for two individuals with predictor values $x_A$ and $x_B$:
+
+$$
+\frac{h(t | X = xA)}{h(t | X = xB)} = e^{(\beta_1 (x_{A1} - x_{B1}) + ... + \beta_p (x_{Ap} - x_{Bp}))}
+$$
+
+Since $h_0(t)$ cancels out, the hazard ratio is independent of time $t$.
+
+If this assumption does not hold, alternative models like time-dependent covariates or stratified Cox models may be necessary.
+
+<dt>
+
+<br>
+
+---
+
+<br>
+
+**Interpreting the Cox Model**
+
+**1. Hazard Ratio ($\mathrm{HR}$)**
+
+<dd>
+
+The hazard ratio (HR) quantifies the effect of a predictor variable on survival. It is calculated as:
+
+$$
+\mathrm{HR} = e^{\beta}
+$$
+
+where:
+
+
+*   If $\mathrm{HR} > 1$, the predictor increases the hazard (higher risk, shorter survival time).
+
+*   If $\mathrm{HR} < 1$, the predictor decreases the hazard (lower risk, longer survival time).
+
+*   If $\mathrm{HR} = 1$, the predictor has no effect on survival.
+
+
+<dt>
+
+**2. Confidence Intervals ($\mathrm{CI}$)**
+
+<dd>
+
+To assess statistical significance, we compute the 95% confidence interval (CI) for the hazard ratio:
+
+$$
+\mathrm{CI} = \left[ e^{(\beta - 1.96 \cdot  σ)}, e^{(\beta + 1.96 \cdot  σ)} \right]
+$$
+
+where ${σ}$ is the standard error of the coefficient.
+
+*   If the $\mathrm{CI}$ excludes 1, the result suggests a statistically significant association between the predictor and the hazard.
+*   If the $\mathrm{CI}$ includes 1, the data do not provide strong enough evidence to conclude that an association between the predictor and the hazard exists.
+
+
+<dt>
+
+**3. p-value**
+
+<dd>
+
+The p-value tests whether the predictor has a significant effect on survival:
+
+*   If p < 0.05, the variable is statistically significant.
+*   If p > 0.05, there is no strong evidence that the predictor affects survival.
+
+<dt>
+
+<br>
+
+---
+
+<br>
+
+**Advantages**
+
+
+*   No assumption on survival time distribution: Unlike parametric models, the Cox model does not require specifying the shape of the survival curve.
+
+*   Handles censored data well: It efficiently includes individuals for whom the event has not yet occurred.
+
+*   Interpretable coefficients: The exponentiated coefficients provide direct insights into risk factors.
+
+<br>
+
+---
+
+<br>
+
+
+**Limitations**
+
+*   Time-dependent covariates: While the basic Cox model assumes time-independent covariates, it can be extended to handle time-dependent covariates using appropriate data structures and modeling techniques.
+
+*   Baseline hazard is not estimated: The model focuses on relative risks rather than predicting absolute survival probabilities.
+
+<br>
+
+---
+
+<br>
+
+**Assumptions of the Cox Proportional Hazards Model**
+
+<dd>
+
+The Cox model relies on several critical assumptions that must hold for its estimates to be valid and interpretable. These assumptions relate to the nature of covariate effects, data structure, and censoring mechanisms.
+
+<br>
+
+* **Proportional Hazards Assumption**: This is the primary structural assumption of the Cox model. It states that the hazard ratios between individuals are constant over time. That is, the effect of a covariate is multiplicative with respect to the baseline hazard and does not vary during follow-up.
+  * **Implications**: Enables a time-invariant interpretation of covariate effects as hazard ratios.
+  * **If Violated**: Incorporate time-dependent covariate interactions or use stratified Cox models.
+  * **Evaluation**: Checked using Schoenfeld residuals or log(-log(survival)) vs. log(time) plots. Temporal trends indicate violations.
+
+<br>
+
+* **Linearity on the Log-Hazard Scale**: The model assumes a linear relationship between continuous covariates and the logarithm of the hazard function. This does not apply to categorical variables, which are handled through dummy encoding.
+  * **Implications**: Non-linearity may lead to biased effect estimates and reduced model fit.
+  * **If Violated**: Use polynomial terms or splines (e.g., restricted cubic splines) to better model the functional form.
+  * **Evaluation**: Martingale residuals plotted against covariates can reveal non-linear patterns.
+
+<br>
+
+* **Independence of Observations**: Survival times across individuals must be independent. This assumption may be violated in clustered or repeated-measures designs.
+  * **Implications**: Ignoring dependence leads to underestimated standard errors and invalid inferences.
+  * **If Violated**: Use frailty models or apply robust (clustered) standard errors.
+  * **Evaluation**: Not directly testable; however, study design review and examining residual structure across groups (e.g., hospitals) may reveal dependence.
+
+<br>
+
+* **Non-Informative Censoring**: The probability of being censored must be independent of the underlying event risk, conditional on covariates.
+  * **Implications**: Informative censoring can bias hazard ratios and survival estimates.
+  * **If Violated**: Consider joint models or alternative frameworks that explicitly model the censoring process.
+  * **Evaluation**: This cannot be formally tested with survival data alone. Assess whether censored individuals differ systematically from those with observed events (e.g., via descriptive statistics or survival curves stratified by censoring groups).
+
+<dt>
+
+<br>
+
+
 
 
 ### **References**
