@@ -35,7 +35,8 @@ Executes the full modeling sequence.
 
     * Formulas are useful because they provide a concise and explicit specification for how data should be prepared for a model.
 
-    The formulas for personalized X and y matrices generation we used <code>Formulaic</code>.
+    * The formulas for personalized X and y matrices generation were implemented with <code>Formulaic</code> library. You can learn more about it's own official documentation at: https://matthewwardrop.github.io/formulaic/latest/
+
 * **labels** (*dict, optional*): A dictionary mapping internal column names to "pretty" labels for reporting.
 * **penalizer** (*float, default=0.1*): L2 regularization parameter to improve model stability and prevent overfitting.
 
@@ -127,7 +128,7 @@ pipeline_c2.summary(
 > To implement the Cox Proportional we used the <code>lifelines</code> library — a specialized package for survival analysis. It provides easy-to-use tools for fitting and interpreting models like Kaplan-Meier, Cox Proportional Hazards, and more. You can learn more about it's own official documentation at:
 https://lifelines.readthedocs.io
 
-> To implement the formulas for personalized X and y matrices generation we used <code>Formulaic</code>. A high-performance implementation of Wilkinson formulas for Python, which are very useful for transforming dataframes into a form suitable for ingestion into various modelling frameworksYou can learn more about it's own official documentation at:
+> To implement the formulas for personalized X and y matrices generation we used <code>Formulaic</code>. A high-performance implementation of Wilkinson formulas for Python, which are very useful for transforming dataframes into a form suitable for ingestion into various modelling frameworks. You can learn more about it's own official documentation at:
 https://matthewwardrop.github.io/formulaic/latest/
 ---
 ### Statistical Notes
