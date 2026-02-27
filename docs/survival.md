@@ -33,7 +33,9 @@ Executes the full modeling sequence.
 * **Parameters:**
 * **formula** (*str, optional*):  R-style formula string from lists of column names for data transformation using formulas.
 
-    Formulas are useful because they provide a concise and explicit specification for how data should be prepared for a model.
+    * Formulas are useful because they provide a concise and explicit specification for how data should be prepared for a model.
+
+    The formulas for personalized X and y matrices generation we used <code>Formulaic</code>.
 * **labels** (*dict, optional*): A dictionary mapping internal column names to "pretty" labels for reporting.
 * **penalizer** (*float, default=0.1*): L2 regularization parameter to improve model stability and prevent overfitting.
 
