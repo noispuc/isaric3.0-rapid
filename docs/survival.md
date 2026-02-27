@@ -65,11 +65,11 @@ Below is a standard implementation of the survival pipeline:
 from survival_pipeline import RAPID_survival
 
 # 1. Initialize the pipeline
-pipeline = RAPID_survival(
+pipeline = RAPID_SurvivalCox(
     data=clinical_df,
-    duration_col='days_to_event',
-    event_col='outcome_death',
-    predictors=['age', 'sex', 'bmi', 'comorbidity_index']
+    duration_var='days_to_event',
+    dependent_var='outcome_death',
+    independent_vars=['age', 'sex', 'bmi', 'comorbidity_index']
 )
 
 # 2. Fit the model with specific labels for the output
@@ -79,7 +79,11 @@ pipeline.fit(
 )
 
 # 3. Generate summary and Forest Plot
-pipeline.summary(plots=['forest_plot', 'roc_auc'], target_time=28)
+pipeline.summary(
+    performance=True,
+    assumptions = True,
+    plots=['forest_plot', 'roc_auc'],
+    target_time=28)
 
 ```
 
