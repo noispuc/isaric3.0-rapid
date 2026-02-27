@@ -1,281 +1,244 @@
-# `rapid_regression.RAPID_LogisticRegression`
+# Logistic Regression
 
-`class logistic_regression.RAPID_LogisticRegression(data, outcome_str, predictors_list, regression_type='Multi', classification_threshold=0.5)` [[source]](__https://github.com/your-repo/logistic_regression.py__)
+The `RAPID_LogisticRegression` pipeline provides a full logistic regression analysis for binary outcomes. It is built on a Generalised Linear Model (GLM) framework using the Binomial family, and supports multiple link functions to accommodate different modelling assumptions. It is suited for clinical and epidemiological research where the outcome of interest is a binary event, such as mortality, readmission, or disease presence.
 
-The `RAPID_LogisticRegression` class is a specialized pipeline designed for **Logistic Regression Analysis** within epidemiological and clinical research contexts. It facilitates the end-to-end workflow from raw data cleaning to model fitting, diagnostic testing, classification performance evaluation, and the generation of publication-ready reports and visualizations.
-
-This class inherits from `RAPID_BaseRegression` and implements a modular structure that ensures consistency across different analytical tasks.
+!!! note "Outcome variable requirements"
+    The outcome variable must be binary and coded strictly as `0` and `1`. Any other coding will raise a validation error before the model is fitted.
 
 ---
+
+## Initialisation
+
+```python
+from isaric.pipelines.factory import RAPID_PipelineFactory
+
+factory = RAPID_PipelineFactory()
+
+model = factory.create(
+    "logistic",
+    data=df,
+    yvar="outcome",
+    predictors=["age", "sex", "bmi"],
+    regression_type="Multi"
+)
+```
 
 ### Parameters
 
-* **data** (*pd.DataFrame*):  
-  The input dataset containing the variables for analysis.
-
-* **outcome_str** (*str*):  
-  The name of the column representing the binary outcome variable (dependent variable). Should contain 0/1 or boolean values.
-
-* **predictors_list** (*list of str*):  
-  A list of feature names to be used as predictors (independent variables) in the regression model.
-
-* **regression_type** (*str, default='Multi'*):  
-  Specifies whether to perform univariate (`'Uni'`) or multivariate (`'Multi'`) regression analysis.
-
-* **classification_threshold** (*float, default=0.5*):  
-  Probability threshold for converting predicted probabilities to class labels. Values ≥ threshold are classified as 1, otherwise 0.
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data` | `pd.DataFrame` | required | The dataset to analyse. Must contain all outcome and predictor columns. Rows with missing values are dropped automatically. |
+| `yvar` | `str` | `None` | The name of the outcome (dependent) variable column. Must be binary and coded as 0/1. Required if `formula` is not provided. |
+| `predictors` | `list` | `None` | A list of predictor (independent) variable column names. Required if `formula` is not provided. |
+| `formula` | `str` | `None` | A Patsy-style formula string (e.g. `"outcome ~ age + sex"`). If provided, `yvar` and `predictors` are not required. |
+| `family` | `str` | `"binomial"` | The distributional family for the GLM. See [Supported Families and Links](#supported-families-and-links). |
+| `link` | `str` | `"logit"` | The link function for the GLM. See [Supported Families and Links](#supported-families-and-links). |
+| `regression_type` | `str` | `"Multi"` | Either `"Multi"` for multivariable regression or `"Uni"` for univariable regression. Affects column naming in the results table. |
+| `classification_threshold` | `float` | `0.5` | Probability threshold used to convert predicted probabilities into binary class predictions for classification metrics. |
 
 ---
 
-### Methods
+## fit()
 
-#### `fit(labels=None, cross_val=True, n_splits=5)`
-
-Executes the full modeling sequence. If the data has not been preprocessed, it runs `preprocess_data` automatically. Performs model fitting, assumption testing, performance metric calculation, and optional cross-validation.
-
-* **Parameters:**
-  * **labels** (*dict, optional*): A dictionary mapping internal column names to "pretty" labels for reporting (e.g., `{'age': 'Age (years)', 'smoking': 'Smoking Status'}`).
-  * **cross_val** (*bool, default=True*): Whether to perform k-fold cross-validation to assess model generalizability.
-  * **n_splits** (*int, default=5*): Number of folds for cross-validation.
-
----
-
-#### `summary(assumptions=False, performance=False, cross_val=False, plots=None, vif_threshold=5.0)`
-
-Reports the logistic regression findings and triggers visualization and diagnostic tools.
-
-* **Parameters:**
-  * **assumptions** (*bool, default=False*): If `True`, displays results of assumption tests including:
-    * Multicollinearity (VIF)
-    * Influential Outliers (Cook's Distance, Leverage, DFBetas)
-  * **performance** (*bool, default=False*): If `True`, displays classification performance metrics including:
-    * Accuracy
-    * Precision
-    * Recall
-    * F1 Score
-    * Log Loss
-    * ROC AUC Score
-  * **cross_val** (*bool, default=False*): If `True`, displays cross-validation results including accuracy scores across folds.
-  * **plots** (*list of str, optional*): Types of plots to generate. Supported options:
-    * `'forest_plot'` - Odds ratios with confidence intervals (log scale)
-    * `'roc_curve'` - ROC curve with AUC score
-    * `'confusion_matrix'` - Confusion matrix heatmap
-  * **vif_threshold** (*float, default=5.0*): Threshold for flagging problematic multicollinearity (VIF > threshold).
-
----
-
-### Diagnostic Tests
-
-#### 1. Multicollinearity (VIF)
-Detects correlation among predictors.
-- **Thresholds**:
-  - VIF < 5: Low multicollinearity (acceptable)
-  - VIF 5-10: Moderate multicollinearity (caution)
-  - VIF > 10: High multicollinearity (problematic)
-
-#### 2. Influential Outliers (Cook's Distance)
-Identifies observations with undue influence on the regression.
-- **Threshold**: 4/n (where n = sample size)
-- **Interpretation**: Points above threshold may be influential outliers
-
----
-
-### Classification Performance Metrics
-
-| Metric | Description | Interpretation |
-| --- | --- | --- |
-| **Accuracy** | Proportion of correct predictions | Overall correctness (0-1, higher is better) |
-| **Precision** | TP / (TP + FP) | Of predicted positives, how many are correct (0-1, higher is better) |
-| **Recall** | TP / (TP + FN) | Of actual positives, how many were caught (0-1, higher is better) |
-| **F1 Score** | Harmonic mean of precision and recall | Balanced metric (0-1, higher is better) |
-| **Log Loss** | Cross-entropy loss | Penalizes confident wrong predictions (lower is better) |
-| **ROC AUC** | Area under ROC curve | Discriminatory ability (0-1, higher is better) |
-
----
-
-### Examples
-
-#### Example 1: Basic Multivariate Logistic Regression
+Fits the model and runs all evaluation steps, including assumption testing, performance metrics, and optionally cross-validation.
 
 ```python
-from logistic_regression import RAPID_LogisticRegression
-
-# 1. Initialize the pipeline
-model = RAPID_LogisticRegression(
-    data=clinical_df,
-    outcome_str='hospital_death',
-    predictors_list=['age', 'sex', 'bmi', 'smoking_status', 'diabetes'],
-    regression_type='Multi'
-)
-
-# 2. Fit the model
-model.fit(cross_val=True, n_splits=5)
-
-# 3. View complete summary with all diagnostics
-model.summary(
-    assumptions=True,
-    performance=True,
-    cross_val=True,
-    plots=['forest_plot', 'roc_curve', 'confusion_matrix'],
-    vif_threshold=5.0
-)
-```
-
-#### Example 2: Univariate Analysis with Custom Labels
-
-```python
-# 1. Initialize for single predictor
-model = RAPID_LogisticRegression(
-    data=clinical_df,
-    outcome_str='icu_admission',
-    predictors_list=['sepsis'],
-    regression_type='Uni'
-)
-
-# 2. Fit with custom labels
 model.fit(
-    labels={'sepsis': 'Sepsis Diagnosis'},
-    cross_val=False
-)
-
-# 3. Simple performance summary
-model.summary(performance=True, plots=['forest_plot'])
-```
-
-#### Example 3: ROC Analysis and Model Evaluation
-
-```python
-# 1. Initialize the pipeline
-model = RAPID_LogisticRegression(
-    data=clinical_df,
-    outcome_str='cardiovascular_event',
-    predictors_list=['age', 'bmi', 'systolic_bp', 'diabetes', 'smoking_status'],
-    regression_type='Multi'
-)
-
-# 2. Fit the model
-model.fit(cross_val=False)
-
-# 3. Check classification performance and ROC curve
-model.summary(
-    performance=True,
-    plots=['roc_curve', 'confusion_matrix']
-)
-```
-
-#### Example 4: Publication-Ready Output
-
-```python
-# 1. Initialize with all relevant predictors
-predictors = ['age', 'sex', 'bmi', 'smoking_status', 'diabetes', 'hypertension']
-
-model = RAPID_LogisticRegression(
-    data=clinical_df,
-    outcome_str='mortality_30day',
-    predictors_list=predictors,
-    regression_type='Multi'
-)
-
-# 2. Fit with descriptive labels
-labels = {
-    'age': 'Age (years)',
-    'sex': 'Sex',
-    'bmi': 'Body Mass Index (kg/m²)',
-    'smoking_status': 'Current Smoker',
-    'diabetes': 'Type 2 Diabetes',
-    'hypertension': 'Hypertension'
-}
-
-model.fit(labels=labels, cross_val=True, n_splits=10)
-
-# 3. Generate comprehensive report
-model.summary(
-    assumptions=True,
-    performance=True,
+    labels={"age": "Age (years)", "sex": "Sex"},
     cross_val=True,
-    plots=['forest_plot', 'roc_curve'],
+    n_splits=5
+)
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `labels` | `dict` | `None` | A dictionary mapping raw variable names to human-readable labels for display in result tables. |
+| `cross_val` | `bool` | `True` | Whether to perform k-fold cross-validation after fitting. |
+| `n_splits` | `int` | `5` | Number of folds for cross-validation. Only used if `cross_val=True`. |
+
+---
+
+## summary()
+
+Displays results after fitting. All arguments are optional — pass only what you want to see.
+
+```python
+model.summary(
+    assumptions="all",
+    performance="all",
+    cross_val="all",
+    plots=["forest_plot", "roc_curve", "confusion_matrix"],
     vif_threshold=5.0
 )
-
-# Access the results DataFrame for export
-results_table = model.summary_df
-results_table.to_csv('logistic_regression_results.csv', index=False)
 ```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `assumptions` | `str` or `list` | `None` | Pass `"all"` to show all assumption tests, or a list of specific test names. `None` skips this section. |
+| `performance` | `str` or `list` | `None` | Pass `"all"` to show all performance metrics, or a list of specific metric names. `None` skips this section. |
+| `cross_val` | `str` or `list` | `None` | Pass `"all"` to show all cross-validation metrics, or a list of specific metric names. `None` skips this section. |
+| `plots` | `list` | `None` | A list of plot names to display. Options: `"forest_plot"`, `"roc_curve"`, `"confusion_matrix"`. |
+| `vif_threshold` | `float` | `5.0` | The threshold above which a VIF value is flagged as indicating multicollinearity. |
 
 ---
 
-### Accessing Results Programmatically
+## Assumption Tests
 
-After fitting, you can access various attributes:
+Assumption tests are run automatically during `fit()`. Results are accessible via `model.assumption_metrics_df`.
+
+### Available Metrics
+
+| Metric | Description | Accessed via |
+|--------|-------------|--------------|
+| Events Per Variable (EPV) | The number of outcome events per predictor variable. Values below 10 may lead to unstable coefficient estimates. | `model.epv` |
+| Influential Outliers Threshold | Cook's distance threshold (4/n). Observations exceeding this are flagged as influential. | `model.influential_outliers_threshold` |
+| Number of Influential Points | Count of observations with Cook's distance above the threshold. | `model.influential_points` |
+
+### Assumption Metrics Dataframe
+
+All assumption metrics are stored together in a single dataframe:
 
 ```python
-# Summary table with odds ratios
-print(model.summary_df)
+model.assumption_metrics_df
+```
 
-# Model object (statsmodels GLM)
-print(model.model.summary())
+### VIF Dataframe
 
-# Classification metrics
-print(f"Accuracy: {model.accuracy:.3f}")
-print(f"Precision: {model.precision:.3f}")
-print(f"Recall: {model.recall:.3f}")
-print(f"F1 Score: {model.f1:.3f}")
-print(f"ROC AUC: {model.auc:.3f}")
+Variance Inflation Factors for each predictor are stored separately:
 
-# Assumption test results
-print(model.vif_results)
-print(f"Influential points: {model.influential_points}")
+```python
+model.vif_df
+```
 
-# Cross-validation results
-if hasattr(model, 'cross_val_scores'):
-    print(f"CV Accuracy: {model.cross_val_scores}")
-    print(f"Mean CV Accuracy: {np.mean(model.cross_val_scores):.3f}")
+VIF values above `vif_threshold` (default 5.0) are flagged as indicating potential multicollinearity.
+
+### Selecting Specific Assumption Tests
+
+Pass a list of test names to `summary()` to display only those tests:
+
+```python
+model.summary(assumptions=["Events Per Variable (EPV)", "VIF", "Influential Outliers"])
+```
+
+Available names: `"Events Per Variable (EPV)"`, `"Influential Outliers Threshold"`, `"Number of Influential Points"`, `"VIF"`, `"Influential Outliers"`.
+
+---
+
+## Performance Metrics
+
+Performance metrics are computed automatically during `fit()`. Results are accessible via `model.performance_metrics_df`.
+
+### Available Metrics
+
+| Metric | Description | Accessed via |
+|--------|-------------|--------------|
+| Accuracy | Proportion of correctly classified observations, using `classification_threshold`. | `model.accuracy` |
+| Log Loss | Measures the uncertainty of predicted probabilities. Lower is better. | `model.logloss` |
+| Precision | Proportion of predicted positives that are true positives. | `model.precision` |
+| Recall | Proportion of actual positives correctly identified. | `model.recall` |
+| F1 Score | Harmonic mean of precision and recall. | `model.f1` |
+| AUC-ROC | Area under the receiver operating characteristic curve. Measures discrimination ability independent of threshold. | `model.auc` |
+| AIC | Akaike Information Criterion | `model.aic` |
+| BIC | Bayesian Information Criterion | `model.bic` |
+| LLF | Log-likelihood of the fitted model | `model.llf` |
+| McFadden R² | Pseudo R² based on log-likelihood ratio | `model.mcfadden_r2` |
+| Adjusted McFadden R² | McFadden R² penalised for model complexity | `model.mcfadden_adj_r2` |
+| Efron R² | Pseudo R² based on residual sum of squares | `model.efron_r2` |
+| Cox-Snell R² | Pseudo R² based on likelihood ratio, does not reach 1 for perfect models | `model.cox_snell_r2` |
+| Nagelkerke R² | Scaled version of Cox-Snell R², can reach 1 | `model.nagelkerke_r2` |
+| Tjur R² | Mean predicted probability for events minus mean predicted probability for non-events | `model.tjur_r2` |
+| Confusion Matrix | Counts of true negatives, false positives, false negatives, and true positives | `model.cm` |
+
+### Performance Metrics Dataframe
+
+```python
+model.performance_metrics_df
+```
+
+### Confusion Matrix
+
+The confusion matrix is stored as a 2x2 NumPy array and can be accessed directly:
+
+```python
+model.cm  # [[TN, FP], [FN, TP]]
+```
+
+### Selecting Specific Performance Metrics
+
+```python
+model.summary(performance=["Accuracy", "AUC-ROC", "F1 Score", "AIC", "Confusion Matrix"])
 ```
 
 ---
 
-### Notes
+## Cross-Validation Metrics
 
-> [!IMPORTANT]
-> This pipeline uses **statsmodels GLM with Binomial family** (logit link function) for logistic regression. This provides a unified interface with other regression types but uses **z-statistics** instead of t-statistics. For large samples, results are equivalent to maximum likelihood estimation.
+Cross-validation is run automatically during `fit()` when `cross_val=True`. Results are accessible via `model.cv_df`.
 
-> [!WARNING]
-> The pipeline automatically drops rows with `NaN` values in the `outcome_str` or any variable in `predictors_list` during the cleaning phase. Ensure missing data is appropriately handled before analysis or use imputation methods if needed.
+### Available Metrics
 
-> [!TIP]
-> For highly correlated predictors (VIF > 10), consider:
-> - Removing redundant variables
-> - Using regularized logistic regression (L1/L2 penalties)
-> - Combining correlated variables into composite scores
+| Metric | Description | Accessed via |
+|--------|-------------|--------------|
+| Mean Accuracy | Average classification accuracy across all folds | `model.cross_val_scores.mean()` |
+| Standard Deviation | Variability of accuracy across folds | `model.cross_val_scores.std()` |
+| Individual Fold Accuracies | Accuracy for each individual fold | `model.cross_val_scores` |
+
+### Cross-Validation Dataframe
+
+```python
+model.cv_df
+```
+
+### Selecting Specific CV Metrics
+
+```python
+model.summary(cross_val=["Mean Accuracy", "Standard Deviation"])
+```
 
 ---
 
-### Statistical Notes
+## Results Summary
 
-**Model Specification:**
-The fitted model takes the form:
+The odds ratio table produced after fitting is stored in `model.summary_df`. It contains one row per predictor and the following columns:
 
+| Column | Description |
+|--------|-------------|
+| `Variable` | Predictor name (or human-readable label if `labels` were provided) |
+| `OddsRatio (multi)` / `OddsRatio (uni)` | Exponentiated coefficient, interpreted as an odds ratio |
+| `LowerCI (multi)` / `LowerCI (uni)` | Lower bound of 95% confidence interval for the odds ratio |
+| `UpperCI (multi)` / `UpperCI (uni)` | Upper bound of 95% confidence interval for the odds ratio |
+| `p-value (multi)` / `p-value (uni)` | p-value for the coefficient |
+
+The `(multi)` or `(uni)` suffix depends on the `regression_type` set at initialisation.
+
+```python
+model.summary_df
 ```
-log(p / (1-p)) = β₀ + β₁x₁ + β₂x₂ + ... + βₖxₖ
-```
 
-Where:
-- p = P(Y=1|X) = probability of the outcome
-- p/(1-p) = odds of the outcome
-- β₀ = intercept (automatically included)
-- βᵢ = log odds ratio for predictor i
-- exp(βᵢ) = odds ratio for predictor i
+---
 
-**Interpreting Odds Ratios:**
-- **OR = 1**: No association (predictor has no effect)
-- **OR > 1**: Increased odds (e.g., OR = 2.0 means 2× higher odds)
-- **OR < 1**: Decreased odds (e.g., OR = 0.5 means 50% lower odds)
+## Supported Families and Links
 
-**Assumptions:**
-1. **Binary outcome**: Y must be 0 or 1
-2. **Independence**: Observations are independent
-3. **Linearity**: Linear relationship between predictors and log odds
-4. **No perfect multicollinearity**: Predictors are not perfectly correlated
-5. **Large sample size**: Generally need 10-15 events per predictor
+Logistic regression uses the Binomial family exclusively. The following link function combinations are supported and tested:
 
-The `summary()` method with `assumptions=True` tests multicollinearity and identifies influential outliers systematically.
+| Family | Link | Description |
+|--------|------|-------------|
+| `binomial` | `logit` | Standard logistic regression. Models the log-odds of the outcome. Default and most widely used. |
+| `binomial` | `probit` | Models the outcome via the inverse normal CDF. Common in econometrics and some epidemiological contexts. |
+| `binomial` | `cloglog` | Complementary log-log link. Appropriate when the probability of the event is very low or when the outcome has an underlying extreme value distribution. |
+
+---
+
+## Plots
+
+The following plots can be requested via `summary(plots=[...])`:
+
+| Plot name | Description |
+|-----------|-------------|
+| `"forest_plot"` | Displays odds ratios and 95% confidence intervals for each predictor on a log scale, with a reference line at 1 |
+| `"roc_curve"` | Receiver operating characteristic curve showing the trade-off between sensitivity and specificity across all thresholds, with AUC displayed |
+| `"confusion_matrix"` | Heatmap of true negatives, false positives, false negatives, and true positives at the specified `classification_threshold` |

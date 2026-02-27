@@ -18,8 +18,10 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     The structure is modular, allowing for future extensions into general Machine Learning pipelines.
     """
     
-    def __init__(self, data: pd.DataFrame, outcome_str: str, predictors_list: list, regression_type: str = "Multi"):
-        super().__init__(data=data, outcome_str=outcome_str, predictors_list=predictors_list, regression_type=regression_type)
+    def __init__(self, data: pd.DataFrame, yvar: str = None, predictors: list = None, 
+                formula: str = None, family: str = "gaussian", link: str = "identity", regression_type: str = "Multi"):
+        super().__init__(data=data, yvar=yvar, predictors=predictors, 
+                        formula=formula, family=family, link=link, regression_type=regression_type)
     
     # ------------------------------------------------------------------
     # PUBLIC METHODS
@@ -40,19 +42,26 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         if(cross_val):
             self._evaluate_cross_validation(n_splits)
 
-    def summary(self, assumptions: bool = False, performance: bool = False, cross_val: bool = False,
+    def summary(self, assumptions=None, performance=None, cross_val=None,
                 plots: list = None, vif_threshold: float = 5.0):
         """
         Reports the results of the linear regression, generating tables and plots.
 
         Args:
-            assumptions (bool): If True, shows results of assumptions checks (Independence of Errors, Normality of Errors, Multicolinearity, Influential Outliers)
-            performance (bool): If True, shows performance metrics (MSE, RMSE, MAE, R^2, Adjusted R^2)
-            plots (list, optional): List of plots ['forest_plot', 'residuals_vs_fitted', 'qq_plot']
-            cross_val (bool): Whether or not to show cross validation results.
+            assumptions: 'all' shows everything. A list of strings selects specific metrics.
+                        Available: 'Durbin-Watson', 'Shapiro-Wilk Statistic', 'Shapiro-Wilk p-value',
+                        'Influential Outliers Threshold', 'Number of Influential Points',
+                        'VIF', 'Influential Outliers'. None skips.
+            performance: 'all' shows everything. A list of strings selects specific metrics.
+                        Available: 'MSE', 'RMSE', 'MAE', 'R2', 'Adjusted R2', 'Mcfadden R2',
+                        'Adjusted Mcfadden R2', 'Efron R2', 'AIC', 'BIC', 'LLF'. None skips.
+            cross_val:   'all' shows everything. A list of strings selects specific metrics.
+                        Available: 'Mean CV MSE', 'Standard Deviation of CV MSE',
+                        'Individual Fold MSEs'. None skips.
+            plots (list): List of plots ['forest_plot', 'residuals_vs_fitted', 'qq_plot']
             vif_threshold (float): Threshold for flagging multicollinearity (default: 5.0)
         """
-        self._visualization(assumptions,performance,cross_val, plots, vif_threshold)
+        self._visualization(assumptions, performance, cross_val, plots, vif_threshold)
 
 
 
@@ -62,23 +71,23 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     def _validation():
         pass
 
-    def _visualization(self, assumptions: bool = True, performance: bool = False, cross_validation: bool = False, 
-                       plots: list = None, vif_threshold: float = 5.0):
-        if (assumptions):
-            self._report_assumptions(vif_threshold)
-        if (performance):
-            self._report_performance()
-        if (cross_validation):
+    def _visualization(self, assumptions=None, performance=None, cross_validation=None,
+                    plots: list = None, vif_threshold: float = 5.0):
+        if assumptions is not None:
+            self._report_assumptions(vif_threshold, metrics=assumptions)
+        if performance is not None:
+            self._report_performance(metrics=performance)
+        if cross_validation is not None:
             if not hasattr(self, 'cv_mse_scores') or self.cv_mse_scores is None:
                 print("Cross validation not performed after fit, cannot show results.")
             else:
-                self._report_cv_metrics()
+                self._report_cv_metrics(metrics=cross_validation)
         if plots is not None:
-            if('forest_plot' in plots):
+            if 'forest_plot' in plots:
                 self._forest_plot()
-            if('residuals_vs_fitted' in plots):
+            if 'residuals_vs_fitted' in plots:
                 self._residuals_vs_fitted()
-            if('qq_plot' in plots):
+            if 'qq_plot' in plots:
                 self._qq_plot()
 
     # ------------------------------------------------------------------
@@ -150,16 +159,16 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
 
     def _evaluate_mse(self):
-        self.mse = mean_squared_error(self.y, self.model.fittedvalues)
+        self.mse = mean_squared_error(self.y, self.fitted_model.fittedvalues)
         self.rmse = np.sqrt(self.mse)
 
     def _evaluate_mae(self):
-        self.mae = mean_absolute_error(self.y, self.model.fittedvalues)
+        self.mae = mean_absolute_error(self.y, self.fitted_model.fittedvalues)
 
     def _evaluate_r2(self):
-        p = int(self.model.df_model)
-        n = int(self.model.nobs)
-        self.r2 = r2_score(self.y, self.model.fittedvalues)
+        p = int(self.fitted_model.df_model)
+        n = int(self.fitted_model.nobs)
+        self.r2 = r2_score(self.y, self.fitted_model.fittedvalues)
         self.adjusted_r2 = 1 - (1 - self.r2) * ((n - 1) / (n - p - 1))
 
     def _evaluate_cross_validation(self, n_splits):
@@ -193,47 +202,61 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         """
         performance_data = {
             'Metric': [
-                'Mean Squared Error (MSE)',
-                'Root Mean Squared Error (RMSE)',
-                'Mean Absolute Error (MAE)',
-                'R² (Coefficient of Determination)',
-                'Adjusted R²'
+                'MSE',
+                'RMSE',
+                'MAE',
+                'R2',
+                'Adjusted R2',
+                'Mcfadden R2',
+                'Adjusted Mcfadden R2',
+                'Efron R2',
+                'AIC',
+                'BIC',
+                'LLF',
             ],
             'Value': [
                 f"{self.mse:.6f}",
                 f"{self.rmse:.6f}",
                 f"{self.mae:.6f}",
                 f"{self.r2:.6f}",
-                f"{self.adjusted_r2:.6f}"
+                f"{self.adjusted_r2:.6f}",
+                f"{self.mcfadden_r2:.6f}",
+                f"{self.mcfadden_adj_r2:.6f}",
+                f"{self.efron_r2:.6f}",
+                f"{self.aic:.6f}",
+                f"{self.bic:.6f}",
+                f"{self.llf:.6f}",
             ]
         }
-        
+
+            
         self.performance_metrics_df = pd.DataFrame(performance_data)
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (PERFORMANCE METRICS VISUALIZATION)
     # ------------------------------------------------------------------
-    def _report_performance(self):
-        """
-        Report performance metrics as a formatted dataframe.
-        """
+    def _report_performance(self, metrics=None):
         if self.performance_metrics_df is None:
             self._build_performance_metrics_df()
-        
+
+        df = self.performance_metrics_df
+        if metrics != 'all':
+            missing = set(metrics) - set(df['Metric'])
+            if missing:
+                print(f"Warning: the following performance metrics were not found: {missing}")
+            df = df[df['Metric'].isin(metrics)]
+
         print("=" * 80)
         print("PERFORMANCE METRICS")
         print("=" * 80)
-        print(self.performance_metrics_df.to_string(index=False))
+        print(df.to_string(index=False))
         print("=" * 80)
     
     # ------------------------------------------------------------------
     # PRIVATE METHODS (CROSS VALIDATION METRICS VISUALIZATION)
     # ------------------------------------------------------------------
 
-    def _report_cv_metrics(self):
-        """
-        Report cross-validation metrics as a formatted dataframe.
-        """
+    def _build_cv_df(self):
         cv_data = {
             'Metric': [
                 'Mean CV MSE',
@@ -246,9 +269,15 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
                 ', '.join([f"{score:.6f}" for score in self.cv_mse_scores])
             ]
         }
-        
-        cv_df = pd.DataFrame(cv_data)
-        
+        self.cv_df = pd.DataFrame(cv_data)
+
+    def _report_cv_metrics(self, metrics=None):
+        cv_df = self.cv_df
+        if metrics != 'all':
+            missing = set(metrics) - set(cv_df['Metric'])
+            if missing:
+                print(f"Warning: the following CV metrics were not found: {missing}")
+            cv_df = cv_df[cv_df['Metric'].isin(metrics)]
         print("=" * 80)
         print("CROSS-VALIDATION METRICS")
         print("=" * 80)
@@ -308,8 +337,8 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     def _residuals_vs_fitted(self):
         """Generate and display residuals vs fitted values plot."""
         fig = ResidualPlots.residuals_vs_fitted(
-            residuals=self.model.resid_response,
-            fitted_values=self.model.fittedvalues,
+            residuals=self.fitted_model.resid_response,
+            fitted_values=self.fitted_model.fittedvalues,
             title="Residuals vs Adjusted Values",
             xlabel="Adjusted Values",
             ylabel="Residuals"
@@ -319,7 +348,7 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     def _qq_plot(self):
         """Generate and display Q-Q plot for normality assessment."""
         fig = ResidualPlots.qq_plot(
-            residuals=self.model.resid_response,
+            residuals=self.fitted_model.resid_response,
             title='Normality of Errors: Q-Q Plot'
         )
         fig.show()
@@ -351,6 +380,7 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
 
     def _test_performance_metrics(self):
+        super()._test_performance_metrics()
         self._evaluate_mse()
         self._evaluate_mae()
         self._evaluate_r2()
@@ -366,10 +396,25 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     
     def _test_cross_validation(self, n_splits):
         self._evaluate_cross_validation(n_splits)
+        self._build_cv_df()
 
     # ------------------------------------------------------------------
     # FAMILY PROPERTY FOR THIS REGRESSION 
     # ------------------------------------------------------------------
     @property
-    def family(self):
-        return sm.families.Gaussian()
+    def _family_map(self):
+        return {
+            "gaussian":     sm.families.Gaussian,
+            "gamma":        sm.families.Gamma,
+            "inv_gaussian": sm.families.InverseGaussian,
+            "tweedie":      sm.families.Tweedie,
+            }
+
+    @property
+    def _link_map(self):
+        return {
+            "identity": sm.families.links.Identity,
+            "log":      sm.families.links.Log,
+            "inverse":  sm.families.links.InversePower,
+            "sqrt":     sm.families.links.Sqrt,
+            }

@@ -2,6 +2,7 @@ from abc import abstractmethod
 
 import pandas as pd
 import statsmodels.api as sm
+import numpy as np
 
 from isaric.pipelines.modules.rapid_preprocess import RapidPreprocessor
 from isaric.pipelines.modules.rapid_assumption import ModelAssumptionTester
@@ -10,11 +11,18 @@ from .pipeline import RAPID_BasePipeline
 
 
 class RAPID_BaseRegression(RAPID_BasePipeline):
-    def __init__(self, data: pd.DataFrame, outcome_str: str, predictors_list: list, regression_type: str = "Multi"):
-        self._run_data_validations(data, outcome_str, predictors_list, regression_type)
+    def __init__(self, data: pd.DataFrame, yvar: str = None, predictors: list = None, formula: str = None, 
+                family: str = None, link:str = None, regression_type: str = "Multi"):
+        self._run_data_validations(data, yvar, predictors, formula, family, link, regression_type)
         self.data = data.copy()
-        self.outcome_str = outcome_str
-        self.predictors_list = predictors_list
+        self.yvar = yvar
+        self.predictors = predictors
+        self.formula = formula
+
+        family_cls = self._family_map[family.lower()]
+        link_obj = self._link_map[link.lower()]()
+        self.family = family_cls(link=link_obj)
+
         self.regression_type = regression_type
         self.performance_metrics_df = None
         self.assumption_metrics_df = None
@@ -53,7 +61,7 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
         """
         Summary to be output by this regression
         """
-        if self.model is None:
+        if self.fitted_model is None:
             print("self.model does not exist. Fit the model before calling summary.")
             return
 
@@ -62,7 +70,7 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
     # ------------------------------------------------------------------        
 
     def _setup_assumption_tester(self):
-        self.assumption_tester = ModelAssumptionTester(model=self.model, X=self.X, y=self.y, y_pred=self.model.fittedvalues)
+        self.assumption_tester = ModelAssumptionTester(model=self.fitted_model, X=self.X, y=self.y, y_pred=self.fitted_model.fittedvalues)
 
     def _evaluate_vif(self):
         self.vif_df = self.assumption_tester.test_vif()
@@ -72,7 +80,7 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
         Evaluates influential outliers using Cook's distance.
         This is shared between linear and logistic regression.
         """
-        influence = self.model.get_influence()
+        influence = self.fitted_model.get_influence()
         self.cooks_d = influence.cooks_distance[0]
 
         threshold = 4 / len(self.cooks_d)
@@ -92,54 +100,46 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
         """
         pass
 
-    def _report_assumptions(self, vif_threshold: float = 5.0):
-        """
-        Report assumption test results as a formatted dataframe.
-        This is shared between linear and logistic regression.
-        """
+    def _report_assumptions(self, vif_threshold: float = 5.0, metrics=None):
         if self.assumption_metrics_df is None:
             self._build_assumption_metrics_df(vif_threshold)
-        
+
+        df = self.assumption_metrics_df
+        if metrics != 'all':
+            missing = set(metrics) - set(df['Test']) - {'VIF', 'Influential Outliers'}
+            if missing:
+                print(f"Warning: the following assumption metrics were not found: {missing}")
+            df = df[df['Test'].isin(metrics)]
+
         print("=" * 80)
         print("ASSUMPTION TEST RESULTS")
         print("=" * 80)
-        print(self.assumption_metrics_df.to_string(index=False))
+        print(df.to_string(index=False))
         print("=" * 80)
-        
-        # Report VIF table
-        self._report_vif_table(vif_threshold)
-        
-        # Report influential outliers details
-        self._report_influential_outliers_details()
+
+        if metrics == 'all' or 'VIF' in metrics:
+            self._report_vif_table(vif_threshold)
+
+        if metrics == 'all' or 'Influential Outliers' in metrics:
+            self._report_influential_outliers_details()
     
     def _report_vif_table(self, vif_threshold: float = 5.0):
-        """
-        Report VIF table for multicollinearity check.
-        This is shared between linear and logistic regression.
-        """
         if hasattr(self, 'vif_df') and self.vif_df is not None:
             print("\n")
             print("=" * 80)
             print("VARIANCE INFLATION FACTOR (VIF) - MULTICOLLINEARITY CHECK")
             print("=" * 80)
-            
-            # Filter out intercept/constant and add interpretation column
             vif_display = self.vif_df.copy()
             vif_display = vif_display[~vif_display['feature'].str.lower().isin(['intercept', 'const', 'constant'])]
             vif_display['Interpretation'] = vif_display['VIF'].apply(
                 lambda x: 'High multicollinearity' if x > vif_threshold else 'Acceptable'
             )
-            
             print(vif_display.to_string(index=False))
             print("=" * 80)
             print(f"Note: VIF > {vif_threshold} indicates potential multicollinearity issues")
             print("=" * 80)
     
     def _report_influential_outliers_details(self):
-        """
-        Report detailed information about influential outliers.
-        This is shared between linear and logistic regression.
-        """
         if hasattr(self, 'influential_points') and len(self.influential_points) > 0:
             print("\n")
             print("=" * 80)
@@ -150,6 +150,27 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
             print(f"Influential point indices: {self.influential_points}")
             print("=" * 80)
     
+    # ------------------------------------------------------------------
+    # PERFORMANCE METRICS (SHARED)
+    # ------------------------------------------------------------------
+    def _evaluate_aic_bic(self):
+        self.aic = self.fitted_model.aic
+        self.bic = self.fitted_model.bic
+        self.llf = self.fitted_model.llf
+
+    def _evaluate_glm_r2(self):
+        k = int(self.fitted_model.df_model) + 1
+        ll_model = self.fitted_model.llf
+        ll_null = self.fitted_model.llnull
+
+        self.mcfadden_r2 = 1 - (ll_model / ll_null)
+        self.mcfadden_adj_r2 = 1 - ((ll_model - k) / ll_null)
+
+        y_array = np.asarray(self.y).ravel()
+        fitted = np.asarray(self.fitted_model.fittedvalues).ravel()
+        y_mean = y_array.mean()
+        self.efron_r2 = 1 - (np.sum((y_array - fitted) ** 2) / np.sum((y_array - y_mean) ** 2))
+
     # ------------------------------------------------------------------
     # PERFORMANCE METRICS (ABSTRACT - DIFFERENT FOR EACH REGRESSION)
     # ------------------------------------------------------------------
@@ -171,6 +192,13 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
         pass
 
     # ------------------------------------------------------------------
+    # CROSS VALIDATION DATAFRAME (ABSTRACT - DIFFERNET FOR EACH REGRESSION)
+    # ------------------------------------------------------------------
+    @abstractmethod
+    def _build_cv_df(self):
+        pass
+
+    # ------------------------------------------------------------------
     # PRIVATE METHODS (FOLLOWING THE STANDARD ISARIC PIPELINE STRUCTURE)
     # ------------------------------------------------------------------
 
@@ -180,14 +208,15 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
     def _preprocessing(self):
         self.y, self.X, self.XList = RapidPreprocessor.prepare_data(
         df=self.data,
-        target_cols=[self.outcome_str],
-        predictor_cols=self.predictors_list,
+        formula=self.formula,
+        target_cols=[self.yvar],
+        predictor_cols=self.predictors,
         intercept=True
         )
     
     def _modeling(self):
         model = sm.GLM(endog=self.y, exog=self.X, family=self.family)
-        self.model = model.fit()
+        self.fitted_model = model.fit()
         
 
     def _model_evaluation(self, labels, cv = False, splits = 5):
@@ -206,8 +235,8 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
     # ------------------------------------------------------------------
     # NECESSARY DATA VALIDATIONS BEFORE PREPROCESSING
     # ------------------------------------------------------------------
-    def _run_data_validations(self, data, outcome_str, predictors_list, regression_type):
-        self._validate_inputs(data, outcome_str, predictors_list, regression_type)
+    def _run_data_validations(self, data, yvar, predictors, formula, family, link, regression_type):
+        self._validate_inputs(data, yvar, predictors, formula, family, link, regression_type)
     # ------------------------------------------------------------------
     # PRIVATE METHODS (RESULT SUMMARY GENERATOR FOR FIT)
     # ------------------------------------------------------------------
@@ -216,7 +245,7 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
         Builds all generic parts of the result summary and calls
         abstract methods to build parts specific to different regression types.
         """
-        result = self.model
+        result = self.fitted_model
         self.summary_table = result.summary2().tables[1].copy()
         self._build_result_summary_df(labels)
         self.summary_df['Variable'] = self.summary_df['Variable'].str.replace('T.', '')
@@ -264,7 +293,8 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
     # PRIVATE METHODS (MODEL EVALUATION)
     # ------------------------------------------------------------------
     def _test_performance_metrics(self):
-        pass
+        self._evaluate_glm_r2()
+        self._evaluate_aic_bic()
 
     def _test_assumptions(self):
         pass
@@ -276,7 +306,7 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
     # PRIVATE METHODS (USER INPUT VALIDATION)
     # ------------------------------------------------------------------
 
-    def _validate_inputs(self, data, outcome_str, predictors_list, regression_type):
+    def _validate_inputs(self, data, yvar, predictors, formula, family, link, regression_type):
             # Validate inputs
         if data is None:
             raise ValueError("data cannot be None")
@@ -284,27 +314,38 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
         if data.empty:
             raise ValueError("data cannot be empty")
         
-        if outcome_str is None or outcome_str == "":
-            raise ValueError("outcome_str cannot be None or empty")
+        if family is None or family not in self._family_map.keys():
+            raise ValueError(f"family cannot be empty and must be: {self._family_map.keys()}")
         
-        if predictors_list is None or len(predictors_list) == 0:
-            raise ValueError("predictors_list cannot be None or empty")
+        if link is None or link not in self._link_map.keys():
+            raise ValueError(f"link cannot be empty and must be: {self._link_map.keys()}")
+        
+        if (yvar is None or yvar == "") and formula == None:
+            raise ValueError("yvar cannot be None or empty if a formula is not provided.")
+        
+        if (predictors is None or len(predictors) == 0) and formula == None:
+            raise ValueError("predictors cannot be None or empty if a formula is not provided.")
         
         if regression_type is None:
             raise ValueError("regression_type cannot be None")
         
         # Check if outcome exists in data
-        if outcome_str not in data.columns:
-            raise ValueError(f"Outcome variable '{outcome_str}' not found in data columns")
+        if (yvar):
+            if yvar not in data.columns:
+                raise ValueError(f"Outcome variable '{yvar}' not found in data columns")
         
         # Check if predictors exist in data
-        missing_predictors = [p for p in predictors_list if p not in data.columns]
-        if missing_predictors:
-            raise ValueError(f"Predictor(s) not found in data columns: {missing_predictors}")
+        if (predictors):
+            missing_predictors = [p for p in predictors if p not in data.columns]
+            if missing_predictors:
+                raise ValueError(f"Predictor(s) not found in data columns: {missing_predictors}")
         
     # ------------------------------------------------------------------
-    # PROPERTY (STATSMODEL FAMILY)
+    # DICTIONARY MAPPINGS FOR SM FAMILY AND LINK
     # ------------------------------------------------------------------
     @property
-    def family():
+    def _family_map(self):
+        pass
+    @property
+    def _link_map(self):
         pass
