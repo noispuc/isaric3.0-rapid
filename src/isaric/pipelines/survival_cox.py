@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import warnings
+import lifelines.statistics as stats
 from lifelines import CoxPHFitter
 from sklearn.metrics import roc_curve, roc_auc_score
 
@@ -123,20 +124,29 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         """
         Evaluates model performance metrics and populates performance_metrics_df.
         """
-        # Calculate C-index and AIC from the fitted Cox model
+        # 1. Base metrics from lifelines
         c_index = self.fitted_model.concordance_index_
         aic = self.fitted_model.AIC_partial_
         ll_ratio = self.fitted_model.log_likelihood_ratio_test().test_statistic
+
+        # 2. Manual BIC Calculation (Bayesian Information Criterion)
+        # Formula: BIC = -2 * ln(L) + k * ln(n)
+        n = self.model_data.shape[0]  # Number of observations
+        k = len(self.fitted_model.params_)  # Number of parameters (covariates)
+        log_likelihood = self.fitted_model.log_likelihood_
+        bic_partial = -2 * log_likelihood + k * np.log(n)
 
         performance_data = {
             'Metric': [
                 'Concordance Index (C-Index)',
                 'Partial AIC',
+                'Partial BIC',
                 'Log-Likelihood Ratio Test'
             ],
             'Value': [
                 f"{c_index:.6f}",
                 f"{aic:.6f}",
+                f"{bic_partial:.6f}",
                 f"{ll_ratio:.6f}"
             ]
         }
@@ -148,27 +158,22 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         Performs statistical tests for Cox model assumptions and 
         captures results programmatically to avoid messy console output.
         """
-        import lifelines.statistics as stats
-        
         try:
-            # 1. Executamos o teste capturando o objeto de resultados
-            # Usamos o acesso via módulo para evitar o erro de import name
+            # Execute PH test and capture the results object
             results = stats.proportional_hazards_test(self.fitted_model, self.model_data, time_transform='rank')
             
-            # 2. Extraímos o menor p-valor de forma limpa
+            # Extract the minimum p-value
             min_p = results.p_value.min()
             
-            # 3. Definimos os indicadores para a nossa tabela padrão
+            # Define indicators for the standard table
             ph_value = f"Min p={min_p:.4f}"
             ph_status = "Acceptable" if min_p > 0.05 else "Warning: Violation"
             
         except Exception:
-            # Caso o ambiente ainda bloqueie o acesso direto, usamos o plano B
-            # O parâmetro show_plots=False ajuda, mas o check_assumptions sempre tenta imprimir algo
+            # Fallback if the environment restricts direct access
             ph_value = "Executed"
             ph_status = "See log for p-values"
 
-        # 4. Montamos o DataFrame final que o seu summary() irá exibir
         assumption_data = {
             'Test': [
                 'Proportional Hazards (Schoenfeld)',
