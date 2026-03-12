@@ -4,10 +4,12 @@ import warnings
 import lifelines.statistics as stats
 from lifelines import CoxPHFitter
 from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.model_selection import KFold
 
 from isaric.pipelines.modules.rapid_preprocess import RapidPreprocessor
 from isaric.pipelines.modules.rapid_plots import RapidPlots
 from isaric.pipelines.pipeline import RAPID_BasePipeline
+
 
 
 class RAPID_SurvivalCox(RAPID_BasePipeline):
@@ -40,9 +42,18 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
     # PUBLIC METHODS
     # -----------------------------------------------------------------
    
-    def fit(self, formula: str = None, labels=None, penalizer=0.1):
+    def fit(self, formula: str = None, labels=None, penalizer=0.1, cross_val:bool=False, n_splits: int = 5):
         """
-        Executes the modeling and evaluation sequence.
+        Fits the model. 
+        Calculates assumption tests, performance metrics and optionally performs cross validation.
+
+        Args:
+            formula(str): Patsy-style formula for model specification (e.g., 'duration ~ age + sex + comorbidity').
+            labels(dict): Maps variable names to human legible names for display.
+            penalizer(float): L2 regularization strength for Cox model (default: 0.1).
+            cross_val(bool): Whether or not to perform cross validation.
+            n_splits(int): Number of splits for cross validation (default: 5).
+
         """
         self.labels = labels
 
@@ -50,6 +61,8 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         self._preprocessing(formula)
         self._modeling(penalizer)
         self._model_evaluation()
+        if cross_val:
+            self._evaluate_crosss_validation(n_splits)
     
     def summary(self, assumptions: bool = False, performance: bool=True, plots: list = None, target_time: float = None):
         """
@@ -59,7 +72,7 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
             print("Error: Model must be fitted before calling summary.")
             return
 
-        self._visualization(assumptions, performance, plots, target_time)
+        self._visualization(assumptions, performance, plots, target_time, cross_val)
     
 
     # ------------------------------------------------------------------
@@ -189,6 +202,59 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
             ]
         }
         self.assumption_metrics_df = pd.DataFrame(assumption_data)
+    
+    
+    def _evaluate_cross_validation(self, n_splits):
+        """
+        Perform k-fold cross-validation for Cox model using Concordance Index.
+        """
+        
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+        cv_c_indices = []
+        
+        for train_idx, test_idx in kf.split(self.model_data):
+            # Split data
+            train_df = self.model_data.iloc[train_idx]
+            test_df = self.model_data.iloc[test_idx]
+            
+            # Fit CoxPH model on training fold
+            model_fold = CoxPHFitter(penalizer=self.fitted_model.penalizer)
+            model_fold.fit(
+                train_df, 
+                duration_var=self.duration_var, 
+                event_col=self.dependent_var
+            )
+            
+            # Evaluate Concordance Index on test fold
+            c_index = model_fold.concordance_index_
+            cv_c_indices.append(c_index)
+        
+        self.cross_val_scores = np.array(cv_c_indices)
+
+    def _build_cv_df(self):
+        """
+        Builds the dataframe for CV reporting
+        """
+        cv_data = {
+            'Metric': [
+                'Mean C-Index (CV)',
+                'Standard Deviation',
+                'Individual Fold Indices'
+            ],
+            'Value': [
+                f"{self.cross_val_scores.mean():.6f}",
+                f"{self.cross_val_scores.std():.6f}",
+                ', '.join([f"{score:.4f}" for score in self.cross_val_scores])
+            ]
+        }
+        self.cv_df = pd.DataFrame(cv_data)
+    
+    def _test_cross_validation(self, n_splits):
+        """
+        Orchestrates CV evaluation and dataframe building.
+        """
+        self._evaluate_cross_validation(n_splits)
+        self._build_cv_df()
 
     def _build_result_summary_df(self):
         """
@@ -212,13 +278,15 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
     # VISUALIZATION & REPORTING
     # ------------------------------------------------------------------
 
-    def _visualization(self, assumptions, performance, plots, target_time):
+    def _visualization(self, assumptions, performance, plots, target_time, cross_val):
         
     
         if performance:
             self._report_performance()
         if assumptions:
             self._report_assumptions()
+        if cross_val:
+            self._report_cv_metrics(metrics=cross_val)
 
         if plots:
             if 'forest_plot' in plots:
@@ -241,6 +309,13 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         print("\n" + "="*80 + "\nASSUMPTION TESTS\n" + "="*80)
         if self.assumption_metrics_df is not None:
             print(self.assumption_metrics_df.to_string(index=False))
+    
+    def _report_cv_metrics(self, metrics=None):            
+        print("\n" + "=" * 80)
+        print("CROSS-VALIDATION METRICS (CONCORDANCE)")
+        print("=" * 80)
+        print(self.cv_df.to_string(index=False))
+        print("=" * 80)
 
     def _forest_plot(self):
         """Generates forest plot for Hazard Ratios."""
@@ -310,11 +385,6 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         """
         Calculates and renders the Time-Dependent Brier Score.
         """
-        # Importamos a lógica de cálculo (assumindo que está em rapid_plots ou similar)
-        # Se você colocou a função brier_score dentro de rapid_plots:
-        from isaric.pipelines.modules.rapid_plots import brier_score
-        
-        # Chamada da função que criamos anteriormente
         time_points, scores, fig = brier_score(
             cph_model=self.fitted_model,
             dataframe=self.model_data,
@@ -348,7 +418,6 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         """
         Internal helper to call the survival calibration plot from RapidPlots.
         """
-        # Usando a classe de utilitários que você já importa no topo do arquivo
         fig = RapidPlots.calibration.survival_calibration(
             fitted_model=self.fitted_model,
             df=self.model_data,
