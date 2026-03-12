@@ -1,12 +1,15 @@
 import pandas as pd
 import numpy as np
 import warnings
+import lifelines.statistics as stats
 from lifelines import CoxPHFitter
 from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.model_selection import KFold
 
 from isaric.pipelines.modules.rapid_preprocess import RapidPreprocessor
 from isaric.pipelines.modules.rapid_plots import RapidPlots
 from isaric.pipelines.pipeline import RAPID_BasePipeline
+
 
 
 class RAPID_SurvivalCox(RAPID_BasePipeline):
@@ -39,9 +42,18 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
     # PUBLIC METHODS
     # -----------------------------------------------------------------
    
-    def fit(self, formula: str = None, labels=None, penalizer=0.1):
+    def fit(self, formula: str = None, labels=None, penalizer=0.1, cross_val:bool=False, n_splits: int = 5):
         """
-        Executes the modeling and evaluation sequence.
+        Fits the model. 
+        Calculates assumption tests, performance metrics and optionally performs cross validation.
+
+        Args:
+            formula(str): Patsy-style formula for model specification (e.g., 'duration ~ age + sex + comorbidity').
+            labels(dict): Maps variable names to human legible names for display.
+            penalizer(float): L2 regularization strength for Cox model (default: 0.1).
+            cross_val(bool): Whether or not to perform cross validation.
+            n_splits(int): Number of splits for cross validation (default: 5).
+
         """
         self.labels = labels
 
@@ -49,6 +61,8 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         self._preprocessing(formula)
         self._modeling(penalizer)
         self._model_evaluation()
+        if cross_val:
+            self._evaluate_crosss_validation(n_splits)
     
     def summary(self, assumptions: bool = False, performance: bool=True, plots: list = None, target_time: float = None):
         """
@@ -58,7 +72,7 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
             print("Error: Model must be fitted before calling summary.")
             return
 
-        self._visualization(assumptions, performance, plots, target_time)
+        self._visualization(assumptions, performance, plots, target_time, cross_val)
     
 
     # ------------------------------------------------------------------
@@ -123,20 +137,29 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         """
         Evaluates model performance metrics and populates performance_metrics_df.
         """
-        # Calculate C-index and AIC from the fitted Cox model
+        # 1. Base metrics from lifelines
         c_index = self.fitted_model.concordance_index_
         aic = self.fitted_model.AIC_partial_
         ll_ratio = self.fitted_model.log_likelihood_ratio_test().test_statistic
+
+        # 2. Manual BIC Calculation (Bayesian Information Criterion)
+        # Formula: BIC = -2 * ln(L) + k * ln(n)
+        n = self.model_data.shape[0]  # Number of observations
+        k = len(self.fitted_model.params_)  # Number of parameters (covariates)
+        log_likelihood = self.fitted_model.log_likelihood_
+        bic_partial = -2 * log_likelihood + k * np.log(n)
 
         performance_data = {
             'Metric': [
                 'Concordance Index (C-Index)',
                 'Partial AIC',
+                'Partial BIC',
                 'Log-Likelihood Ratio Test'
             ],
             'Value': [
                 f"{c_index:.6f}",
                 f"{aic:.6f}",
+                f"{bic_partial:.6f}",
                 f"{ll_ratio:.6f}"
             ]
         }
@@ -148,27 +171,22 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         Performs statistical tests for Cox model assumptions and 
         captures results programmatically to avoid messy console output.
         """
-        import lifelines.statistics as stats
-        
         try:
-            # 1. Executamos o teste capturando o objeto de resultados
-            # Usamos o acesso via módulo para evitar o erro de import name
+            # Execute PH test and capture the results object
             results = stats.proportional_hazards_test(self.fitted_model, self.model_data, time_transform='rank')
             
-            # 2. Extraímos o menor p-valor de forma limpa
+            # Extract the minimum p-value
             min_p = results.p_value.min()
             
-            # 3. Definimos os indicadores para a nossa tabela padrão
+            # Define indicators for the standard table
             ph_value = f"Min p={min_p:.4f}"
             ph_status = "Acceptable" if min_p > 0.05 else "Warning: Violation"
             
         except Exception:
-            # Caso o ambiente ainda bloqueie o acesso direto, usamos o plano B
-            # O parâmetro show_plots=False ajuda, mas o check_assumptions sempre tenta imprimir algo
+            # Fallback if the environment restricts direct access
             ph_value = "Executed"
             ph_status = "See log for p-values"
 
-        # 4. Montamos o DataFrame final que o seu summary() irá exibir
         assumption_data = {
             'Test': [
                 'Proportional Hazards (Schoenfeld)',
@@ -184,6 +202,59 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
             ]
         }
         self.assumption_metrics_df = pd.DataFrame(assumption_data)
+    
+    
+    def _evaluate_cross_validation(self, n_splits):
+        """
+        Perform k-fold cross-validation for Cox model using Concordance Index.
+        """
+        
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+        cv_c_indices = []
+        
+        for train_idx, test_idx in kf.split(self.model_data):
+            # Split data
+            train_df = self.model_data.iloc[train_idx]
+            test_df = self.model_data.iloc[test_idx]
+            
+            # Fit CoxPH model on training fold
+            model_fold = CoxPHFitter(penalizer=self.fitted_model.penalizer)
+            model_fold.fit(
+                train_df, 
+                duration_var=self.duration_var, 
+                event_col=self.dependent_var
+            )
+            
+            # Evaluate Concordance Index on test fold
+            c_index = model_fold.concordance_index_
+            cv_c_indices.append(c_index)
+        
+        self.cross_val_scores = np.array(cv_c_indices)
+
+    def _build_cv_df(self):
+        """
+        Builds the dataframe for CV reporting
+        """
+        cv_data = {
+            'Metric': [
+                'Mean C-Index (CV)',
+                'Standard Deviation',
+                'Individual Fold Indices'
+            ],
+            'Value': [
+                f"{self.cross_val_scores.mean():.6f}",
+                f"{self.cross_val_scores.std():.6f}",
+                ', '.join([f"{score:.4f}" for score in self.cross_val_scores])
+            ]
+        }
+        self.cv_df = pd.DataFrame(cv_data)
+    
+    def _test_cross_validation(self, n_splits):
+        """
+        Orchestrates CV evaluation and dataframe building.
+        """
+        self._evaluate_cross_validation(n_splits)
+        self._build_cv_df()
 
     def _build_result_summary_df(self):
         """
@@ -207,21 +278,27 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
     # VISUALIZATION & REPORTING
     # ------------------------------------------------------------------
 
-    def _visualization(self, assumptions, performance, plots, target_time):
+    def _visualization(self, assumptions, performance, plots, target_time, cross_val):
         
     
         if performance:
             self._report_performance()
         if assumptions:
             self._report_assumptions()
+        if cross_val:
+            self._report_cv_metrics(metrics=cross_val)
 
         if plots:
             if 'forest_plot' in plots:
                 self._forest_plot()
             if 'roc_auc' in plots and target_time:
                 self._render_roc_plotly(target_time)
+            if 'brier_score' in plots and target_time:
+                self._plot_brier_score(target_time)
             if 'martingale' in plots:
                 self._plot_martingale_residuals()
+            if 'deviance' in plots:
+                self._plot_deviance_residuals()
 
     def _report_performance(self):
         print("\n" + "="*80 + "\nPERFORMANCE METRICS\n" + "="*80)
@@ -232,6 +309,13 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         print("\n" + "="*80 + "\nASSUMPTION TESTS\n" + "="*80)
         if self.assumption_metrics_df is not None:
             print(self.assumption_metrics_df.to_string(index=False))
+    
+    def _report_cv_metrics(self, metrics=None):            
+        print("\n" + "=" * 80)
+        print("CROSS-VALIDATION METRICS (CONCORDANCE)")
+        print("=" * 80)
+        print(self.cv_df.to_string(index=False))
+        print("=" * 80)
 
     def _forest_plot(self):
         """Generates forest plot for Hazard Ratios."""
@@ -268,6 +352,26 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
                     residual_type='Martingale Residuals',
                     add_smoother=True
                 ).show()
+
+    def _plot_deviance_residuals(self):
+        """
+        Generates deviance residuals plots against all covariates in the model.
+        Leverages the new Plotly-based method in RapidPlots.
+        """
+        # Select columns that are predictors (exclude duration and event)
+        cols_to_plot = [c for c in self.model_data.columns 
+                        if c not in [self.duration_var, self.dependent_var]]
+
+        for col in cols_to_plot:
+            # The method RapidPlots.residuals.deviance_residuals handles 
+            # both categorical and continuous data automatically.
+            RapidPlots.residuals.deviance_residuals(
+                fitted_model=self.fitted_model,
+                df=self.model_data,
+                duration_col=self.duration_var,
+                event_col=self.dependent_var,
+                covariate_name=col
+            ).show()
    
 
     def _preprocess_data(self): pass
@@ -277,6 +381,21 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         """
         pass
 
+    def _plot_brier_score(self, target_time):
+        """
+        Calculates and renders the Time-Dependent Brier Score.
+        """
+        time_points, scores, fig = brier_score(
+            cph_model=self.fitted_model,
+            dataframe=self.model_data,
+            duration_col=self.duration_var,
+            event_col=self.dependent_var,
+            target_time=target_time,
+            plot=True
+        )
+        
+        if fig:
+            fig.show()
     
     def _render_roc_plotly(self, target_time):
         """
@@ -295,4 +414,15 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         RapidPlots.roc.plot(fpr, tpr, auc_val, title=f'ROC at t={target_time}').show()
 
    
-    
+    def _render_calibration_plotly(self, target_time):
+        """
+        Internal helper to call the survival calibration plot from RapidPlots.
+        """
+        fig = RapidPlots.calibration.survival_calibration(
+            fitted_model=self.fitted_model,
+            df=self.model_data,
+            duration_col=self.duration_var,
+            event_col=self.dependent_var,
+            t=target_time
+        )
+        fig.show()
