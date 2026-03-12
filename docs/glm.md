@@ -1,6 +1,6 @@
 # Linear Regression
 
-The `RAPID_LinearRegression` pipeline provides a full linear regression analysis for continuous outcomes. It is built on a Generalised Linear Model (GLM) framework, meaning it supports several distributional families beyond the standard Gaussian, making it suitable for a range of continuous outcome types encountered in clinical and epidemiological research.
+The `RAPID_GLM` pipeline provides a full linear regression analysis for continuous outcomes. It is built on a Generalised Linear Model (GLM) framework, meaning it supports several distributional families beyond the standard Gaussian, making it suitable for a range of continuous outcome types encountered in clinical and epidemiological research.
 
 ---
 
@@ -12,10 +12,10 @@ from isaric.pipelines.factory import RAPID_PipelineFactory
 factory = RAPID_PipelineFactory()
 
 model = factory.create(
-    "linear",
+    "glm",
     data=df,
-    yvar="outcome",
-    predictors=["age", "sex", "bmi"],
+    dependent_var="outcome",
+    independent_vars=["age", "sex", "bmi"],
     regression_type="Multi"
 )
 ```
@@ -25,9 +25,9 @@ model = factory.create(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `data` | `pd.DataFrame` | required | The dataset to analyse. Must contain all outcome and predictor columns. Rows with missing values are dropped automatically. |
-| `yvar` | `str` | `None` | The name of the outcome (dependent) variable column. Required if `formula` is not provided. |
-| `predictors` | `list` | `None` | A list of predictor (independent) variable column names. Required if `formula` is not provided. |
-| `formula` | `str` | `None` | A Patsy-style formula string (e.g. `"outcome ~ age + sex"`). If provided, `yvar` and `predictors` are not required. |
+| `dependent_var` | `str` | `None` | The name of the outcome (dependent) variable column. Required if `formula` is not provided. |
+| `independent_vars` | `list` | `None` | A list of predictor (independent) variable column names. Required if `formula` is not provided. |
+| `formula` | `str` | `None` | A Patsy-style formula string (e.g. `"outcome ~ age + sex"`). If provided, `dependent_var` and `independent_vars` are not required. |
 | `family` | `str` | `"gaussian"` | The distributional family for the GLM. See [Supported Families and Links](#supported-families-and-links). |
 | `link` | `str` | `"identity"` | The link function for the GLM. See [Supported Families and Links](#supported-families-and-links). |
 | `regression_type` | `str` | `"Multi"` | Either `"Multi"` for multivariable regression or `"Uni"` for univariable regression. Affects column naming in the results table. |
@@ -138,7 +138,7 @@ Performance metrics are computed automatically during `fit()`. Results are acces
 | RMSE | Root Mean Squared Error | `model.rmse` |
 | MAE | Mean Absolute Error | `model.mae` |
 | R² | Coefficient of determination | `model.r2` |
-| Adjusted R² | R² adjusted for number of predictors | `model.adjusted_r2` |
+| Adjusted R² | R² adjusted for number of independent_vars | `model.adjusted_r2` |
 | McFadden R² | Pseudo R² based on log-likelihood ratio | `model.mcfadden_r2` |
 | Adjusted McFadden R² | McFadden R² penalised for model complexity | `model.mcfadden_adj_r2` |
 | Efron R² | Pseudo R² based on residual sum of squares | `model.efron_r2` |

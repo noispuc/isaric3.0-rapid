@@ -11,12 +11,12 @@ from .pipeline import RAPID_BasePipeline
 
 
 class RAPID_BaseRegression(RAPID_BasePipeline):
-    def __init__(self, data: pd.DataFrame, yvar: str = None, predictors: list = None, formula: str = None, 
+    def __init__(self, data: pd.DataFrame, dependent_var: str = None, independent_vars: list = None, formula: str = None, 
                 family: str = None, link:str = None, regression_type: str = "Multi"):
-        self._run_data_validations(data, yvar, predictors, formula, family, link, regression_type)
+        self._run_data_validations(data, dependent_var, independent_vars, formula, family, link, regression_type)
         self.data = data.copy()
-        self.yvar = yvar
-        self.predictors = predictors
+        self.dependent_var = dependent_var
+        self.independent_vars = independent_vars
         self.formula = formula
 
         family_cls = self._family_map[family.lower()]
@@ -209,8 +209,8 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
         self.y, self.X, self.XList = RapidPreprocessor.prepare_data(
         df=self.data,
         formula=self.formula,
-        target_cols=[self.yvar],
-        predictor_cols=self.predictors,
+        target_cols=[self.dependent_var],
+        predictor_cols=self.independent_vars,
         intercept=True
         )
     
@@ -235,8 +235,8 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
     # ------------------------------------------------------------------
     # NECESSARY DATA VALIDATIONS BEFORE PREPROCESSING
     # ------------------------------------------------------------------
-    def _run_data_validations(self, data, yvar, predictors, formula, family, link, regression_type):
-        self._validate_inputs(data, yvar, predictors, formula, family, link, regression_type)
+    def _run_data_validations(self, data, dependent_var, independent_vars, formula, family, link, regression_type):
+        self._validate_inputs(data, dependent_var, independent_vars, formula, family, link, regression_type)
     # ------------------------------------------------------------------
     # PRIVATE METHODS (RESULT SUMMARY GENERATOR FOR FIT)
     # ------------------------------------------------------------------
@@ -306,7 +306,7 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
     # PRIVATE METHODS (USER INPUT VALIDATION)
     # ------------------------------------------------------------------
 
-    def _validate_inputs(self, data, yvar, predictors, formula, family, link, regression_type):
+    def _validate_inputs(self, data, dependent_var, independent_vars, formula, family, link, regression_type):
             # Validate inputs
         if data is None:
             raise ValueError("data cannot be None")
@@ -320,25 +320,25 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
         if link is None or link not in self._link_map.keys():
             raise ValueError(f"link cannot be empty and must be: {self._link_map.keys()}")
         
-        if (yvar is None or yvar == "") and formula == None:
-            raise ValueError("yvar cannot be None or empty if a formula is not provided.")
+        if (dependent_var is None or dependent_var == "") and formula == None:
+            raise ValueError("dependent_var cannot be None or empty if a formula is not provided.")
         
-        if (predictors is None or len(predictors) == 0) and formula == None:
-            raise ValueError("predictors cannot be None or empty if a formula is not provided.")
+        if (independent_vars is None or len(independent_vars) == 0) and formula == None:
+            raise ValueError("independent_vars cannot be None or empty if a formula is not provided.")
         
         if regression_type is None:
             raise ValueError("regression_type cannot be None")
         
         # Check if outcome exists in data
-        if (yvar):
-            if yvar not in data.columns:
-                raise ValueError(f"Outcome variable '{yvar}' not found in data columns")
+        if (dependent_var):
+            if dependent_var not in data.columns:
+                raise ValueError(f"Outcome variable '{dependent_var}' not found in data columns")
         
-        # Check if predictors exist in data
-        if (predictors):
-            missing_predictors = [p for p in predictors if p not in data.columns]
-            if missing_predictors:
-                raise ValueError(f"Predictor(s) not found in data columns: {missing_predictors}")
+        # Check if independent_vars exist in data
+        if (independent_vars):
+            missing_independent_vars = [p for p in independent_vars if p not in data.columns]
+            if missing_independent_vars:
+                raise ValueError(f"Predictor(s) not found in data columns: {missing_independent_vars}")
         
     # ------------------------------------------------------------------
     # DICTIONARY MAPPINGS FOR SM FAMILY AND LINK

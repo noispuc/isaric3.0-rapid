@@ -17,8 +17,8 @@ factory = RAPID_PipelineFactory()
 model = factory.create(
     "logistic",
     data=df,
-    yvar="outcome",
-    predictors=["age", "sex", "bmi"],
+    dependent_var="outcome",
+    independent_vars=["age", "sex", "bmi"],
     regression_type="Multi"
 )
 ```
@@ -28,9 +28,9 @@ model = factory.create(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `data` | `pd.DataFrame` | required | The dataset to analyse. Must contain all outcome and predictor columns. Rows with missing values are dropped automatically. |
-| `yvar` | `str` | `None` | The name of the outcome (dependent) variable column. Must be binary and coded as 0/1. Required if `formula` is not provided. |
-| `predictors` | `list` | `None` | A list of predictor (independent) variable column names. Required if `formula` is not provided. |
-| `formula` | `str` | `None` | A Patsy-style formula string (e.g. `"outcome ~ age + sex"`). If provided, `yvar` and `predictors` are not required. |
+| `dependent_var` | `str` | `None` | The name of the outcome (dependent) variable column. Must be binary and coded as 0/1. Required if `formula` is not provided. |
+| `independent_vars` | `list` | `None` | A list of predictor (independent) variable column names. Required if `formula` is not provided. |
+| `formula` | `str` | `None` | A Patsy-style formula string (e.g. `"outcome ~ age + sex"`). If provided, `dependent_var` and `independent_vars` are not required. |
 | `family` | `str` | `"binomial"` | The distributional family for the GLM. See [Supported Families and Links](#supported-families-and-links). |
 | `link` | `str` | `"logit"` | The link function for the GLM. See [Supported Families and Links](#supported-families-and-links). |
 | `regression_type` | `str` | `"Multi"` | Either `"Multi"` for multivariable regression or `"Uni"` for univariable regression. Affects column naming in the results table. |
