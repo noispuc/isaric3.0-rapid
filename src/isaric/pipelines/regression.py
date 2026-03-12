@@ -241,18 +241,17 @@ class RAPID_BaseRegression(RAPID_BasePipeline):
     # PRIVATE METHODS (RESULT SUMMARY GENERATOR FOR FIT)
     # ------------------------------------------------------------------
     def _setup_result_summary(self, labels: dict = None):
-        """
-        Builds all generic parts of the result summary and calls
-        abstract methods to build parts specific to different regression types.
-        """
         result = self.fitted_model
         self.summary_table = result.summary2().tables[1].copy()
         self._build_result_summary_df(labels)
-        self.summary_df['Variable'] = self.summary_df['Variable'].str.replace('T.', '')
+        self.summary_df['Variable'] = self.summary_df['Variable'].str.replace('T.', '', regex=False)
         for col in self.summary_df.columns[1:-1]:
-            self.summary_df[col] = self.summary_df[col].round(3)
-        self.summary_df['p-value'] = self.summary_df['p-value'].apply(lambda x: f'{x:.4f}')
-        self.summary_df = self.summary_df[self.summary_df['Variable'] != 'Intercept']
+            self.summary_df[col] = pd.to_numeric(self.summary_df[col], errors='coerce').round(3)
+        self.summary_df['p-value'] = self.summary_df['p-value'].apply(lambda x: f'{float(x):.4f}')
+        # Filter intercept regardless of how it was labelled
+        self.summary_df = self.summary_df[
+            ~self.summary_df['Variable'].str.lower().isin(['intercept', 'const', 'constant'])
+        ]
         self._rename_cols_by_regression_type()
 
     def _map_variable_label(self, df: pd.DataFrame, labels: dict = None) -> pd.DataFrame:
