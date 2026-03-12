@@ -381,6 +381,73 @@ class ResidualPlots:
         )
         
         return fig
+    
+    @staticmethod
+    def deviance_residuals(fitted_model, 
+                           df: pd.DataFrame, 
+                           duration_col: str, 
+                           event_col: str, 
+                           covariate_name: str,
+                           height: int = 600,
+                           width: int = 800) -> go.Figure:
+        """
+        Calculates deviance residuals for a Cox PH model and plots them against a covariate.
+        Strictly uses Plotly for interactivity and consistency with the rapid_plots library.
+        
+        Args:
+            fitted_model: Fitted CoxPH model (e.g., from lifelines)
+            df: DataFrame used for fitting
+            duration_col: Column name for time-to-event
+            event_col: Column name for event indicator (1=event, 0=censored)
+            covariate_name: Name of the covariate to analyze on x-axis
+        """
+        # 1. Extract observed events and predict partial hazards
+        e_observed = df[event_col].values
+        risk_scores = fitted_model.predict_partial_hazard(df).values
+        
+        # 2. Retrieve cumulative baseline hazard at observed times
+        # Assumes the model provides a baseline_cumulative_hazard_ attribute (lifelines standard)
+        baseline_hazard_df = fitted_model.baseline_cumulative_hazard_
+        times = baseline_hazard_df.index.values
+        hazard_values = baseline_hazard_df.iloc[:, 0].values
+        
+        # Map each subject's duration to the baseline hazard index
+        indices = np.searchsorted(times, df[duration_col].values, side='right') - 1
+        indices = np.maximum(0, indices)
+        cum_baseline_hazard = hazard_values[indices]
+        
+        # 3. Calculate Martingale Residuals: M = E - H
+        cumulative_subject_hazard = cum_baseline_hazard * risk_scores
+        martingale_residuals = e_observed - cumulative_subject_hazard
+        
+        # 4. Calculate Deviance Residuals using vectorized operations
+        # Formula: d_i = sign(M_i) * sqrt( -2 * [M_i + E_i * log(E_i - M_i)] )
+        log_component = np.zeros_like(martingale_residuals)
+        diff = e_observed - martingale_residuals
+        
+        # Numerical stability: only compute log for values > 0
+        mask = diff > 0
+        log_component[mask] = np.log(diff[mask])
+        
+        term = martingale_residuals + e_observed * log_component
+        deviance_res = np.sign(martingale_residuals) * np.sqrt(2 * -term)
+        
+        # 5. Generate Plotly Figure
+        # Reuse internal logic to handle Categorical (Box) vs Continuous (Scatter) plots
+        fig = ResidualPlots.residuals_vs_covariate(
+            residuals=deviance_res,
+            covariate=df[covariate_name].values,
+            covariate_name=covariate_name,
+            residual_type='Deviance Residuals',
+            height=height,
+            width=width
+        )
+        
+        fig.update_layout(
+            title=f'Cox Model Diagnostics: Deviance Residuals vs {covariate_name}'
+        )
+        
+        return fig
 
 
 # ============================================================================
@@ -822,10 +889,178 @@ class CalibrationPlot:
         )
         
         return fig
+    
+    @staticmethod
+    def survival_calibration(fitted_model, 
+                             df: pd.DataFrame, 
+                             duration_col: str, 
+                             event_col: str, 
+                             t: float,
+                             n_bins: int = 10,
+                             title: str = 'Survival Calibration Plot',
+                             height: int = 600,
+                             width: int = 800) -> go.Figure:
+        """
+        Create a calibration plot for survival models comparing predicted 
+        probabilities vs. observed Kaplan-Meier estimates.
+        
+        Args:
+            fitted_model: Fitted CoxPH model (lifelines or similar)
+            df: Validation dataframe
+            duration_col: Name of the time-to-event column
+            event_col: Name of the binary event column
+            t: Time point for evaluation
+            n_bins: Number of deciles/bins for grouping
+            title: Plot title
+        """
+        from lifelines import KaplanMeierFitter
 
+        # 1. Predict survival probabilities at time t
+        # Note: adjust syntax if using a model other than lifelines
+        predicted_survival = fitted_model.predict_survival_function(df, times=[t]).squeeze()
+
+        calib_df = pd.DataFrame({
+            'pred': predicted_survival,
+            'duration': df[duration_col],
+            'event': df[event_col]
+        })
+
+        # 2. Group into bins
+        calib_df['bin'] = pd.qcut(calib_df['pred'], n_bins, labels=False, duplicates='drop')
+
+        observed_probs = []
+        predicted_probs = []
+
+        kmf = KaplanMeierFitter()
+
+        for i in sorted(calib_df['bin'].unique()):
+            bin_df = calib_df[calib_df['bin'] == i]
+            
+            # Mean predicted probability in this bin
+            predicted_probs.append(bin_df['pred'].mean())
+
+            # KM observed survival at time t
+            kmf.fit(bin_df['duration'], event_observed=bin_df['event'])
+            observed_probs.append(kmf.predict(t))
+
+        # 3. Generate Plotly Figure
+        fig = go.Figure()
+
+        # Perfect calibration line
+        fig.add_trace(go.Scatter(
+            x=[0, 1], y=[0, 1],
+            mode='lines',
+            name='Perfect Calibration',
+            line=dict(color='black', dash='dash'),
+            hoverinfo='skip'
+        ))
+
+        # Model calibration line
+        fig.add_trace(go.Scatter(
+            x=predicted_probs,
+            y=observed_probs,
+            mode='lines+markers',
+            name='Model Performance',
+            marker=dict(size=10, symbol='circle'),
+            line=dict(color='blue', width=2),
+            hovertemplate='Predicted: %{x:.3f}<br>Observed (KM): %{y:.3f}<extra></extra>'
+        ))
+
+        fig.update_layout(
+            title=f"{title} (at time t={t})",
+            xaxis_title=f"Predicted Survival Probability",
+            yaxis_title="Observed Survival Fraction (Kaplan-Meier)",
+            xaxis=dict(range=[0, 1], constrain='domain'),
+            yaxis=dict(range=[0, 1], scaleanchor="x", scaleratio=1),
+            width=width,
+            height=height,
+            template='plotly_white'
+        )
+
+        return fig
 
 # ============================================================================
-# 6. CONVENIENCE WRAPPER
+# 6. Brier Score
+# ============================================================================
+
+class BrierScorePlot:
+    """
+    Plotting utilities for Time-Dependent Brier Score in survival analysis.
+    Useful for assessing model accuracy (prediction error) over time.
+    """
+    
+    @staticmethod
+    def brier_score(time_points: np.ndarray,
+             brier_scores: np.ndarray,
+             target_time: Optional[float] = None,
+             title: str = 'Time-Dependent Brier Score (IPCW)',
+             height: int = 600,
+             width: int = 900) -> go.Figure:
+        """
+        Create an interactive Brier Score plot.
+        
+        Args:
+            time_points: Evaluation time points
+            brier_scores: Calculated Brier scores at each time point
+            target_time: Specific time point to highlight
+            title: Plot title
+            height: Figure height in pixels
+            width: Figure width in pixels
+            
+        Returns:
+            Plotly Figure object
+        """
+        fig = go.Figure()
+
+        # Brier Score Curve
+        fig.add_trace(go.Scatter(
+            x=time_points,
+            y=brier_scores,
+            mode='lines',
+            name='Brier Score',
+            line=dict(color='#1f77b4', width=3),
+            hovertemplate='Time: %{x:.2f}<br>Score: %{y:.4f}<extra></extra>'
+        ))
+
+        # Benchmark: Non-informative model (0.25)
+        # In survival, a Brier Score > 0.25 usually means the model is poor.
+        fig.add_hline(
+            y=0.25, 
+            line_dash="dash", 
+            line_color="red",
+            annotation_text="Non-informative (BS=0.25)", 
+            annotation_position="bottom right"
+        )
+
+        # Highlight target time point
+        if target_time is not None:
+            idx = np.argmin(np.abs(time_points - target_time))
+            score_at_t = brier_scores[idx]
+            
+            fig.add_trace(go.Scatter(
+                x=[time_points[idx]],
+                y=[score_at_t],
+                mode='markers',
+                marker=dict(color='black', size=12, symbol='x'),
+                name=f'Score at t={target_time}: {score_at_t:.3f}',
+                hovertemplate='Target Time: %{x:.2f}<br>Score: %{y:.4f}<extra></extra>'
+            ))
+
+        fig.update_layout(
+            title=title,
+            xaxis_title='Follow-up Time',
+            yaxis_title='Brier Score',
+            yaxis=dict(range=[0, max(0.3, max(brier_scores) * 1.2)]),
+            template='plotly_white',
+            height=height,
+            width=width,
+            hovermode='x unified'
+        )
+        
+        return fig
+
+# ============================================================================
+# 7. CONVENIENCE WRAPPER
 # ============================================================================
 
 class RapidPlots:
@@ -839,6 +1074,7 @@ class RapidPlots:
     roc = ROCPlot
     confusion_matrix = ConfusionMatrixPlot
     calibration = CalibrationPlot
+    brier_score = BrierScorePlot
     
     @staticmethod
     def show_available_plots():
@@ -848,16 +1084,19 @@ class RapidPlots:
         print("  - RapidPlots.residuals.residuals_vs_fitted() - Residuals vs fitted")
         print("  - RapidPlots.residuals.residuals_vs_covariate() - Residuals vs covariate")
         print("  - RapidPlots.residuals.qq_plot() - Q-Q plot for normality")
+        print("  - RapidPlots.residuals.deviance_residuals() - Deviance residuals plot")
         print("  - RapidPlots.roc.plot() - Single ROC curve")
         print("  - RapidPlots.roc.compare_multiple() - Multiple ROC curves")
         print("  - RapidPlots.confusion_matrix.plot() - Confusion matrix heatmap")
         print("  - RapidPlots.confusion_matrix.plot_with_metrics() - Confusion matrix with metrics")
         print("  - RapidPlots.calibration.plot() - Calibration plot")
         print("  - RapidPlots.calibration.binned_calibration() - Binned calibration")
+        print("  - RapidPlots.calibration.survival_calibration() - Survival calibration plot")
+        print("  - RapidPlots.brier_score.brier_score() - Brier score plot")
 
 
 # ============================================================================
-# 7. EXAMPLE USAGE
+# 8. EXAMPLE USAGE
 # ============================================================================
 
 def example_usage():

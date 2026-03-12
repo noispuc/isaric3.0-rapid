@@ -225,8 +225,12 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
                 self._forest_plot()
             if 'roc_auc' in plots and target_time:
                 self._render_roc_plotly(target_time)
+            if 'brier_score' in plots and target_time:
+                self._plot_brier_score(target_time)
             if 'martingale' in plots:
                 self._plot_martingale_residuals()
+            if 'deviance' in plots:
+                self._plot_deviance_residuals()
 
     def _report_performance(self):
         print("\n" + "="*80 + "\nPERFORMANCE METRICS\n" + "="*80)
@@ -273,6 +277,26 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
                     residual_type='Martingale Residuals',
                     add_smoother=True
                 ).show()
+
+    def _plot_deviance_residuals(self):
+        """
+        Generates deviance residuals plots against all covariates in the model.
+        Leverages the new Plotly-based method in RapidPlots.
+        """
+        # Select columns that are predictors (exclude duration and event)
+        cols_to_plot = [c for c in self.model_data.columns 
+                        if c not in [self.duration_var, self.dependent_var]]
+
+        for col in cols_to_plot:
+            # The method RapidPlots.residuals.deviance_residuals handles 
+            # both categorical and continuous data automatically.
+            RapidPlots.residuals.deviance_residuals(
+                fitted_model=self.fitted_model,
+                df=self.model_data,
+                duration_col=self.duration_var,
+                event_col=self.dependent_var,
+                covariate_name=col
+            ).show()
    
 
     def _preprocess_data(self): pass
@@ -282,6 +306,26 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         """
         pass
 
+    def _plot_brier_score(self, target_time):
+        """
+        Calculates and renders the Time-Dependent Brier Score.
+        """
+        # Importamos a lógica de cálculo (assumindo que está em rapid_plots ou similar)
+        # Se você colocou a função brier_score dentro de rapid_plots:
+        from isaric.pipelines.modules.rapid_plots import brier_score
+        
+        # Chamada da função que criamos anteriormente
+        time_points, scores, fig = brier_score(
+            cph_model=self.fitted_model,
+            dataframe=self.model_data,
+            duration_col=self.duration_var,
+            event_col=self.dependent_var,
+            target_time=target_time,
+            plot=True
+        )
+        
+        if fig:
+            fig.show()
     
     def _render_roc_plotly(self, target_time):
         """
@@ -300,4 +344,16 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         RapidPlots.roc.plot(fpr, tpr, auc_val, title=f'ROC at t={target_time}').show()
 
    
-    
+    def _render_calibration_plotly(self, target_time):
+        """
+        Internal helper to call the survival calibration plot from RapidPlots.
+        """
+        # Usando a classe de utilitários que você já importa no topo do arquivo
+        fig = RapidPlots.calibration.survival_calibration(
+            fitted_model=self.fitted_model,
+            df=self.model_data,
+            duration_col=self.duration_var,
+            event_col=self.dependent_var,
+            t=target_time
+        )
+        fig.show()
