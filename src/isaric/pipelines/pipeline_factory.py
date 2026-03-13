@@ -2,14 +2,14 @@ from typing import Type, Dict
 from isaric.pipelines.pipeline import RAPID_BasePipeline
 from isaric.pipelines.glm import RAPID_GLM
 from isaric.pipelines.logistic_regression import RAPID_LogisticRegression
-from isaric.pipelines.survival import RAPID_survival
+from isaric.pipelines.survival_cox import RAPID_SurvivalCox
 
 class RAPID_PipelineFactory:
     def __init__(self):
         self._registry: Dict[str, Type[RAPID_BasePipeline]] = {
             "glm": RAPID_GLM,
             "logistic": RAPID_LogisticRegression,
-            "survival": RAPID_survival,
+            "survival": RAPID_SurvivalCox,
         }
 
     def register(self, name: str, pipeline_cls: Type[RAPID_BasePipeline]):
@@ -35,7 +35,7 @@ class RAPID_PipelineFactory:
         Returns:
             An instance of the requested pipeline.
         """
-        if name not in self._registry:
+        if name.lower() not in self._registry:
             raise ValueError(f"No pipeline registered under '{name}'. Available: {list(self._registry.keys())}")
         return self._registry[name.lower()](**kwargs)
 

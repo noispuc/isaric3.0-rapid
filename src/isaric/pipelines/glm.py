@@ -378,7 +378,7 @@ class RAPID_GLM(RAPID_BaseRegression):
         self._evaluate_normality_of_errors_shapiro_wilk()
         self._evaluate_influential_outliers()
         self._build_assumption_metrics_df()
-    
+
     def _test_cross_validation(self, n_splits):
         self._evaluate_cross_validation(n_splits)
         self._build_cv_df()

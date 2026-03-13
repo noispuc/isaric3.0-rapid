@@ -233,3 +233,168 @@ The following plots can be requested via `summary(plots=[...])`:
 | `"forest_plot"` | Displays coefficient estimates and 95% confidence intervals for each predictor |
 | `"residuals_vs_fitted"` | Scatter plot of residuals against fitted values, used to assess homoscedasticity and linearity |
 | `"qq_plot"` | Quantile-quantile plot of residuals against a normal distribution, used to assess normality of errors |
+
+### Statistical Notes
+
+**1. The Generalised Linear Model**
+
+The GLM models the relationship between a set of predictors and an outcome whose distribution belongs to the exponential family. It is defined by three components:
+
+*   A **random component**: the conditional distribution of the outcome Y, assumed to belong to the exponential family (Gaussian, Gamma, Inverse Gaussian, Tweedie).
+*   A **systematic component**: a linear predictor $\eta = \beta_0 + \beta_1 X_1 + \cdots + \beta_p X_p$.
+*   A **link function** $g(\cdot)$ such that $g(\mu) = \eta$, connecting the mean of the distribution to the linear predictor.
+
+The Gaussian family with an identity link recovers standard OLS. Parameters are estimated by maximum likelihood via iteratively reweighted least squares (IRLS).
+
+---
+
+**Interpreting the GLM**
+
+**1. Coefficients**
+
+Under an **identity link** (Gaussian), $\beta_j$ is the expected change in $Y$ per unit increase in $X_j$, holding all other predictors constant.
+
+Under a **log link** (Gamma, Tweedie), the coefficient operates on the log-mean scale. Exponentiating recovers a ratio of means:
+
+$$
+\text{Mean ratio} = e^{\beta_j}
+$$
+
+*   If the mean ratio $> 1$, the predictor increases the outcome mean.
+*   If the mean ratio $< 1$, the predictor decreases the outcome mean.
+*   If the mean ratio $= 1$, the predictor has no effect.
+
+The pipeline labels the exponentiated coefficient according to the family and link combination: **Mean Ratio** for Gamma and Tweedie with a log link, and **Coefficient** for identity link models. These labels are reflected in the forest plot axis and the results table. Coefficients from models with different effect labels are not directly comparable.
+
+**2. Confidence Intervals**
+
+The 95% confidence interval for a coefficient is:
+
+$$
+\text{CI} = \left[ \beta_j - 1.96 \cdot \text{SE}(\beta_j),\ \beta_j + 1.96 \cdot \text{SE}(\beta_j) \right]
+$$
+
+where $\text{SE}(\beta_j)$ is derived from the Fisher information matrix. Under a log link, exponentiate both bounds to obtain the CI on the ratio scale. If the CI excludes zero (identity link) or one (log link), the predictor is statistically significant at $\alpha = 0.05$.
+
+**3. p-value**
+
+The p-value tests the null hypothesis that $\beta_j = 0$:
+
+*   If $p < 0.05$, the predictor has a statistically significant association with the outcome.
+*   If $p > 0.05$, there is insufficient evidence to conclude an association exists.
+
+Statistical significance does not imply clinical relevance. Effect size and confidence interval width should always be considered alongside the p-value.
+
+---
+
+**Performance Metrics**
+
+*   **R² and Adjusted R²**: Proportion of variance in $Y$ explained by the model. Only has its conventional interpretation under Gaussian/identity. Adjusted R² penalises for the number of predictors and should be preferred when comparing models of different sizes.
+
+*   **Pseudo R²**: For non-Gaussian families, McFadden R² ($1 - \text{LLF} / \text{LL}_0$) and Efron R² are reported as approximate analogues. These are not directly comparable to standard R² or to each other across families. Values of McFadden R² between 0.2 and 0.4 are generally considered good fit.
+
+*   **AIC and BIC**: AIC ($-2 \cdot \text{LLF} + 2k$) and BIC ($-2 \cdot \text{LLF} + k \cdot \log n$) penalise log-likelihood for model complexity. Lower values indicate better fit relative to the number of parameters. BIC applies a stronger penalty and is preferred when the goal is identifying the true model rather than optimising prediction.
+
+*   **Cross-validation MSE**: The mean and standard deviation of MSE across k folds assesses in-sample stability. A low standard deviation indicates that results are not sensitive to which observations are included in fitting. This is not equivalent to external validation on an independent dataset. The fold split uses a fixed random seed (`random_state=42`), meaning results are reproducible but not sensitive to the choice of seed; analysts requiring seed sensitivity analysis should implement CV externally.
+
+---
+
+**Advantages**
+
+*   Unified framework: the same pipeline handles normally distributed, skewed positive, and compound zero-positive outcomes by changing the family and link.
+*   Interpretable coefficients: additive effects under identity links; multiplicative mean ratios under log links.
+*   Integrated diagnostics: assumption tests, influence measures, and cross-validation are computed automatically during `fit()`.
+
+---
+
+**Limitations**
+
+*   Family and link selection is the analyst's responsibility. The pipeline does not perform automatic family selection or goodness-of-fit tests to guide this choice.
+*   Rows with missing values are dropped automatically (listwise deletion). This is valid only under Missing Completely At Random (MCAR). For datasets with substantial missingness, multiple imputation should be applied upstream.
+*   The pipeline does not support mixed-effects GLMs, penalised regression (ridge, lasso), or time-varying covariates.
+
+---
+
+**Assumptions of the GLM**
+
+The GLM relies on several critical assumptions that must hold for estimates to be valid. The pipeline provides diagnostic tools to evaluate each.
+
+<br>
+
+* **Correct Specification of the Linear Predictor**: The relationship between each continuous predictor and the link-transformed outcome is linear, with no relevant predictors omitted.
+  * **Implications**: Misspecification causes biased, inconsistent estimates that do not diminish with larger samples.
+  * **If Violated**: Add polynomial terms, interaction terms, or splines for non-linear predictors. Re-examine variable selection if omitted variable bias is suspected.
+  * **Evaluation**: Inspect the residuals-vs-fitted plot (`summary(plots=["residuals_vs_fitted"])`). A systematic curve or fan pattern indicates misspecification.
+
+<br>
+
+* **Correct Distributional Family**: The conditional distribution of $Y | X$ belongs to the specified exponential family with the specified variance function.
+  * **Implications**: Under the Gaussian family, misspecification inflates standard errors and invalidates inference. Under non-Gaussian families, mild misspecification may leave point estimates consistent but renders standard errors unreliable.
+  * **If Violated**: Consider a quasi-GLM with robust standard errors, or re-specify the family.
+  * **Evaluation**: Use the QQ plot (`summary(plots=["qq_plot"])`) to assess normality of residuals under the Gaussian family. For other families, examine Pearson residuals across the fitted value range.
+
+<br>
+
+* **Independence of Observations**: Observations must be independent of one another. This assumption may be violated in clustered or repeated-measures designs.
+  * **Implications**: Violation leads to underestimated standard errors and anti-conservative p-values. Point estimates remain unbiased but inference is invalid.
+  * **If Violated**: Use mixed-effects models to account for random effects, or apply cluster-robust standard errors.
+  * **Evaluation**: The Durbin-Watson statistic (`model.dw`) tests for first-order autocorrelation in residuals. Values near 2 indicate independence; values below 1.5 suggest positive autocorrelation. For non-temporal data, review study design for clustering.
+
+<br>
+
+* **No Influential Outliers**: No individual observation exerts disproportionate leverage on the coefficient estimates.
+  * **Implications**: Highly influential points can substantially shift estimated coefficients, producing results that do not generalise.
+  * **If Violated**: Investigate flagged observations before removing them. Report analyses with and without the influential point.
+  * **Evaluation**: Cook's distance threshold of $4/n$ is applied (`model.influential_outliers_threshold`). This threshold becomes permissive for large $n$; graphical inspection is advisable for large datasets.
+
+<br>
+
+* **No Multicollinearity**: Predictor variables are not strongly linearly related to one another.
+  * **Implications**: High collinearity inflates standard errors and makes individual coefficient estimates unstable. Overall model fit is unaffected.
+  * **If Violated**: Remove one of the correlated predictors, combine them into a composite, or use ridge regression (L2 regularisation).
+  * **Evaluation**: Variance Inflation Factors are computed for each predictor (`model.vif_df`). The default flag threshold is VIF > 5.0, a widely used heuristic; some fields use 10. The threshold is configurable via `vif_threshold`.
+
+<br>
+
+* **Missing Completely At Random**: Rows with missing values are dropped automatically. This is valid only if the probability of missingness is unrelated to any observed or unobserved variable.
+  * **Implications**: If data are Missing At Random (MAR) or Missing Not At Random (MNAR), listwise deletion produces biased estimates whose severity depends on the proportion missing and the mechanism.
+  * **If Violated**: Apply multiple imputation (e.g. MICE) before passing data to the pipeline.
+  * **Evaluation**: Compare the distribution of key covariates in complete vs. incomplete cases. Systematic differences suggest non-MCAR missingness.
+
+<br>
+
+---
+
+### References
+
+If you wish to further explore the Generalised Linear Model — its theoretical foundations, distributional families, estimation, and extensions — the following references are recommended:
+
+* **Nelder, J. A., & Wedderburn, R. W. M. (1972). Generalized Linear Models.** *Journal of the Royal Statistical Society: Series A*, 135(3), 370–384. DOI: 10.2307/2344614
+  * The seminal paper introducing the GLM framework, unifying regression models for exponential family distributions under a single estimation approach.
+
+* **McCullagh, P., & Nelder, J. A. (1989). Generalized Linear Models (2nd ed.).** Chapman and Hall. DOI: 10.1007/978-1-4899-3242-6
+  * The definitive theoretical reference for GLMs. Covers distributional families, link functions, estimation via IRLS, and model diagnostics in depth.
+
+* **Dobson, A. J., & Barnett, A. G. (2018). An Introduction to Generalized Linear Models (4th ed.).** Chapman and Hall/CRC. DOI: 10.1201/9781315182780
+  * An accessible graduate-level introduction with applied examples across a range of families and link functions. Suitable for clinical and epidemiological researchers.
+
+* **Harrell, F. E. Jr. (2015). Regression Modeling Strategies (2nd ed.).** Springer. DOI: 10.1007/978-3-319-19425-7
+  * Covers variable selection, multicollinearity, splines for non-linear effects, and model validation strategies applicable to GLMs and related models.
+
+* **McFadden, D. (1974). Conditional logit analysis of qualitative choice behavior.** In P. Zarembka (Ed.), *Frontiers in Econometrics*. Academic Press.
+  * Introduces the McFadden pseudo R² as a likelihood-ratio-based measure of fit for models outside the OLS framework.
+
+* **Akaike, H. (1974). A new look at the statistical model identification.** *IEEE Transactions on Automatic Control*, 19(6), 716–723. DOI: 10.1109/TAC.1974.1100705
+  * Foundational paper introducing the Akaike Information Criterion (AIC) for model selection based on penalised log-likelihood.
+
+* **Schwarz, G. (1978). Estimating the dimension of a model.** *Annals of Statistics*, 6(2), 461–464. DOI: 10.1214/aos/1176344136
+  * Introduces the Bayesian Information Criterion (BIC), applying a stronger complexity penalty than AIC, particularly useful for large samples.
+
+* **Cook, R. D. (1977). Detection of influential observation in linear regression.** *Technometrics*, 19(1), 15–18. DOI: 10.2307/1268249
+  * Introduces Cook's distance as a measure of the influence of individual observations on regression estimates.
+
+* **Durbin, J., & Watson, G. S. (1951). Testing for serial correlation in least squares regression, II.** *Biometrika*, 38(1–2), 159–177. DOI: 10.2307/2332325
+  * Introduces the Durbin-Watson statistic for detecting first-order autocorrelation in regression residuals.
+
+* **Rubin, D. B. (1976). Inference and missing data.** *Biometrika*, 63(3), 581–592. DOI: 10.2307/2335739
+  * Establishes the MCAR / MAR / MNAR taxonomy for missing data mechanisms, which underpins the validity conditions for listwise deletion.
