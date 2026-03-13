@@ -1,13 +1,13 @@
 from typing import Type, Dict
 from isaric.pipelines.pipeline import RAPID_BasePipeline
-from isaric.pipelines.linear_regression import RAPID_LinearRegression
+from isaric.pipelines.glm import RAPID_GLM
 from isaric.pipelines.logistic_regression import RAPID_LogisticRegression
 from isaric.pipelines.survival import RAPID_survival
 
 class RAPID_PipelineFactory:
     def __init__(self):
         self._registry: Dict[str, Type[RAPID_BasePipeline]] = {
-            "linear": RAPID_LinearRegression,
+            "glm": RAPID_GLM,
             "logistic": RAPID_LogisticRegression,
             "survival": RAPID_survival,
         }
@@ -37,7 +37,7 @@ class RAPID_PipelineFactory:
         """
         if name not in self._registry:
             raise ValueError(f"No pipeline registered under '{name}'. Available: {list(self._registry.keys())}")
-        return self._registry[name](**kwargs)
+        return self._registry[name.lower()](**kwargs)
 
     def available(self) -> list:
         """Returns a list of all registered pipeline names."""

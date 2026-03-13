@@ -19,7 +19,7 @@ from isaric.pipelines.logistic_regression import RAPID_LogisticRegression
 def generate_test_data(n_samples=300, random_state=42):
     """
     Generate synthetic binary outcome data for logistic regression testing.
-    Includes both continuous and categorical predictors.
+    Includes both continuous and categorical independent_vars.
     """
     np.random.seed(random_state)
 
@@ -65,12 +65,12 @@ def test_basic_fit():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
+    independent_vars = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -78,7 +78,7 @@ def test_basic_fit():
 
     print("\n✓ Model fitted successfully")
     print(f"  - Number of observations: {len(df)}")
-    print(f"  - Number of predictors: {len(predictors)}")
+    print(f"  - Number of independent_vars: {len(independent_vars)}")
     print(f"  - Model type: {model.regression_type}")
 
     return model
@@ -91,7 +91,7 @@ def test_with_labels():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
+    independent_vars = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
 
     labels = {
         'age': 'Age (years)',
@@ -103,8 +103,8 @@ def test_with_labels():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -124,12 +124,12 @@ def test_assumptions():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -153,12 +153,12 @@ def test_assumptions_vif():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -179,12 +179,12 @@ def test_assumptions_influential_outliers():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -208,12 +208,12 @@ def test_performance_metrics():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -237,12 +237,12 @@ def test_performance_confusion_matrix():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -266,12 +266,12 @@ def test_cross_validation():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -295,7 +295,7 @@ def test_plots():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure', 'sex']
+    independent_vars = ['age', 'bmi', 'blood_pressure', 'sex']
 
     labels = {
         'age': 'Age (years)',
@@ -306,8 +306,8 @@ def test_plots():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -336,8 +336,8 @@ def test_univariate():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=['bmi'],
+        dependent_var='outcome',
+        independent_vars=['bmi'],
         regression_type='Uni'
     )
 
@@ -366,12 +366,12 @@ def test_multicollinearity():
     df['bmi_squared'] = df['bmi'] ** 2
     df['age_bmi_interaction'] = df['age'] * df['bmi']
 
-    predictors = ['age', 'bmi', 'bmi_squared', 'age_bmi_interaction', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'bmi_squared', 'age_bmi_interaction', 'blood_pressure']
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -395,14 +395,14 @@ def test_classification_threshold():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
     for threshold in [0.3, 0.5, 0.7]:
         print(f"\n  Testing threshold = {threshold}")
         model = RAPID_LogisticRegression(
             data=df,
-            yvar='outcome',
-            predictors=predictors,
+            dependent_var='outcome',
+            independent_vars=independent_vars,
             regression_type='Multi',
             classification_threshold=threshold
         )
@@ -421,7 +421,7 @@ def test_complete_pipeline():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
+    independent_vars = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
 
     labels = {
         'age': 'Age (years)',
@@ -433,8 +433,8 @@ def test_complete_pipeline():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -463,7 +463,7 @@ def test_complete_pipeline():
 # ============================================================================
 
 def test_formula_interface():
-    """Test that the formula interface works as an alternative to yvar + predictors."""
+    """Test that the formula interface works as an alternative to dependent_var + independent_vars."""
     print("\n" + "=" * 80)
     print("TEST 14: Formula Interface")
     print("=" * 80)
@@ -486,9 +486,9 @@ def test_formula_interface():
 
 
 def test_formula_with_categorical():
-    """Test formula interface with categorical predictors via C() wrapper."""
+    """Test formula interface with categorical independent_vars via C() wrapper."""
     print("\n" + "=" * 80)
-    print("TEST 15: Formula Interface with Categorical Predictors")
+    print("TEST 15: Formula Interface with Categorical independent_vars")
     print("=" * 80)
 
     df = generate_test_data()
@@ -501,7 +501,7 @@ def test_formula_with_categorical():
 
     model.fit(cross_val=False)
 
-    print("\n✓ Formula with categorical predictors fitted successfully")
+    print("\n✓ Formula with categorical independent_vars fitted successfully")
     print("\nSummary DataFrame:")
     print(model.summary_df)
 
@@ -575,8 +575,8 @@ def test_binomial_logit_link():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         family='binomial',
         link='logit',
         regression_type='Multi'
@@ -600,8 +600,8 @@ def test_binomial_probit_link():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         family='binomial',
         link='probit',
         regression_type='Multi'
@@ -625,8 +625,8 @@ def test_binomial_cloglog_link():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         family='binomial',
         link='cloglog',
         regression_type='Multi'
@@ -657,8 +657,8 @@ def test_cross_val_not_run_then_requested():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         regression_type='Multi'
     )
 
@@ -685,8 +685,8 @@ def test_invalid_metric_warning():
 
     model = RAPID_LogisticRegression(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         regression_type='Multi'
     )
 

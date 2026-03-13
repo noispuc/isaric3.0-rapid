@@ -8,8 +8,8 @@ df = pd.read_csv(data_path)
 warnings.filterwarnings('ignore')
 
 # Define outcome and predictor variables
-yvar = 'HospitalDischargeCode_trunc_bin'
-predictors = [
+dependent_var = 'HospitalDischargeCode_trunc_bin'
+independent_vars = [
     'Age',
     'Gender',
     'Saps3Points',
@@ -26,8 +26,8 @@ predictors = [
 # Initialize the logistic regression model
 model = RAPID_LogisticRegression(
     data=df,
-    yvar=yvar,
-    predictors=predictors,
+    dependent_var=dependent_var,
+    independent_vars=independent_vars,
     regression_type="Multi",
     classification_threshold=0.5
 )

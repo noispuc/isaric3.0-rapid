@@ -7,16 +7,15 @@ from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score,
                              roc_auc_score, roc_curve)
 from sklearn.model_selection import KFold
 
-
 from isaric.pipelines.modules.rapid_plots import ROCPlot, ForestPlot, ConfusionMatrixPlot
 from isaric.pipelines.regression import RAPID_BaseRegression
 
 class RAPID_LogisticRegression(RAPID_BaseRegression):
 
-    def __init__(self, data: pd.DataFrame, yvar: str = None, predictors: list = None,
+    def __init__(self, data: pd.DataFrame, dependent_var: str = None, independent_vars: list = None,
                 formula: str = None, family:str = "binomial", link:str = "logit", 
                 regression_type: str = "Multi", classification_threshold: float = 0.5):
-        super().__init__(data=data, yvar=yvar, predictors=predictors, formula=formula, 
+        super().__init__(data=data, dependent_var=dependent_var, independent_vars=independent_vars, formula=formula, 
                         family=family, link=link, regression_type=regression_type)
         self.classification_threshold = classification_threshold
 
@@ -220,10 +219,10 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
     # PRIVATE METHODS (ASSUMPTIONS EVALUATION)
     # ------------------------------------------------------------------
-    def _validate_binary_outcome(self, data, yvar, formula):
+    def _validate_binary_outcome(self, data, dependent_var, formula):
         """Validates that outcome variable is binary and coded as 0/1"""
-        if yvar:
-            outcome = data[yvar].dropna()
+        if dependent_var:
+            outcome = data[dependent_var].dropna()
         elif formula:
             # Extract outcome variable name from left-hand side of formula
             outcome_name = formula.split('~')[0].strip()
@@ -437,9 +436,9 @@ class RAPID_LogisticRegression(RAPID_BaseRegression):
     # ------------------------------------------------------------------
     # NECESSARY DATA VALIDATIONS BEFORE PREPROCESSING
     # ------------------------------------------------------------------
-    def _run_data_validations(self,data, yvar, predictors, formula, family, link, regression_type):
-        super()._run_data_validations(data, yvar, predictors, formula, family, link, regression_type)
-        self._validate_binary_outcome(data, yvar, formula)
+    def _run_data_validations(self,data, dependent_var, independent_vars, formula, family, link, regression_type):
+        super()._run_data_validations(data, dependent_var, independent_vars, formula, family, link, regression_type)
+        self._validate_binary_outcome(data, dependent_var, formula)
 
     # ------------------------------------------------------------------
     # FAMILY AND LINK MAPS

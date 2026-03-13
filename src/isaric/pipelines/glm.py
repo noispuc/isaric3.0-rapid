@@ -8,7 +8,7 @@ from sklearn.model_selection import KFold
 from isaric.pipelines.modules.rapid_plots import ResidualPlots, ForestPlot
 from isaric.pipelines.regression import RAPID_BaseRegression
 
-class RAPID_LinearRegression(RAPID_BaseRegression):
+class RAPID_GLM(RAPID_BaseRegression):
 
     """
     Pipeline that enables linear regression analysis for continuous outcomes.
@@ -18,9 +18,9 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     The structure is modular, allowing for future extensions into general Machine Learning pipelines.
     """
     
-    def __init__(self, data: pd.DataFrame, yvar: str = None, predictors: list = None, 
+    def __init__(self, data: pd.DataFrame, dependent_var: str = None, independent_vars: list = None, 
                 formula: str = None, family: str = "gaussian", link: str = "identity", regression_type: str = "Multi"):
-        super().__init__(data=data, yvar=yvar, predictors=predictors, 
+        super().__init__(data=data, dependent_var=dependent_var, independent_vars=independent_vars, 
                         formula=formula, family=family, link=link, regression_type=regression_type)
     
     # ------------------------------------------------------------------
@@ -197,39 +197,17 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         self.cv_mse_scores = np.array(cv_mse_scores)
 
     def _build_performance_metrics_df(self):
-        """
-        Build a dataframe containing all performance metrics.
-        """
-        performance_data = {
-            'Metric': [
-                'MSE',
-                'RMSE',
-                'MAE',
-                'R2',
-                'Adjusted R2',
-                'Mcfadden R2',
-                'Adjusted Mcfadden R2',
-                'Efron R2',
-                'AIC',
-                'BIC',
-                'LLF',
-            ],
-            'Value': [
-                f"{self.mse:.6f}",
-                f"{self.rmse:.6f}",
-                f"{self.mae:.6f}",
-                f"{self.r2:.6f}",
-                f"{self.adjusted_r2:.6f}",
-                f"{self.mcfadden_r2:.6f}",
-                f"{self.mcfadden_adj_r2:.6f}",
-                f"{self.efron_r2:.6f}",
-                f"{self.aic:.6f}",
-                f"{self.bic:.6f}",
-                f"{self.llf:.6f}",
-            ]
-        }
+        def fmt(v):
+            return 'N/A' if (isinstance(v, float) and np.isnan(v)) else f'{v:.6f}'
 
-            
+        performance_data = {
+            'Metric': ['MSE','RMSE','MAE','R2','Adjusted R2',
+                    'Mcfadden R2','Adjusted Mcfadden R2','Efron R2','AIC','BIC','LLF'],
+            'Value':  [fmt(self.mse), fmt(self.rmse), fmt(self.mae),
+                    fmt(self.r2), fmt(self.adjusted_r2),
+                    fmt(self.mcfadden_r2), fmt(self.mcfadden_adj_r2), fmt(self.efron_r2),
+                    fmt(self.aic), fmt(self.bic), fmt(self.llf)]
+        }
         self.performance_metrics_df = pd.DataFrame(performance_data)
 
     # ------------------------------------------------------------------
@@ -288,47 +266,48 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
     # PRIVATE METHODS (RESULT SUMMARY GENERATOR FOR FIT)
     # ------------------------------------------------------------------
     def _rename_cols_by_regression_type(self):
-        """
-        Renames summary dataframe columns for univariate or multivariate linear regression.
-        """
-        if (self.regression_type.lower() == "uni"):
-            self.summary_df.rename(columns={
-                'Coefficient': 'Coefficient (uni)',
-                'LowerCI': 'LowerCI (uni)',
-                'UpperCI': 'UpperCI (uni)',
-                'p-value': 'p-value (uni)'
-            }, inplace=True)
-        else:
-            self.summary_df.rename(columns={
-                'Coefficient': 'Coefficient (multi)',
-                'LowerCI': 'LowerCI (multi)',
-                'UpperCI': 'UpperCI (multi)',
-                'p-value': 'p-value (multi)'
-            }, inplace=True)
+        config = self._link_display_config
+        label  = config['effect_label']
+        suffix = '(uni)' if self.regression_type.lower() == 'uni' else '(multi)'
+
+        self.summary_df.rename(columns={
+            label:       f'{label} {suffix}',
+            'Lower CI':  f'Lower CI {suffix}',
+            'Upper CI':  f'Upper CI {suffix}',
+            'p-value':   f'p-value {suffix}'
+        }, inplace=True)
 
     def _build_result_summary_df(self, labels: dict = None):
-        """
-        Builds result summary dataframe for linear regression.
-        """
         summary_table = self.summary_table
-        
-        # Determine p-value column name (GLM uses P>|z|, OLS uses P>|t|)
         p_value_col = 'P>|z|' if 'P>|z|' in summary_table.columns else 'P>|t|'
-        
+
         self.summary_df = summary_table[[
             'Coef.', '[0.025', '0.975]', p_value_col
         ]].reset_index()
-        
+
         self.summary_df = self.summary_df.rename(columns={
-            'index': 'Variable',
-            'Coef.': 'Coefficient', 
-            '[0.025': 'LowerCI', 
-            '0.975]': 'UpperCI', 
+            'index':     'Variable',
+            'Coef.':     'Coefficient',
+            '[0.025':    'LowerCI',
+            '0.975]':    'UpperCI',
             p_value_col: 'p-value'
         })
-        
+
+        config = self._link_display_config
+        if config['exp_coef']:
+            self.summary_df[['Coefficient', 'LowerCI', 'UpperCI']] = \
+                np.exp(self.summary_df[['Coefficient', 'LowerCI', 'UpperCI']])
+
+        # Rename columns to reflect actual content
+        label = config['effect_label']
+        self.summary_df = self.summary_df.rename(columns={
+            'Coefficient': label,
+            'LowerCI':     f'Lower CI',
+            'UpperCI':     f'Upper CI',
+        })
+
         self.summary_df = self._map_variable_label(self.summary_df, labels)
-        self.summary_df = self.summary_df[['Variable', 'Coefficient', 'LowerCI', 'UpperCI', 'p-value']]
+        self.summary_df = self.summary_df[['Variable', label, 'Lower CI', 'Upper CI', 'p-value']]
 
     # ------------------------------------------------------------------
     # PLOT GENERATION AND REPORTING
@@ -354,24 +333,30 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         fig.show()
     
     def _forest_plot(self):
-        """Generate and display forest plot."""
-        # Use the summary_df BEFORE the (uni)/(multi) renaming
-        # Or create a clean copy
         df = self.summary_df.copy()
-        
-        # Strip the (uni)/(multi) suffixes if they exist
+        # Strip uni/multi suffixes
         df.columns = df.columns.str.replace(r' \((uni|multi)\)', '', regex=True)
-        
+        # Also strip bare suffixes added by _rename_cols_by_regression_type
+        df.columns = df.columns.str.replace(r' \(uni\)| \(multi\)', '', regex=True)
+
+        config = self._link_display_config
+        label  = config['effect_label']
+
+        # Resolve actual column names after stripping
+        effect_col = label
+        lower_col  = 'Lower CI'
+        upper_col  = 'Upper CI'
+
         fig = ForestPlot.plot(
             df=df,
             label_col='Variable',
-            effect_col='Coefficient',
-            lower_col='LowerCI',
-            upper_col='UpperCI',
+            effect_col=effect_col,
+            lower_col=lower_col,
+            upper_col=upper_col,
             title="Forest Plot" + (f" ({self.regression_type})" if hasattr(self, 'regression_type') else ""),
-            xaxis_title="Coefficient Estimate",
-            null_value=0.0,
-            log_scale=False
+            xaxis_title=label,
+            null_value=config['null_value'],
+            log_scale=config['log_scale']
         )
         fig.show()
 
@@ -399,7 +384,7 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
         self._build_cv_df()
 
     # ------------------------------------------------------------------
-    # FAMILY PROPERTY FOR THIS REGRESSION 
+    # PROPERTIES FOR THIS REGRESSION 
     # ------------------------------------------------------------------
     @property
     def _family_map(self):
@@ -418,3 +403,28 @@ class RAPID_LinearRegression(RAPID_BaseRegression):
             "inverse":  sm.families.links.InversePower,
             "sqrt":     sm.families.links.Sqrt,
             }
+    
+    # ------------------------------------------------------------------
+    # LINK DISPLAY CONFIGURATION
+    # ------------------------------------------------------------------
+    @property
+    def _link_display_config(self):
+        is_log     = isinstance(self.fitted_model.family.link, sm.families.links.Log)
+        is_poisson = isinstance(self.fitted_model.family, sm.families.Poisson)
+        is_tweedie = isinstance(self.fitted_model.family, sm.families.Tweedie)
+        is_gamma   = isinstance(self.fitted_model.family, sm.families.Gamma)
+        is_inv_gau = isinstance(self.fitted_model.family, sm.families.InverseGaussian)
+
+        if is_log and is_poisson:
+            effect_label = 'Risk Ratio'
+        elif is_log:
+            effect_label = 'Mean Ratio'
+        else:
+            effect_label = 'Coefficient'
+
+        return {
+            'exp_coef':     is_log,
+            'null_value':   1.0 if is_log else 0.0,
+            'log_scale':    is_log,
+            'effect_label': effect_label,
+        }

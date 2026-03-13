@@ -1,6 +1,6 @@
 import pandas as pd
 from pathlib import Path
-from isaric.pipelines.linear_regression import RAPID_LinearRegression
+from isaric.pipelines.glm import RAPID_GLM
 
 # THIS USE CASE REQUIRES OPENPYXL. Run pip install openpyxl if you do not have this dependency.
 data_path = Path(__file__).parent.parent.parent.parent.parent / 'data' / 'dados_uti_ems.xlsx'
@@ -12,9 +12,9 @@ df = pd.read_excel(data_path)
 selected_vars = ['los', 'Age', 'SofaScore', 'Saps3Points', 'CharlsonComorbidityIndex', 'expected_los']
 df_clean = df[selected_vars].dropna()
 
-# Define outcome and predictors
-yvar = 'los'
-predictors = ['Age', 'SofaScore', 'Saps3Points', 'CharlsonComorbidityIndex', 'expected_los']
+# Define outcome and independent_vars
+dependent_var = 'los'
+independent_vars = ['Age', 'SofaScore', 'Saps3Points', 'CharlsonComorbidityIndex', 'expected_los']
 
 # Optional: Create labels for better visualization
 labels = {
@@ -27,10 +27,10 @@ labels = {
 }
 
 # Initialize the pipeline
-model = RAPID_LinearRegression(
+model = RAPID_GLM(
     data=df_clean,
-    yvar=yvar,
-    predictors=predictors,
+    dependent_var=dependent_var,
+    independent_vars=independent_vars,
     regression_type="Multi"
 )
 

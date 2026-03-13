@@ -1,5 +1,5 @@
 """
-Testing script for RAPID_LinearRegression module.
+Testing script for RAPID_GLM module.
 Tests all functionality including fit, assumptions, performance metrics, and plots.
 """
 
@@ -9,7 +9,7 @@ import warnings
 import traceback
 warnings.filterwarnings('ignore')
 
-from isaric.pipelines.linear_regression import RAPID_LinearRegression
+from isaric.pipelines.glm import RAPID_GLM
 
 # ============================================================================
 # GENERATE SYNTHETIC DATA
@@ -18,16 +18,16 @@ from isaric.pipelines.linear_regression import RAPID_LinearRegression
 def generate_test_data(n_samples=200, random_state=42):
     """
     Generate synthetic data for linear regression testing.
-    Includes both continuous and categorical predictors.
+    Includes both continuous and categorical independent_vars.
     """
     np.random.seed(random_state)
     
-    # Continuous predictors
+    # Continuous independent_vars
     age = np.random.normal(50, 15, n_samples)
     bmi = np.random.normal(25, 5, n_samples)
     blood_pressure = np.random.normal(120, 20, n_samples)
     
-    # Categorical predictors
+    # Categorical independent_vars
     sex = np.random.choice(['Male', 'Female'], n_samples)
     smoking = np.random.choice(['Yes', 'No'], n_samples, p=[0.3, 0.7])
     
@@ -60,7 +60,7 @@ def generate_positive_outcome_data(n_samples=200, random_state=42):
     bmi = np.random.normal(25, 5, n_samples)
     blood_pressure = np.random.normal(120, 20, n_samples)
 
-    # Standardize predictors for numerical stability
+    # Standardize independent_vars for numerical stability
     age = (age - age.mean()) / age.std()
     bmi = (bmi - bmi.mean()) / bmi.std()
     blood_pressure = (blood_pressure - blood_pressure.mean()) / blood_pressure.std()
@@ -93,12 +93,12 @@ def test_basic_fit():
     print("=" * 80)
     
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
+    independent_vars = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
     
@@ -109,7 +109,7 @@ def test_basic_fit():
     
     print("\n✓ Model fitted successfully")
     print(f"  - Number of observations: {len(df)}")
-    print(f"  - Number of predictors: {len(predictors)}")
+    print(f"  - Number of independent_vars: {len(independent_vars)}")
     print(f"  - Model type: {model.regression_type}")
     
     return model
@@ -122,7 +122,7 @@ def test_with_labels():
     print("=" * 80)
     
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
+    independent_vars = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
     
     labels = {
         'age': 'Age (years)',
@@ -132,10 +132,10 @@ def test_with_labels():
         'smoking_status': 'Smoking Status'
     }
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
     
@@ -155,12 +155,12 @@ def test_assumptions():
     print("=" * 80)
     
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
     
@@ -184,12 +184,12 @@ def test_assumptions_vif():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -210,12 +210,12 @@ def test_assumptions_influential_outliers():
     print("=" * 80)
 
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
 
@@ -239,12 +239,12 @@ def test_performance_metrics():
     print("=" * 80)
     
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
     
@@ -268,12 +268,12 @@ def test_cross_validation():
     print("=" * 80)
     
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'blood_pressure']
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
     
@@ -297,7 +297,7 @@ def test_plots():
     print("=" * 80)
     
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure', 'sex']
+    independent_vars = ['age', 'bmi', 'blood_pressure', 'sex']
     
     labels = {
         'age': 'Age (years)',
@@ -306,10 +306,10 @@ def test_plots():
         'sex': 'Sex'
     }
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
     
@@ -336,10 +336,10 @@ def test_univariate():
     
     df = generate_test_data()
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=['bmi'],
+        dependent_var='outcome',
+        independent_vars=['bmi'],
         regression_type='Uni'
     )
     
@@ -368,12 +368,12 @@ def test_multicollinearity():
     df['bmi_squared'] = df['bmi'] ** 2
     df['age_bmi_interaction'] = df['age'] * df['bmi']
     
-    predictors = ['age', 'bmi', 'bmi_squared', 'age_bmi_interaction', 'blood_pressure']
+    independent_vars = ['age', 'bmi', 'bmi_squared', 'age_bmi_interaction', 'blood_pressure']
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
     
@@ -397,7 +397,7 @@ def test_complete_pipeline():
     print("=" * 80)
     
     df = generate_test_data()
-    predictors = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
+    independent_vars = ['age', 'bmi', 'blood_pressure', 'sex', 'smoking_status']
     
     labels = {
         'age': 'Age (years)',
@@ -407,10 +407,10 @@ def test_complete_pipeline():
         'smoking_status': 'Smoking Status'
     }
     
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=predictors,
+        dependent_var='outcome',
+        independent_vars=independent_vars,
         regression_type='Multi'
     )
     
@@ -439,14 +439,14 @@ def test_complete_pipeline():
 # ============================================================================
 
 def test_formula_interface():
-    """Test that the formula interface works as an alternative to yvar + predictors."""
+    """Test that the formula interface works as an alternative to dependent_var + independent_vars."""
     print("\n" + "=" * 80)
     print("TEST 12: Formula Interface")
     print("=" * 80)
 
     df = generate_test_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
         formula='outcome ~ age + bmi + blood_pressure',
         regression_type='Multi'
@@ -462,14 +462,14 @@ def test_formula_interface():
 
 
 def test_formula_with_categorical():
-    """Test formula interface with categorical predictors via C() wrapper."""
+    """Test formula interface with categorical independent_vars via C() wrapper."""
     print("\n" + "=" * 80)
-    print("TEST 13: Formula Interface with Categorical Predictors")
+    print("TEST 13: Formula Interface with Categorical independent_vars")
     print("=" * 80)
 
     df = generate_test_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
         formula='outcome ~ age + bmi + C(sex) + C(smoking_status)',
         regression_type='Multi'
@@ -477,7 +477,7 @@ def test_formula_with_categorical():
 
     model.fit(cross_val=False)
 
-    print("\n✓ Formula with categorical predictors fitted successfully")
+    print("\n✓ Formula with categorical independent_vars fitted successfully")
     print("\nSummary DataFrame:")
     print(model.summary_df)
 
@@ -498,7 +498,7 @@ def test_formula_with_labels():
         'blood_pressure': 'Systolic BP (mmHg)',
     }
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
         formula='outcome ~ age + bmi + blood_pressure',
         regression_type='Multi'
@@ -521,7 +521,7 @@ def test_formula_cross_validation():
 
     df = generate_test_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
         formula='outcome ~ age + bmi + blood_pressure',
         regression_type='Multi'
@@ -549,10 +549,10 @@ def test_gamma_log_link():
 
     df = generate_positive_outcome_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         family='gamma',
         link='log',
         regression_type='Multi'
@@ -574,10 +574,10 @@ def test_gamma_inverse_link():
 
     df = generate_positive_outcome_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         family='gamma',
         link='inverse',
         regression_type='Multi'
@@ -599,10 +599,10 @@ def test_inv_gaussian_inverse_link():
 
     df = generate_positive_outcome_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         family='inv_gaussian',
         link='inverse',
         regression_type='Multi'
@@ -624,10 +624,10 @@ def test_tweedie_log_link():
 
     df = generate_positive_outcome_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         family='tweedie',
         link='log',
         regression_type='Multi'
@@ -649,7 +649,7 @@ def test_gamma_formula():
 
     df = generate_positive_outcome_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
         formula='outcome ~ age + bmi + blood_pressure',
         family='gamma',
@@ -682,10 +682,10 @@ def test_cross_val_not_run_then_requested():
 
     df = generate_test_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         regression_type='Multi'
     )
 
@@ -710,10 +710,10 @@ def test_invalid_metric_warning():
 
     df = generate_test_data()
 
-    model = RAPID_LinearRegression(
+    model = RAPID_GLM(
         data=df,
-        yvar='outcome',
-        predictors=['age', 'bmi', 'blood_pressure'],
+        dependent_var='outcome',
+        independent_vars=['age', 'bmi', 'blood_pressure'],
         regression_type='Multi'
     )
 
