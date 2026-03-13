@@ -56,13 +56,12 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
 
         """
         self.labels = labels
-
         self._data_cleaning()
         self._preprocessing(formula)
         self._modeling(penalizer)
         self._model_evaluation()
         if cross_val:
-            self._evaluate_crosss_validation(n_splits)
+            self._evaluate_cross_validation(n_splits)
     
     def summary(self, assumptions: bool = False, performance: bool=True, plots: list = None, target_time: float = None):
         """
@@ -72,7 +71,11 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
             print("Error: Model must be fitted before calling summary.")
             return
 
-        self._visualization(assumptions, performance, plots, target_time, cross_val)
+        # Consistent check: did we run cross-validation during fit?
+        has_cv = hasattr(self, 'cv_df') and self.cv_df is not None
+    
+        # Pass 'has_cv' to the internal visualization handler
+        self._visualization(assumptions, performance, plots, target_time, has_cv)
     
 
     # ------------------------------------------------------------------
@@ -116,8 +119,8 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         self.fitted_model = CoxPHFitter(penalizer=penalizer)
         self.fitted_model.fit(
             self.model_data, 
-            duration_var=self.duration_var, 
-            dependent_var=self.dependent_var
+            duration_col=self.duration_var, 
+            event_col=self.dependent_var
         )
     
     # ------------------------------------------------------------------
@@ -221,7 +224,7 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
             model_fold = CoxPHFitter(penalizer=self.fitted_model.penalizer)
             model_fold.fit(
                 train_df, 
-                duration_var=self.duration_var, 
+                duration_col=self.duration_var, 
                 event_col=self.dependent_var
             )
             
@@ -274,19 +277,57 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         
         self.summary_df = df_res
 
+    def _calculate_brier_score(self, target_time):
+        """
+        Mathematical implementation of IPCW Brier Score.
+        Returns: tuple (time_points, brier_scores)
+        """
+        try:
+            T = self.model_data[self.duration_var]
+            E = self.model_data[self.dependent_var]
+
+            max_data_time = T.max()
+            eval_time = min(target_time, max_data_time)
+            
+            time_points = np.linspace(T[E == 1].min(), eval_time, 100)
+
+            # Estimativa de Censura (IPCW)
+            kmf_censoring = KaplanMeierFitter().fit(T, 1 - E)
+            G_T = kmf_censoring.predict(T, interpolate=True)
+
+            brier_scores = []
+            for t in time_points:
+                predicted_probs = self.fitted_model.predict_survival_function(self.model_data, times=[t]).squeeze()
+                G_t = kmf_censoring.predict(t, interpolate=True)
+
+                is_event_before_t = (T <= t) & (E == 1)
+                term1 = np.sum(((predicted_probs[is_event_before_t] - 0)**2) / G_T[is_event_before_t])
+
+                is_after_t = T > t
+                term2 = np.sum(((predicted_probs[is_after_t] - 1)**2) / G_t)
+
+                score = (term1 + term2) / len(self.model_data)
+                brier_scores.append(score)
+
+            return time_points, np.array(brier_scores)
+
+        except Exception as e:
+            print(f"Error in Brier calculation: {e}")
+            return None, None
+
     # ------------------------------------------------------------------
     # VISUALIZATION & REPORTING
     # ------------------------------------------------------------------
 
-    def _visualization(self, assumptions, performance, plots, target_time, cross_val):
+    def _visualization(self, assumptions, performance, plots, target_time, cross_validation):
         
     
         if performance:
             self._report_performance()
         if assumptions:
             self._report_assumptions()
-        if cross_val:
-            self._report_cv_metrics(metrics=cross_val)
+        if cross_validation:
+            self._report_cv_metrics()
 
         if plots:
             if 'forest_plot' in plots:
@@ -310,11 +351,22 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         if self.assumption_metrics_df is not None:
             print(self.assumption_metrics_df.to_string(index=False))
     
-    def _report_cv_metrics(self, metrics=None):            
+    def _report_cv_metrics(self, metrics='all'):            
+        """
+        Prints Cross-Validation results from self.cv_df.
+        """
         print("\n" + "=" * 80)
         print("CROSS-VALIDATION METRICS (CONCORDANCE)")
         print("=" * 80)
-        print(self.cv_df.to_string(index=False))
+        
+        if hasattr(self, 'cv_df') and self.cv_df is not None:
+            df = self.cv_df
+            if metrics != 'all':
+                df = df[df['Metric'].isin(metrics)]
+            print(df.to_string(index=False))
+        else:
+            print("No Cross-Validation data available. Run fit(cross_val=True) first.")
+            
         print("=" * 80)
 
     def _forest_plot(self):
@@ -383,19 +435,24 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
 
     def _plot_brier_score(self, target_time):
         """
-        Calculates and renders the Time-Dependent Brier Score.
+        Calculates metrics and calls the modular Brier Score plot from rapid_plots.
         """
-        time_points, scores, fig = brier_score(
-            cph_model=self.fitted_model,
-            dataframe=self.model_data,
-            duration_col=self.duration_var,
-            event_col=self.dependent_var,
+        # 1. Realiza o cálculo matemático (IPCW Brier Score)
+        time_points, brier_scores = self._calculate_brier_score(target_time)
+        
+        if time_points is None or brier_scores is None:
+            return
+
+        # 2. Chama a função que já existe no rapid_plots.py
+        # Note que usamos a interface unificada RapidPlots
+        fig = RapidPlots.brier_score.brier_score(
+            time_points=time_points,
+            brier_scores=brier_scores,
             target_time=target_time,
-            plot=True
+            title=f'Time-Dependent Brier Score (up to t={target_time})'
         )
         
-        if fig:
-            fig.show()
+        fig.show()
     
     def _render_roc_plotly(self, target_time):
         """

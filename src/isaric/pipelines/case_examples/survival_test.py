@@ -1,8 +1,7 @@
-# This forces Plotly to save an HTML file and try to open it in the browser
-#pio.renderers.default = "browser"
 import pandas as pd
-from pathlib import Path
 import warnings
+import numpy as np
+from pathlib import Path
 from isaric.pipelines.survival_cox import RAPID_SurvivalCox
 
 data_path_df_model = Path(__file__).parent.parent.parent.parent.parent / 'data' / 'df_model.csv'
@@ -22,66 +21,54 @@ try:
 except FileNotFoundError:
     print("ERROR: CSV files not found in the execution directory. Check 'df_model.csv' and 'df_map.csv'.")
     exit()
-
 # =================================================================
-#                           USER CASE 1
+# USER CASE 1: Full Performance & Cross-Validation Test
 # =================================================================
-print("\n" + "="*20 + " STARTING USER CASE 1 " + "="*20)
+print("\n" + "="*20 + " TESTING CASE 1: ADVANCED EVALUATION " + "="*20)
 
 # 1. Instantiation
-# independent_vars_list is handled internally by the class
 pipeline_c1 = RAPID_SurvivalCox(
     data=df_model,
     duration_var='HospitalLengthStay_trunc',
     dependent_var='HospitalDischargeCode_trunc_bin',
     independent_vars=[
-        'period', 'Idade_Agrupada2', 'ChronicHealthStatusName', 'obesity',
-        'IsImmunossupression', 'IsSteroidsUse', 'IsSevereCopd', 'IsChfNyha',
-        'cancer', 'ResourceIsRenalReplacementTherapy', 'ResourceIsVasopressors',
-        'Vent_Resource'
+        'period', 'Idade_Agrupada2', 'obesity', 'IsSteroidsUse', 'cancer'
     ]
 )
-# 2. Fit
-# Standard labels for clean reporting
-labels_c1 = {
-    'period': 'Period',
-    'Idade_Agrupada2': 'Age Group',
-    'obesity': 'Obesity'
-}
 
-print("Fitting Model Case 1...")
-# Note: Preprocessing (cleaning and matrix generation) happens inside fit()
-pipeline_c1.fit(labels=labels_c1, penalizer=0.1)
+# 2. Fit with Cross-Validation enabled
+# Testing the new 'cross_val' and 'n_splits' parameters added to the class
+print("Fitting model with 5-fold Cross-Validation...")
+pipeline_c1.fit(
+    labels={'obesity': 'Clinical Obesity', 'cancer': 'Malignancy'},
+    penalizer=0.1,
+    cross_val=True, 
+    n_splits=5
+)
 
-# 3. Summary
-# Using boolean flags for performance and assumptions as standardized
+# 3. Summary including All New Plots
+# testing: forest_plot, roc_auc, brier_score, and cross-validation reporting
+print("Generating comprehensive summary and diagnostic plots...")
 pipeline_c1.summary(
     performance=True,
     assumptions=True,
-    cross_val=True,
-    plots=['forest_plot', 'roc_auc'], 
-    target_time=40.0
+    plots=['forest_plot', 'roc_auc', 'brier_score'], 
+    target_time=30.0  # Evaluating at 30 days
 )
 
-print("="*20 + " USER CASE 1 COMPLETE " + "="*20)
-
-
 # =================================================================
-#                           USER CASE 2
+# USER CASE 2: Residual Diagnostics & Calibration
 # =================================================================
-print("\n" + "="*20 + " STARTING USER CASE 2 (df_map processing) " + "="*20)
+print("\n" + "="*20 + " TESTING CASE 2: RESIDUALS & CALIBRATION " + "="*20)
 
-# 1. Specific data preparation for df_map
+# 1. Data Prep for Case 2
 df_cox_prep = df_map.copy()
-# Converting dates and calculating duration
 df_cox_prep['duration_var'] = (pd.to_datetime(df_cox_prep['outco_date']) - 
                                pd.to_datetime(df_cox_prep['dates_admdate'])).dt.days
-# Mapping outcomes to binary
 df_cox_prep['outcome_binary'] = df_cox_prep['outco_binary_outcome'].map(
     {"Death": 1, "Censored": 0, "Discharged": 0}
 )
 
-# 2. Instantiation with processed df_map
 pipeline_c2 = RAPID_SurvivalCox(
     data=df_cox_prep,
     duration_var='duration_var',
@@ -89,19 +76,22 @@ pipeline_c2 = RAPID_SurvivalCox(
     independent_vars=['demog_sex', 'comor_hypertensi', 'comor_obesity']
 )
 
-# 3. Fit using a Custom Formula
-# This allows testing interactions like Sex * Obesity
+# 2. Fit using Formula for interaction terms
 custom_formula = "duration_var + outcome_binary ~ demog_sex * comor_obesity + comor_hypertensi"
+pipeline_c2.fit(formula=custom_formula, penalizer=0.05)
 
-print("Fitting Model Case 2 with Formula...")
-pipeline_c2.fit(formula=custom_formula, penalizer=0.1)
-
-# 4. Summary with Martingale Residuals
-# Useful for checking linearity of continuous independent_vars
+# 3. Comprehensive Residual Testing
+# Testing: martingale, deviance, and the new calibration plot method
+print("Testing Martingale and Deviance residuals for model fit diagnostics...")
 pipeline_c2.summary(
     performance=True,
     assumptions=True,
-    plots=['martingale']
+    plots=['martingale', 'deviance']
 )
 
-print("\n" + "="*20 + " ALL CASES COMPLETE " + "="*20)
+# 4. Explicitly testing the new Plotly Calibration method
+# This calls the internal method directly to ensure Plotly engine is working
+print("Rendering Survival Calibration Plot...")
+pipeline_c2._render_calibration_plotly(target_time=14.0)
+
+print("\n" + "="*20 + " ALL PIPELINE FEATURES TESTED " + "="*20)
