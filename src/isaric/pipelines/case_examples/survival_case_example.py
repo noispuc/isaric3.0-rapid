@@ -51,14 +51,13 @@ labels_c1 = {
 
 print("Fitting Model Case 1...")
 # Note: Preprocessing (cleaning and matrix generation) happens inside fit()
-pipeline_c1.fit(labels=labels_c1, penalizer=0.1)
+pipeline_c1.fit(labels=labels_c1, penalizer=0.1, cross_val=True, n_splits=5)
 
 # 3. Summary
 # Using boolean flags for performance and assumptions as standardized
 pipeline_c1.summary(
     performance=True,
     assumptions=True,
-    cross_val=True,
     plots=['forest_plot', 'roc_auc'], 
     target_time=40.0
 )

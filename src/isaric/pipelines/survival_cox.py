@@ -61,7 +61,7 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         self._modeling(penalizer)
         self._model_evaluation()
         if cross_val:
-            self._evaluate_cross_validation(n_splits)
+            self._test_cross_validation(n_splits)
     
     def summary(self, assumptions: bool = False, performance: bool=True, plots: list = None, target_time: float = None):
         """
