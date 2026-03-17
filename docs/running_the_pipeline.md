@@ -9,7 +9,9 @@ In this phase, you load your data and define the specific columns necessary for 
 
 ```python
 import pandas as pd
-from src.isaric.pipelines.survival_cox.py import RAPID_SurvivalCox 
+from isaric.pipelines.factory import RAPID_PipelineFactory
+
+factory = RAPID_PipelineFactory()
 
 # Load your prepared dataset (Example: df_model.csv from User Case 1)
 try:
@@ -36,7 +38,8 @@ The `.fit()` method calls the internal `.preprocess_data()` to clean and encode 
 
 ```python
 # 1. Initialize the Pipeline (Note: Class name adapted for the tutorial)
-cox_pipeline = RAPID_pipeline(
+cox_pipeline = factory.create(
+    "survival",
     data=df_model,
     duration_var=DURATION_COL,
     dependent_var=EVENT_COL,

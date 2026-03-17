@@ -355,6 +355,8 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
                 self._plot_martingale_residuals()
             if 'deviance' in plots:
                 self._plot_deviance_residuals()
+            if 'schoenfeld' in plots:
+                self._plot_schoenfeld_residuals()
 
     def _report_performance(self):
         print("\n" + "="*80 + "\nPERFORMANCE METRICS\n" + "="*80)
@@ -423,6 +425,33 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
             yaxis=dict(range=[0, 1])
         )
         fig.show()
+    
+    def _plot_schoenfeld_residuals(self):
+        """
+        Computes and plots Schoenfeld residuals for all covariates to check the PH assumption.
+        """
+        from isaric.pipelines.modules.rapid_plots import RapidPlots
+        
+        # Identify predictors (exclude duration and event columns)
+        covariates = [c for c in self.model_data.columns 
+                     if c not in [self.duration_var, self.dependent_var]]
+
+        print("Computing Schoenfeld Residuals for model diagnostics...")
+        
+        try:
+            # Calculate residuals using the lifelines engine
+            schoenfeld_res = self.fitted_model.compute_residuals(self.model_data, 'schoenfeld')
+            
+            for col in covariates:
+                # The index of schoenfeld_res corresponds to event times
+                fig = RapidPlots.schoenfeld.plot(
+                    times=schoenfeld_res.index.values,
+                    residuals=schoenfeld_res[col].values,
+                    covariate_name=col
+                )
+                fig.show()
+        except Exception as e:
+            print(f"Error computing Schoenfeld residuals: {e}")
 
     def _plot_martingale_residuals(self):
         """

@@ -448,7 +448,57 @@ class ResidualPlots:
         )
         
         return fig
+    
+    @staticmethod
+    def schoenfeld_plot(times: np.ndarray,
+             residuals: np.ndarray,
+             covariate_name: str,
+             height: int = 600,
+             width: int = 900) -> go.Figure:
+        """
+        Create an interactive Schoenfeld residual plot using Plotly.
+        """
+        import statsmodels.api as sm
+        
+        fig = go.Figure()
 
+        # Scatter plot of Schoenfeld residuals
+        fig.add_trace(go.Scatter(
+            x=times,
+            y=residuals,
+            mode='markers',
+            marker=dict(color='#1f77b4', size=6, opacity=0.5),
+            name='Schoenfeld Residuals',
+            hovertemplate='Time: %{x}<br>Residual: %{y:.4f}<extra></extra>'
+        ))
+
+        # Add LOWESS smoother line to identify non-proportional patterns
+        # A non-horizontal line suggests a violation of the PH assumption
+        lowess = sm.nonparametric.lowess
+        smoothed = lowess(residuals, times, frac=0.3)
+        
+        fig.add_trace(go.Scatter(
+            x=smoothed[:, 0],
+            y=smoothed[:, 1],
+            mode='lines',
+            line=dict(color='#d62728', width=3),
+            name='LOWESS Smoother'
+        ))
+
+        # Horizontal reference line at zero
+        fig.add_hline(y=0, line_dash='dash', line_color='black', line_width=1)
+
+        fig.update_layout(
+            title=f'Schoenfeld Residuals: {covariate_name} (PH Assumption Check)',
+            xaxis_title='Time',
+            yaxis_title=f'Residuals for {covariate_name}',
+            template='plotly_white',
+            height=height,
+            width=width,
+            hovermode='x'
+        )
+        
+        return fig
 
 # ============================================================================
 # 3. ROC CURVES (Classification Performance)
@@ -1085,6 +1135,7 @@ class RapidPlots:
         print("  - RapidPlots.residuals.residuals_vs_covariate() - Residuals vs covariate")
         print("  - RapidPlots.residuals.qq_plot() - Q-Q plot for normality")
         print("  - RapidPlots.residuals.deviance_residuals() - Deviance residuals plot")
+        print("  - RapidPlots.residuals.schoenfeld_plot() - Schoenfeld residuals plot")
         print("  - RapidPlots.roc.plot() - Single ROC curve")
         print("  - RapidPlots.roc.compare_multiple() - Multiple ROC curves")
         print("  - RapidPlots.confusion_matrix.plot() - Confusion matrix heatmap")

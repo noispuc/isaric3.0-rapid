@@ -57,7 +57,7 @@ Reports the Cox model findings and triggers visualization tools.
     * F1 Score
     * Log Loss
     * ROC AUC Score
-* **plots** (*list of str, optional*): Types of plots to generate. Supported options:
+* **plots** (*list of str, optional*): Types of plots to generate. Example of supported options:
     * `['forest_plot', 'roc_auc', 'martingale']`.
 * **target_time** (*float, optional*): The specific time point used for calculating ROC curves and AUC.
 
@@ -67,10 +67,12 @@ Reports the Cox model findings and triggers visualization tools.
 Below is a standard implementation of the survival pipeline:
 
 ```python
-from survival_cox import RAPID_SurvivalCox
+from isaric.pipelines.factory import RAPID_PipelineFactory
 
+factory = RAPID_PipelineFactory()
 # 1. Initialize the pipeline
-pipeline = RAPID_SurvivalCox(
+pipeline = factory.create(
+    "survival",
     data=clinical_df,
     duration_var='days_to_event',
     dependent_var='outcome_death',
@@ -80,7 +82,9 @@ pipeline = RAPID_SurvivalCox(
 # 2. Fit the model with specific labels for the output
 pipeline.fit(
     labels={'age': 'Age (years)', 'bmi': 'Body Mass Index'},
-    penalizer=0.05
+    penalizer=0.05,
+    cross_val=True,
+    n_splits=5
 )
 
 # 3. Generate summary and Forest Plot
@@ -96,7 +100,8 @@ Here is a similar example but with the use of formulas
 
 ```python
 # Instantiation with processed df_map
-pipeline_c2 = RAPID_SurvivalCox(
+pipeline_c2 = factory.create(
+    "survival",
     data=df_map,
     duration_var='duration_var',
     dependent_var='outcome_binary',
