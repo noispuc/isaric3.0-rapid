@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import warnings
 import lifelines.statistics as stats
-from lifelines import CoxPHFitter
+from lifelines import CoxPHFitter, KaplanMeierFitter
 from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.model_selection import KFold
 
@@ -332,10 +332,25 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
         if plots:
             if 'forest_plot' in plots:
                 self._forest_plot()
-            if 'roc_auc' in plots and target_time:
-                self._render_roc_plotly(target_time)
-            if 'brier_score' in plots and target_time:
-                self._plot_brier_score(target_time)
+            if 'survival_curve' in plots:
+                self._plot_survival_curve()
+
+            # Time-dependent metrics require a target_time
+            if target_time is not None:
+                if 'roc_auc' in plots:
+                    self._render_roc_plotly(target_time)
+                if 'brier_score' in plots:
+                    self._plot_brier_score(target_time)
+                if 'calibration' in plots:
+                    self._render_calibration_plotly(target_time)
+            else:
+                # Alert the user if time-dependent plots were requested without a target time
+                time_plots = ['roc_auc', 'brier_score', 'calibration']
+                missing = [p for p in time_plots if p in plots]
+                if missing:
+                    print(f"Warning: The following plots require 'target_time': {missing}")
+
+            # Residual disgnostics
             if 'martingale' in plots:
                 self._plot_martingale_residuals()
             if 'deviance' in plots:
@@ -381,6 +396,33 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
             null_value=1.0,
             log_scale=True
         ).show()
+
+    def _plot_survival_curve(self):
+        """
+        Generates and displays the baseline survival function using the fitted Cox model.
+        """
+        import plotly.graph_objects as go
+        
+        # Extract the baseline survival function from the fitted lifelines model
+        survival_func = self.fitted_model.baseline_survival_
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=survival_func.index, 
+            y=survival_func.iloc[:, 0],
+            mode='lines',
+            name='Baseline Survival',
+            line=dict(color='blue', width=2)
+        ))
+        
+        fig.update_layout(
+            title='Baseline Survival Curve (Cox Model)',
+            xaxis_title='Time (Days)',
+            yaxis_title='Survival Probability',
+            template='plotly_white',
+            yaxis=dict(range=[0, 1])
+        )
+        fig.show()
 
     def _plot_martingale_residuals(self):
         """
