@@ -334,6 +334,14 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
                 self._forest_plot()
             if 'survival_curve' in plots:
                 self._plot_survival_curve()
+                
+            # Residual disgnostics
+            if 'martingale' in plots:
+                self._plot_martingale_residuals()
+            if 'deviance' in plots:
+                self._plot_deviance_residuals()
+            if 'schoenfeld' in plots:
+                self._plot_schoenfeld_residuals()
 
             # Time-dependent metrics require a target_time
             if target_time is not None:
@@ -350,13 +358,7 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
                 if missing:
                     print(f"Warning: The following plots require 'target_time': {missing}")
 
-            # Residual disgnostics
-            if 'martingale' in plots:
-                self._plot_martingale_residuals()
-            if 'deviance' in plots:
-                self._plot_deviance_residuals()
-            if 'schoenfeld' in plots:
-                self._plot_schoenfeld_residuals()
+            
 
     def _report_performance(self):
         print("\n" + "="*80 + "\nPERFORMANCE METRICS\n" + "="*80)
@@ -428,30 +430,30 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
     
     def _plot_schoenfeld_residuals(self):
         """
-        Computes and plots Schoenfeld residuals for all covariates to check the PH assumption.
+        Computes and plots Schoenfeld residuals for each covariate.
+        Essential for checking the Proportional Hazards assumption.
         """
-        from isaric.pipelines.modules.rapid_plots import RapidPlots
-        
-        # Identify predictors (exclude duration and event columns)
-        covariates = [c for c in self.model_data.columns 
-                     if c not in [self.duration_var, self.dependent_var]]
-
-        print("Computing Schoenfeld Residuals for model diagnostics...")
-        
         try:
-            # Calculate residuals using the lifelines engine
-            schoenfeld_res = self.fitted_model.compute_residuals(self.model_data, 'schoenfeld')
+            from isaric.pipelines.modules.rapid_plots import RapidPlots
             
-            for col in covariates:
-                # The index of schoenfeld_res corresponds to event times
-                fig = RapidPlots.schoenfeld.plot(
-                    times=schoenfeld_res.index.values,
-                    residuals=schoenfeld_res[col].values,
-                    covariate_name=col
-                )
+            # Calculate residuals using lifelines
+            # res.index = event times; res.columns = covariates
+            res = self.fitted_model.compute_residuals(self.model_data, 'schoenfeld')
+            
+            print("Rendering Schoenfeld Residuals...")
+            for col in res.columns:
+                # We use a simple loop to generate one plot per variable
+                # You can use RapidPlots.schoenfeld.plot if you added that class
+                import plotly.express as px
+                fig = px.scatter(x=res.index, y=res[col], 
+                                title=f"Schoenfeld Residuals: {col}",
+                                labels={'x': 'Time', 'y': 'Residual'},
+                                trendline="lowess", 
+                                trendline_color_override="red")
+                fig.add_hline(y=0, line_dash="dash")
                 fig.show()
         except Exception as e:
-            print(f"Error computing Schoenfeld residuals: {e}")
+            print(f"Error in Schoenfeld plotting: {e}")
 
     def _plot_martingale_residuals(self):
         """
@@ -467,7 +469,7 @@ class RAPID_SurvivalCox(RAPID_BasePipeline):
 
         for col in cols_to_plot:
             # Only plot for continuous-like variables (more than 10 unique values)
-            if self.model_data[col].nunique() > 10:
+            #if self.model_data[col].nunique() > 10:
                 RapidPlots.residuals.residuals_vs_covariate(
                     residuals=residuals['martingale'].values,
                     covariate=self.model_data[col].values,

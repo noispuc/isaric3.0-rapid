@@ -1108,9 +1108,124 @@ class BrierScorePlot:
         )
         
         return fig
+    
+# ============================================================================
+# 7. LCA PLOTS
+# ============================================================================
+
+# Adicione isso ao rapid_plots.py
+
+class LCAPlots:
+    """
+    Plotting utilities specifically for Latent Class Analysis (LCA).
+    """
+    @staticmethod
+    def plot_profiles(prob_df: pd.DataFrame, n_components: int):
+        """
+        Creates a Heatmap showing the probability of each symptom/feature per class.
+        
+        :param prob_df: DataFrame where rows are classes and columns are variables.
+        :param n_components: Integer representing the number of latent classes.
+        """
+        # Preparing labels for the Y axis
+        y_labels = [f'Class {i}' for i in range(n_components)]
+        
+        fig = px.imshow(
+            prob_df,
+            labels=dict(x="Clinical Variables", y="Latent Class", color="Probability"),
+            x=prob_df.columns,
+            y=y_labels,
+            color_continuous_scale='Viridis', # Standard for probability heatmaps
+            text_auto='.2f', # Shows values inside cells with 2 decimal places
+            aspect="auto"
+        )
+
+        fig.update_layout(
+            title=f'Phenotype Profiles (K={n_components})',
+            xaxis_tickangle=-45,
+            template='plotly_white',
+            coloraxis_colorbar=dict(title="Prob")
+        )
+        
+        return fig
+    
+    @staticmethod
+    def plot_clusters(clusters_series: pd.Series):
+        """
+        Creates a bar chart showing the absolute and relative frequency of each class.
+        
+        :param clusters_series: Pandas Series containing the class assignment for each row.
+        """
+        counts = clusters_series.value_counts().sort_index()
+        total = counts.sum()
+        percentages = (counts / total * 100).round(2)
+        
+        labels = [f'Class {i}' for i in counts.index]
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=labels, 
+                y=counts.values,
+                text=[f'{p}%' for p in percentages],
+                textposition='auto',
+                marker_color='rgb(55, 83, 109)'
+            )
+        ])
+
+        fig.update_layout(
+            title='Latent Class Distribution',
+            xaxis_title='Identified Phenotypes',
+            yaxis_title='Number of Patients',
+            template='plotly_white'
+        )
+        
+        return fig
+    
+    @staticmethod
+    def plot_model_selection(results_df: pd.DataFrame):
+        """
+        Creates an 'Elbow Plot' to compare AIC and BIC metrics across different K values.
+        Crucial for selecting the optimal number of classes (from Notebook 3).
+        
+        :param results_df: DataFrame with columns ['n_clusters', 'AIC', 'BIC']
+        """
+        fig = go.Figure()
+
+        # AIC Trace
+        fig.add_trace(go.Scatter(
+            x=results_df['n_clusters'], 
+            y=results_df['AIC'],
+            mode='lines+markers',
+            name='AIC',
+            line=dict(shape='linear', color='royalblue')
+        ))
+
+        # BIC Trace
+        fig.add_trace(go.Scatter(
+            x=results_df['n_clusters'], 
+            y=results_df['BIC'],
+            mode='lines+markers',
+            name='BIC',
+            line=dict(shape='linear', color='firebrick')
+        ))
+
+        fig.update_layout(
+            title='Model Selection Criteria (Information Theory)',
+            xaxis_title='Number of Latent Classes (K)',
+            yaxis_title='Metric Value (Lower is better)',
+            legend_title='Metrics',
+            template='plotly_white',
+            hovermode='x unified'
+        )
+        
+        return fig
+    
+   
+
+
 
 # ============================================================================
-# 7. CONVENIENCE WRAPPER
+# 8. CONVENIENCE WRAPPER
 # ============================================================================
 
 class RapidPlots:
@@ -1125,6 +1240,7 @@ class RapidPlots:
     confusion_matrix = ConfusionMatrixPlot
     calibration = CalibrationPlot
     brier_score = BrierScorePlot
+    lca = LCAPlots
     
     @staticmethod
     def show_available_plots():
@@ -1144,7 +1260,9 @@ class RapidPlots:
         print("  - RapidPlots.calibration.binned_calibration() - Binned calibration")
         print("  - RapidPlots.calibration.survival_calibration() - Survival calibration plot")
         print("  - RapidPlots.brier_score.brier_score() - Brier score plot")
-
+        print("  - RapidPlots.lca.plot_profiles() - LCA heat map of symptom probabilities per latent class")
+        print("  - RapidPlots.lca.plot_clusters() - LCA bar chart showing the size of each latent class.")
+        print("  - RapidPlots.lca.plot_model_selection() - LCA model selection plot showing AIC and BIC across different K values.")
 
 # ============================================================================
 # 8. EXAMPLE USAGE
