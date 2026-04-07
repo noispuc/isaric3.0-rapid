@@ -13,8 +13,12 @@ def run_real_data_test():
     # According to Notebook 3, the pickle contains [dataframe, varList]
     try:
         with open(data_path, 'rb') as file:
-            df = pickle.load(file)
-            var_list = pickle.load(file)
+            data = pickle.load(file)
+            if isinstance(data, (list, tuple)) and len(data) == 2:
+                df, var_list = data
+            else:
+                df = data
+                var_list = pickle.load(file)
     except FileNotFoundError:
         print(f"Error: file {data_path} not found. Check the path.")
         return
@@ -31,24 +35,26 @@ def run_real_data_test():
         n_components=3
     )
     
-    # 3. EXECUTE VALIDATION (Grid Search logic from Notebook 3)
-    # Testing a small range for speed: 3 to 6 classes
-    print("\nStep 1: Running Model Selection (Validation)...")
-    grid_results = lca_pipeline._validation(range(3, 7))
-    print("Grid Search Metrics (AIC/BIC):")
-    print(grid_results)
-
-    # 4. FIT FINAL MODEL (Logic from Notebook 2)
-    print("\nStep 2: Fitting final model with K=3...")
-    lca_pipeline.fit()
+    # 3. EXECUTE VALIDATION (Grid Search logic from Notebook 3/AdjGridSearch5)
+    print("\nStep 1: Running Comprehensive Model Selection (Grid Search 3 to 6 classes)...")
+    grid_results = lca_pipeline.grid_search(range(3, 7))
+    print("Grid Search Metrics:")
     
-    # 5. GENERATE VISUALIZATIONS
-    print("\nStep 3: Rendering Plotly reports...")
-    # summary() calls _visualization(), which shows:
-    # - Profiles Heatmap
-    # - Class Distribution
-    # - Grid Search Elbow Plot (since we ran _validation)
-    lca_pipeline.summary()
+    # Just displaying some important columns since it is comprehensive
+    display_cols = ['ncomp', 'LL', 'AIC', 'BIC', 'entropy', 'relative_entropy']
+    if 'p_value' in grid_results.columns:
+        display_cols.append('p_value')
+        
+    print(grid_results[display_cols].to_string(index=False))
+
+    # 4. SHOW GRID SEARCH PLOTS
+    print("\nStep 2: Rendering Grid Search evaluation plots...")
+    lca_pipeline.summary_grid_plots()
+    
+    # 5. SELECT MODEL & EXPLORE
+    print("\nStep 3: Deciding on K=3 and exporting exploratory plots...")
+    lca_pipeline.decide(3)
+    lca_pipeline.describe()
 
     # 6. EXPORT RESULTS
     output_model = 'lca_model_real_data.pkl'

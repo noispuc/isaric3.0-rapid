@@ -7,7 +7,7 @@ import warnings
 from lifelines.utils import concordance_index
 from statsmodels.stats.stattools import durbin_watson
 from statsmodels.stats.outliers_influence import variance_inflation_factor
-from scipy.stats import shapiro
+from scipy.stats import shapiro, chi2
 
 class ModelAssumptionTester:
     """
@@ -154,4 +154,33 @@ class ModelAssumptionTester:
             "influential_indices": influential_idx.tolist(),
             "threshold": float(thresh),
             "n_influential": len(influential_idx)
+        }
+
+    @staticmethod
+    def likelihood_ratio_test(null_ll: float, alt_ll: float, null_dof: int, alt_dof: int) -> Dict[str, Any]:
+        """
+        Likelihood Ratio Test (LRT) for comparing nested models.
+        
+        Args:
+            null_ll: Log-likelihood of the simpler (null) model.
+            alt_ll: Log-likelihood of the complex (alternative) model.
+            null_dof: Degrees of freedom (or number of parameters) of the null model.
+            alt_dof: Degrees of freedom (or number of parameters) of the alt model.
+            
+        Returns:
+            Dictionary containing LR statistic, delta DOF, and p-value.
+        """
+        lr_stat = 2 * (alt_ll - null_ll)
+        dof_diff = abs(alt_dof - null_dof)
+        
+        # Avoid negative statistic due to numerical instability
+        if lr_stat < 0:
+            lr_stat = 0.0
+            
+        p_value = chi2.sf(lr_stat, dof_diff)
+        
+        return {
+            'log_likelihood_diff': lr_stat,
+            'dof_diff': dof_diff,
+            'p_value': float(p_value)
         }

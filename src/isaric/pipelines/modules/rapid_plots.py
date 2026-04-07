@@ -1220,9 +1220,116 @@ class LCAPlots:
         
         return fig
     
-   
+    @staticmethod
+    def plot_grid_metrics(grid_results_df: pd.DataFrame, metrics: list = ['LL', 'AIC', 'BIC', 'CAIC', 'SABIC']):
+        """
+        Plots multiple metrics across different K values during model selection.
+        """
+        fig = go.Figure()
+        for m in metrics:
+            if m in grid_results_df.columns:
+                fig.add_trace(go.Scatter(
+                    x=grid_results_df['n_clusters'],
+                    y=grid_results_df[m],
+                    mode='lines+markers',
+                    name=m
+                ))
 
+        fig.update_layout(
+            title='Grid Search: Information Criteria & Log-Likelihood',
+            xaxis_title='Number of Latent Classes (K)',
+            yaxis_title='Metric Value',
+            template='plotly_white',
+            hovermode='x unified'
+        )
+        return fig
 
+    @staticmethod
+    def plot_grid_entropy(grid_results_df: pd.DataFrame):
+        """
+        Plots absolute and relative entropy metrics across different K values.
+        """
+        from plotly.subplots import make_subplots
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        if 'entropy' in grid_results_df.columns:
+            fig.add_trace(go.Scatter(
+                x=grid_results_df['n_clusters'], y=grid_results_df['entropy'],
+                mode='lines+markers', name='Entropy', line=dict(color='orange')
+            ), secondary_y=False)
+
+        if 'relative_entropy' in grid_results_df.columns:
+            fig.add_trace(go.Scatter(
+                x=grid_results_df['n_clusters'], y=grid_results_df['relative_entropy'],
+                mode='lines+markers', name='Relative Entropy', line=dict(color='green')
+            ), secondary_y=True)
+
+        fig.update_layout(
+            title='Grid Search: Entropy Metrics',
+            xaxis_title='Number of Latent Classes (K)',
+            template='plotly_white',
+            hovermode='x unified'
+        )
+        fig.update_yaxes(title_text="Entropy", secondary_y=False)
+        fig.update_yaxes(title_text="Relative Entropy", secondary_y=True)
+        return fig
+        
+    @staticmethod
+    def plot_conditional_probs_line(prob_df: pd.DataFrame):
+        """
+        Plots conditional probability vs variable as simple line series.
+        """
+        fig = go.Figure()
+        variables = prob_df.columns.tolist()
+        
+        for i in range(len(prob_df)):
+            fig.add_trace(go.Scatter(
+                x=variables,
+                y=prob_df.iloc[i].tolist(),
+                mode='lines+markers',
+                name=f'Class {i}'
+            ))
+            
+        fig.update_layout(
+            title="Conditional Probabilities by Feature",
+            xaxis_title="Features",
+            yaxis_title="Probability",
+            yaxis=dict(range=[0, 1]),
+            xaxis_tickangle=-45,
+            template="plotly_white",
+            hovermode='x unified'
+        )
+        return fig
+
+    @staticmethod
+    def plot_radar_profiles(prob_df: pd.DataFrame):
+        """
+        Plots the conditional probability using Radar Charts per class.
+        """
+        fig = go.Figure()
+        categories = prob_df.columns.tolist()
+        categories_closed = categories + [categories[0]]  # Close the radar loop
+        
+        for i in range(len(prob_df)):
+            values = prob_df.iloc[i].tolist()
+            values_closed = values + [values[0]]
+            fig.add_trace(go.Scatterpolar(
+                r=values_closed,
+                theta=categories_closed,
+                fill='toself',
+                name=f'Class {i}',
+                opacity=0.3
+            ))
+            
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(visible=True, range=[0, 1])
+            ),
+            showlegend=True,
+            title="Phenotype Radial Profiles",
+            template="plotly_white"
+        )
+        return fig
 
 # ============================================================================
 # 8. CONVENIENCE WRAPPER
