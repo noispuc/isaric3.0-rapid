@@ -1,4 +1,3 @@
-import pickle
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -16,19 +15,20 @@ class RAPID_PhenotypeLCA(RAPID_BasePipeline): # Inherits from RAPID_BasePipeline
     based on observed categorical variables.
     """
 
-    def __init__(self, data: pd.DataFrame, measurement_vars: list, structural_var: str = None, n_components: int = 3):
+    def __init__(self, data: pd.DataFrame, measurement_vars: list, structural_var: str = None, n_components: int = None):
         """
         Initialize the LCA pipeline.
         
         :param data: Input DataFrame
         :param measurement_vars: List of binary/categorical variables for the measurement model
         :param structural_var: Optional variable for the structural model (e.g., outcome like HOSPITALIZ)
-        :param n_components: Number of latent classes to identify
+        :param n_components: Number of latent classes to identify (defaults to None to trigger grid search in fit)
         """
         self.data = data.copy()
         self.measurement_vars = measurement_vars
         self.structural_var = structural_var
         self.n_components = n_components
+        self.is_decided = False
         
         self.fitted_model = None
         self.clusters = None
@@ -39,25 +39,42 @@ class RAPID_PhenotypeLCA(RAPID_BasePipeline): # Inherits from RAPID_BasePipeline
     # ------------------------------------------------------------------
     # PUBLIC METHODS
     # -----------------------------------------------------------------
-
-    def fit(self):
-            """
-            Public method to run the preprocessing and model fitting.
-            """
-            self._preprocess_data()
+    def fit(self, cluster_range: range = None):
+        """
+        Public method to run the preprocessing and model fitting.
+        If cluster_range is provided, runs a grid search.
+        If cluster_range is not provided, defaults to a grid search 
+        from 2 to 6 classes, unless n_components is set on init.
+        """
+        self._preprocess_data()
+        
+        if cluster_range is not None:
+            self.grid_search(cluster_range)
+        elif self.n_components is not None:
             self._modeling()
             self._model_evaluation()
-            return self
+        else:
+            default_range = range(2, 6)
+            print(f"No cluster_range provided. Running default grid search for classes {list(default_range)}...")
+            self.grid_search(default_range)
 
-    def summary(self):
-            """
-            Public method to render the measurement model summary visualizations.
-            """
-            if self.fitted_model is None:
-                raise ValueError("Model not fitted. Call .fit() first.")
-            
-            self._visualization()
+        return self
 
+    def summary(self, k: int = None):
+        """
+        Public method to render the model summary visualizations.
+        If k is informed, shows results of the specific selected k.
+        Otherwise, shows grid search metrics if available.
+        """
+        if k is not None:
+            self.describe(k)
+        elif getattr(self, 'grid_results', None) is not None:
+            print("Showing grid search metrics. Use summary(k=...) to view specific class results.")
+            self.summary_grid_plots()
+        elif getattr(self, 'fitted_model', None) is not None:
+            self.describe(self.n_components)
+        else:
+            raise ValueError("Model not fitted. Call .fit() first.")
     # ------------------------------------------------------------------
     # PRIVATE METHODS (FOLLOWING THE STANDARD ISARIC PIPELINE STRUCTURE)
     # ------------------------------------------------------------------
@@ -203,10 +220,11 @@ class RAPID_PhenotypeLCA(RAPID_BasePipeline): # Inherits from RAPID_BasePipeline
         Select definitive model to proceed.
         """
         if not hasattr(self, 'modelObjs') or k not in self.modelObjs:
-            raise ValueError(f"Model with {k} clusters not found. Run grid_search first.")
+            raise ValueError(f"Model with {k} clusters not found. Run fit() first.")
         self.n_components = k
         self.fitted_model = self.modelObjs[k]
         self._compute_assignments()
+        self.is_decided = True
         print(f"Decision stored: Model selected with k={k} clusters.")
         
     def describe(self, k: int = None):
@@ -295,14 +313,6 @@ class RAPID_PhenotypeLCA(RAPID_BasePipeline): # Inherits from RAPID_BasePipeline
             
         fig = RapidPlots.lca.plot_clusters(self.clusters)
         fig.show()
-        
-    def save_model(self, filepath: str):
-        """
-        Export model to pickle as done in Notebook 2.
-        """
-        with open(filepath, 'wb') as f:
-            pickle.dump(self.fitted_model, f)
-        print(f"Model saved to {filepath}")
 
 
 

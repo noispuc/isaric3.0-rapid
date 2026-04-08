@@ -31,17 +31,17 @@ def run_real_data_test():
     lca_pipeline = RAPID_PhenotypeLCA(
         data=df, 
         measurement_vars=var_list, 
-        structural_var='HOSPITALIZ', 
-        n_components=3
+        structural_var='HOSPITALIZ'
     )
     
-    # 3. EXECUTE VALIDATION (Grid Search logic from Notebook 3/AdjGridSearch5)
-    print("\nStep 1: Running Comprehensive Model Selection (Grid Search 3 to 6 classes)...")
-    grid_results = lca_pipeline.grid_search(range(3, 7))
+    # 3. EXECUTE VALIDATION (Grid Search logic via fit)
+    print("\nStep 1: Running Model Fitting (Grid Search 3 to 6 classes)...")
+    lca_pipeline.fit(cluster_range=range(3, 7))
     print("Grid Search Metrics:")
     
     # Just displaying some important columns since it is comprehensive
     display_cols = ['ncomp', 'LL', 'AIC', 'BIC', 'entropy', 'relative_entropy']
+    grid_results = lca_pipeline.grid_results
     if 'p_value' in grid_results.columns:
         display_cols.append('p_value')
         
@@ -49,17 +49,18 @@ def run_real_data_test():
 
     # 4. SHOW GRID SEARCH PLOTS
     print("\nStep 2: Rendering Grid Search evaluation plots...")
-    lca_pipeline.summary_grid_plots()
+    lca_pipeline.summary()
     
     # 5. SELECT MODEL & EXPLORE
     print("\nStep 3: Deciding on K=3 and exporting exploratory plots...")
     lca_pipeline.decide(3)
-    lca_pipeline.describe()
+    lca_pipeline.summary(k=3)
 
     # 6. EXPORT RESULTS
     output_model = 'lca_model_real_data.pkl'
-    lca_pipeline.save_model(output_model)
-    print(f"\nSuccess! Results generated and model saved as {output_model}")
+    with open(output_model, 'wb') as f:
+        pickle.dump(lca_pipeline, f)
+    print(f"\nSuccess! Results generated and pipeline saved as {output_model}")
 
 if __name__ == "__main__":
     run_real_data_test()
