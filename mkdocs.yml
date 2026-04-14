@@ -1,18 +1,99 @@
-site_name: ISARIC 3.0 Rapid Pipeline Documentation
-nav: 
-  - Getting Started:
-    - Home: index.md
-    - Why RAPID?: why_rapid.md
-    - Installation: installation.md
-    - Getting Started with RAPID: getting_started.md
-  - Tutorials:
-    - Running the Pipeline: running_the_pipeline.md
-  - Documentation:
-    - Models:
-      - RAPID_LogisticRegression: logistic_regression.md
-      - RAPID_LinearRegression: linear_regression.md
-      - RAPID_survival_cox: survival.md
-  - For contributors and developers:
-    - Guidelines: contributors_and_developers.md
+site_name: ISARIC 3.0 Rapid Pipeline
+site_description: Clinical research statistical pipeline for infectious disease outbreak analysis
+site_author: ISARIC
+site_url: https://isaric.org/rapid-pipeline
 
-theme: readthedocs
+# Tema Material com cores do ISARIC (vermelho)
+theme:
+  name: material
+  logo: assets/isaric_logo.png
+  favicon: assets/favicon.ico
+  palette:
+    # Modo claro
+    - scheme: default
+      primary: red
+      accent: red
+
+  font:
+    text: Roboto
+    code: Roboto Mono
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+    - toc.integrate
+    - header.autohide
+
+# CSS e JS customizados
+extra_css:
+  - assets/rapid.css
+
+# Plugins
+plugins:
+  - search
+  - mkdocs-jupyter:
+      include_source: false
+
+# Extensões Markdown
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - footnotes
+  - attr_list
+  - md_in_html
+
+# Navegação
+nav:
+  - Home: index.md
+  
+  - 🚀 Getting Started:
+      - Why RAPID?: getting_started/why_rapid.md
+      - Installation: getting_started/installation.md
+      - Quickstart: getting_started/quickstart.md
+  
+  - 📚 User Guide:
+      - Logistic Regression: user_guide/guide_logistic.md
+      - GLM: user_guide/guide_glm.md
+      - Survival Analysis: user_guide/guide_survival.md
+      - MICE Imputation: user_guide/guide_mice.md
+  
+  - ⚡ Quick Guide:
+      - Logistic Regression: quick_guide/quick_logistic.md
+      - GLM: quick_guide/quick_glm.md
+      - Survival Analysis: quick_guide/quick_survival.md
+      - MICE Imputation: quick_guide/quick_mice.md
+      - Pipeline: quick_guide/quick_pipeline.md
+  
+  - 📓 Examples:
+      - Linear Regression: examples/linear_example.ipynb
+      - Logistic Regression: examples/logistic_example.ipynb
+      - GLM: examples/glm_example.ipynb
+      - MICE Imputation: examples/mice_example.ipynb
+  
+  - 🤝 Contributing: contributing.md
+
+# Rodapé
+copyright: Copyright &copy; 2026 ISARIC - International Severe Acute Respiratory and emerging Infection Consortium
+
+# Links externos
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/isaric/rapid-pipeline
+    - icon: fontawesome/solid/globe
+      link: https://isaric.org
+  generator: false
