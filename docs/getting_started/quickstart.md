@@ -1,29 +1,118 @@
-# 🚀 Getting Started with `RAPID_pipeline`
+# 🚀 Quickstart Guide
 
-The `RAPID_pipeline` is designed as a **modular and extensible structure** for implementing various Data Science models (Statistical, Survival Analysis, Machine Learning, etc.).
+The **RAPID Pipeline** is designed as a **modular and extensible structure** for implementing various statistical and machine learning models for clinical research.
 
-The current implementation focuses on **Logistic Regression, Linear Regression and Cox Proportional Hazards (Cox PH) model (survival analysis)** , providing automated preprocessing, model fitting, and a comprehensive suite of diagnostic outputs.
+This guide will help you run your first analysis in minutes.
 
-Its core goal is to automate data preprocessing, model fitting, and the generation of publication-ready tables and diagnostic plots in a single, reusable object.
+---
 
-## 1\. Core Principles and Modularity
+## 1. Core Principles and Modularity
 
-The pipeline is built on a simple three-phase methodology, which is universal for all models you integrate, ensuring high modularity and extensibility:
+The pipeline is built on a simple **three-phase architecture**, which is universal for all models:
 
 | Phase | Method | Role in the Pipeline |
-| :--- | :--- | :--- |
-| **Phase 1: Training** | `.fit()` | Selects the model type (e.g., Cox PH, Logistic Regression, Random Forest) and performs the training procedure. |
-| **Phase 2: Output/Diagnostics** | `.summary()` | Generates performance metrics, fit measures (e.g., AIC, C-Index), and produces a user-specified list of diagnostic plots. |
+|:------|:-------|:---------------------|
+| **Phase 1: Initialization** | `create()` | Selects the model type (e.g., Logistic, GLM, Survival) and configures parameters. |
+| **Phase 2: Training** | `.fit()` | Performs the training procedure, including preprocessing and model fitting. |
+| **Phase 3: Diagnostics** | `.summary()` | Generates performance metrics, assumption tests, and diagnostic plots. |
 
-## 2\. Installation and Requirements
-- Python 3.10+
-- [pip](https://pip.pypa.io/en/stable/)
-- Virtual Environment
+This architecture ensures **consistency** across all models: `create()` → `fit()` → `summary()`.
 
-To use the current **Survival Analysis** module, ensure the necessary that you have installed Python in a 3.10+ version and also has [pip](https://pip.pypa.io/en/stable/). An virtual environment(venv) is recommended, all the required Python packages are listeded in [requirements.txt](https://github.com/noispuc/isaric3.0-rapid/tree/main) and the the venv can be set up with the following commands:
+---
 
-```bash
-python -m venv .rapid
-source .rapid/bin/activate  # ou .rapid\Scripts\activate no Windows
-pip install -r requirements.txt
+## 2. Prerequisites
+
+Before you begin, make sure you have:
+
+- **[Installed RAPID](installation.md)** 
+- Python 3.10 or higher
+- A dataset ready for analysis (CSV, Excel, or DataFrame)
+
+---
+
+## 3. Your First Analysis (5 Minutes)
+
+### 3.1 Import and Initialize
+
+```python
+from isaric.pipelines.factory import RAPID_PipelineFactory
+
+# Create a factory instance
+factory = RAPID_PipelineFactory()
 ```
+
+### 3.2 Load Your Data
+
+```python
+import pandas as pd
+
+# Load your dataset
+df = pd.read_csv("your_data.csv")
+
+# Example: Predict mortality using age, sex, and BMI
+model = factory.create(
+    "logistic",
+    data=df,
+    dependent_var="mortality",
+    independent_vars=["age", "sex", "bmi"]
+)
+```
+
+### 3.3 Train the Model
+
+```python
+# Fit the model with optional labels for readability
+model.fit(
+    labels={
+        "age": "Age (years)",
+        "sex": "Sex",
+        "bmi": "Body Mass Index"
+    },
+    cross_val=True,
+    n_splits=5
+)
+```
+
+### 3.4 View Results
+
+```python
+# Display a comprehensive summary
+model.summary(
+    assumptions=["VIF", "EPV"],
+    performance=["AUC", "AIC", "Accuracy"],
+    plots=["forest_plot", "roc_curve"]
+)
+```
+
+### 3.5 Access Results Programmatically
+
+```python
+# Odds ratios and confidence intervals
+odds_ratios = model.summary_df
+print(odds_ratios)
+
+# Performance metrics
+metrics = model.performance_metrics_df
+print(metrics)
+
+# Confusion matrix
+cm = model.cm
+print(cm)
+```
+---
+
+## 4. Supported Models
+
+| Model | `model_type` | Use Case |
+|-------|--------------|----------|
+| Logistic Regression | `"logistic"` | Binary outcomes (0/1) |
+| GLM | `"glm"` | Generalized Linear Models |
+| Survival Analysis | `"survival"` | Time-to-event data |
+| MICE Imputation | `"mice"` | Missing data handling |
+
+---
+
+## 💬 Need Help?
+
+- **[🐙 GitHub Issues](https://github.com/ISARICResearch)** – Report bugs or request features.
+- **[📧 Contact Support](mailto:data@isaric.org)** – Get help from the ISARIC team.

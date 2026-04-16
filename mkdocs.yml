@@ -40,12 +40,17 @@ plugins:
   - search
   - mkdocs-jupyter:
       include_source: false
+      execute: false
 
 # Extensões Markdown
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
@@ -55,6 +60,13 @@ markdown_extensions:
   - footnotes
   - attr_list
   - md_in_html
+  - toc:
+      toc_depth: 2 # shows levels 1 and 2 in the md files
+  - pymdownx.arithmatex:
+      generic: true  
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
 # Navegação
 nav:
@@ -78,11 +90,7 @@ nav:
       - MICE Imputation: quick_guide/quick_mice.md
       - Pipeline: quick_guide/quick_pipeline.md
   
-  - 📓 Examples:
-      - Linear Regression: examples/linear_example.ipynb
-      - Logistic Regression: examples/logistic_example.ipynb
-      - GLM: examples/glm_example.ipynb
-      - MICE Imputation: examples/mice_example.ipynb
+  - 📓 Examples: examples/index.md
   
   - 🤝 Contributing: contributing.md
 
@@ -93,7 +101,7 @@ copyright: Copyright &copy; 2026 ISARIC - International Severe Acute Respiratory
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/isaric/rapid-pipeline
+      link: https://github.com/ISARICResearch
     - icon: fontawesome/solid/globe
       link: https://isaric.org
   generator: false

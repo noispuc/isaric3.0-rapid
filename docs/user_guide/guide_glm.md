@@ -1,4 +1,4 @@
-# Linear Regression
+# Generalized Linear Model (GLM)
 
 The `RAPID_GLM` pipeline provides a full linear regression analysis for continuous outcomes. It is built on a Generalised Linear Model (GLM) framework, meaning it supports several distributional families beyond the standard Gaussian, making it suitable for a range of continuous outcome types encountered in clinical and epidemiological research.
 
@@ -234,7 +234,7 @@ The following plots can be requested via `summary(plots=[...])`:
 | `"residuals_vs_fitted"` | Scatter plot of residuals against fitted values, used to assess homoscedasticity and linearity |
 | `"qq_plot"` | Quantile-quantile plot of residuals against a normal distribution, used to assess normality of errors |
 
-### Statistical Notes
+## Statistical Notes
 
 **1. The Generalised Linear Model**
 

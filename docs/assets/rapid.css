@@ -110,3 +110,37 @@
 .md-typeset .admonition {
   border-left-color: #BA0225 !important;
 }
+
+
+/* MERMAID -  */
+.mermaid {
+  font-size: 18px !important;
+  font-family: 'Roboto', sans-serif !important;
+}
+
+.mermaid .label {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: #FFFFFF !important;
+}
+
+.mermaid .cluster-label {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  fill: #FFFFFF !important;
+}
+
+.mermaid .edgeLabel {
+  font-size: 12px !important;
+  background-color: transparent !important;
+  color: #BA0225 !important;
+}
+
+/* Força contraste nos nós */
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node polygon,
+.mermaid .node path {
+  stroke-width: 2px !important;
+}

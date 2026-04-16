@@ -243,7 +243,7 @@ The following plots can be requested via `summary(plots=[...])`:
 | `"roc_curve"` | Receiver operating characteristic curve showing the trade-off between sensitivity and specificity across all thresholds, with AUC displayed |
 | `"confusion_matrix"` | Heatmap of true negatives, false positives, false negatives, and true positives at the specified `classification_threshold` |
 
-### Statistical Notes
+## Statistical Notes
 
 **1. The Logistic Regression Model**
 

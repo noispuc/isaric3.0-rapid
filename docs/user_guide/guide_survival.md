@@ -135,8 +135,11 @@ https://lifelines.readthedocs.io
 
 > To implement the formulas for personalized X and y matrices generation we used <code>Formulaic</code>. A high-performance implementation of Wilkinson formulas for Python, which are very useful for transforming dataframes into a form suitable for ingestion into various modelling frameworks. You can learn more about it's own official documentation at:
 https://matthewwardrop.github.io/formulaic/latest/
+
 ---
-### Statistical Notes
+
+## Statistical Notes
+
 **1. Hazard Function in the Cox Model**
 
 <dd>
@@ -307,8 +310,6 @@ The Cox model relies on several critical assumptions that must hold for its esti
 <br>
 
 
-
-
 ### **References**
 
 
@@ -357,6 +358,3 @@ If you wish to further explore the Cox Proportional Hazards model—its assumpti
 
 * **Heagerty, P. J., & Zheng, Y. (2005). Survival model predictive accuracy and ROC curves.** *Biometrics*, 61(1), 92–105. DOI: 10.1111/j.0006-341X.2005.030814.x  
      * Introduces the concept of time-dependent ROC curves and AUC for censored survival data. Offers formal methods to evaluate predictive accuracy of Cox models at specific time points. A key reference for dynamic discrimination measures in survival analysis.
-
-
----
