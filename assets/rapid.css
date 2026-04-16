@@ -1,0 +1,146 @@
+:root {
+  --md-primary-fg-color: #BA0225 !important;
+  --md-accent-fg-color: #1A1A1A !important;
+}
+
+/* HEADER - FUNDO VERMELHO ISARIC */
+.md-header,
+.md-tabs {
+  background-color: #BA0225 !important;
+  color: #FFFFFF !important;
+}
+
+.md-header__topic,
+.md-header__button {
+  color: #FFFFFF !important;
+}
+
+.md-header__button:hover {
+  opacity: 0.8;
+}
+
+/* LOGO - TAMANHO GRANDE E ALINHADO */
+.md-logo {
+  display: flex !important;
+  align-items: center !important;
+}
+
+.md-logo img {
+  height: 100px !important;
+  max-height: 100px !important;
+  width: auto !important;
+  object-fit: contain !important;
+}
+
+.md-header__inner {
+  height: auto !important;
+  min-height: 100px !important;
+  padding: 0.5rem 1rem !important;
+}
+
+/* BUSCA - PADRÃO DO MATERIAL (FUNCIONAL) */
+.md-search__icon {
+  color: #FFFFFF !important;
+}
+
+.md-search__icon:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border-radius: 4px !important;
+}
+
+.md-search__input {
+  background-color: #FFFFFF !important;
+  color: #1A1A1A !important;
+  border-radius: 4px !important;
+}
+
+.md-search__input::placeholder {
+  color: #757575 !important;
+}
+
+/* ABAS */
+.md-tabs__link {
+  color: #FFFFFF !important;
+  opacity: 0.9;
+}
+
+.md-tabs__link--active {
+  color: #FFFFFF !important;
+  opacity: 1;
+  font-weight: 600;
+  border-bottom: 2px solid #FFFFFF !important;
+}
+
+.md-tabs__link:hover {
+  color: #FFFFFF !important;
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* LINKS */
+.md-content a,
+.md-nav__link:hover,
+.md-nav__link--active {
+  color: #BA0225 !important;
+}
+
+/* BOTÕES */
+.md-button--primary {
+  background-color: #BA0225 !important;
+  border-color: #BA0225 !important;
+  color: #FFFFFF !important;
+}
+
+/* SCROLL TOP */
+.md-scrolltop {
+  background-color: #BA0225 !important;
+}
+
+/* FOOTER */
+.md-footer {
+  background-color: #1A1A1A !important;
+  color: #FFFFFF !important;
+}
+
+.md-footer a:hover {
+  color: #BA0225 !important;
+}
+
+/* ADMONITIONS */
+.md-typeset .admonition {
+  border-left-color: #BA0225 !important;
+}
+
+
+/* MERMAID -  */
+.mermaid {
+  font-size: 18px !important;
+  font-family: 'Roboto', sans-serif !important;
+}
+
+.mermaid .label {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: #FFFFFF !important;
+}
+
+.mermaid .cluster-label {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  fill: #FFFFFF !important;
+}
+
+.mermaid .edgeLabel {
+  font-size: 12px !important;
+  background-color: transparent !important;
+  color: #BA0225 !important;
+}
+
+/* Força contraste nos nós */
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node polygon,
+.mermaid .node path {
+  stroke-width: 2px !important;
+}

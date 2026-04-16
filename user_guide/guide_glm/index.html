@@ -1,0 +1,1826 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Clinical research statistical pipeline for infectious disease outbreak analysis">
+      
+      
+        <meta name="author" content="ISARIC">
+      
+      
+        <link rel="canonical" href="https://isaric.org/rapid-pipeline/user_guide/guide_glm/">
+      
+      
+        <link rel="prev" href="../guide_logistic/">
+      
+      
+        <link rel="next" href="../guide_survival/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>GLM - ISARIC 3.0 Rapid Pipeline</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/rapid.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#generalized-linear-model-glm" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ISARIC 3.0 Rapid Pipeline" class="md-header__button md-logo" aria-label="ISARIC 3.0 Rapid Pipeline" data-md-component="logo">
+      
+  <img src="../../assets/isaric_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ISARIC 3.0 Rapid Pipeline
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GLM
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="red" data-md-color-accent="red"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/why_rapid/" class="md-tabs__link">
+          
+  
+  
+  🚀 Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../guide_logistic/" class="md-tabs__link">
+          
+  
+  
+  📚 User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../quick_guide/quick_logistic/" class="md-tabs__link">
+          
+  
+  
+  ⚡ Quick Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../examples/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  📓 Examples
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  🤝 Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ISARIC 3.0 Rapid Pipeline" class="md-nav__button md-logo" aria-label="ISARIC 3.0 Rapid Pipeline" data-md-component="logo">
+      
+  <img src="../../assets/isaric_logo.png" alt="logo">
+
+    </a>
+    ISARIC 3.0 Rapid Pipeline
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    🚀 Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    🚀 Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/why_rapid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why RAPID?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    📚 User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    📚 User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide_logistic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logistic Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#initialisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initialisation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fit()
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        summary()
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#assumption-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Assumption Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-validation-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-Validation Metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-families-and-links" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Families and Links
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#statistical-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Statistical Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide_survival/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Survival Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide_mice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MICE Imputation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ⚡ Quick Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    ⚡ Quick Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quick_guide/quick_logistic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logistic Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quick_guide/quick_glm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quick_guide/quick_survival/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Survival Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quick_guide/quick_mice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MICE Imputation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quick_guide/quick_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    📓 Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    🤝 Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="generalized-linear-model-glm">Generalized Linear Model (GLM)</h1>
+<p>The <code>RAPID_GLM</code> pipeline provides a full linear regression analysis for continuous outcomes. It is built on a Generalised Linear Model (GLM) framework, meaning it supports several distributional families beyond the standard Gaussian, making it suitable for a range of continuous outcome types encountered in clinical and epidemiological research.</p>
+<hr />
+<h2 id="initialisation">Initialisation</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">isaric.pipelines.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">RAPID_PipelineFactory</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">factory</span> <span class="o">=</span> <span class="n">RAPID_PipelineFactory</span><span class="p">()</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">model</span> <span class="o">=</span> <span class="n">factory</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="s2">&quot;glm&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">data</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">dependent_var</span><span class="o">=</span><span class="s2">&quot;outcome&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">independent_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;age&quot;</span><span class="p">,</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="s2">&quot;bmi&quot;</span><span class="p">],</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">regression_type</span><span class="o">=</span><span class="s2">&quot;Multi&quot;</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="parameters">Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data</code></td>
+<td><code>pd.DataFrame</code></td>
+<td>required</td>
+<td>The dataset to analyse. Must contain all outcome and predictor columns. Rows with missing values are dropped automatically.</td>
+</tr>
+<tr>
+<td><code>dependent_var</code></td>
+<td><code>str</code></td>
+<td><code>None</code></td>
+<td>The name of the outcome (dependent) variable column. Required if <code>formula</code> is not provided.</td>
+</tr>
+<tr>
+<td><code>independent_vars</code></td>
+<td><code>list</code></td>
+<td><code>None</code></td>
+<td>A list of predictor (independent) variable column names. Required if <code>formula</code> is not provided.</td>
+</tr>
+<tr>
+<td><code>formula</code></td>
+<td><code>str</code></td>
+<td><code>None</code></td>
+<td>A Patsy-style formula string (e.g. <code>"outcome ~ age + sex"</code>). If provided, <code>dependent_var</code> and <code>independent_vars</code> are not required.</td>
+</tr>
+<tr>
+<td><code>family</code></td>
+<td><code>str</code></td>
+<td><code>"gaussian"</code></td>
+<td>The distributional family for the GLM. See <a href="#supported-families-and-links">Supported Families and Links</a>.</td>
+</tr>
+<tr>
+<td><code>link</code></td>
+<td><code>str</code></td>
+<td><code>"identity"</code></td>
+<td>The link function for the GLM. See <a href="#supported-families-and-links">Supported Families and Links</a>.</td>
+</tr>
+<tr>
+<td><code>regression_type</code></td>
+<td><code>str</code></td>
+<td><code>"Multi"</code></td>
+<td>Either <code>"Multi"</code> for multivariable regression or <code>"Uni"</code> for univariable regression. Affects column naming in the results table.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="fit">fit()</h2>
+<p>Fits the model and runs all evaluation steps, including assumption testing, performance metrics, and optionally cross-validation.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">labels</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;age&quot;</span><span class="p">:</span> <span class="s2">&quot;Age (years)&quot;</span><span class="p">,</span> <span class="s2">&quot;sex&quot;</span><span class="p">:</span> <span class="s2">&quot;Sex&quot;</span><span class="p">},</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">cross_val</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">n_splits</span><span class="o">=</span><span class="mi">5</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="parameters_1">Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>labels</code></td>
+<td><code>dict</code></td>
+<td><code>None</code></td>
+<td>A dictionary mapping raw variable names to human-readable labels for display in result tables.</td>
+</tr>
+<tr>
+<td><code>cross_val</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>Whether to perform k-fold cross-validation after fitting.</td>
+</tr>
+<tr>
+<td><code>n_splits</code></td>
+<td><code>int</code></td>
+<td><code>5</code></td>
+<td>Number of folds for cross-validation. Only used if <code>cross_val=True</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="summary">summary()</h2>
+<p>Displays results after fitting. All arguments are optional — pass only what you want to see.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">model</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">assumptions</span><span class="o">=</span><span class="s2">&quot;all&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">performance</span><span class="o">=</span><span class="s2">&quot;all&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">cross_val</span><span class="o">=</span><span class="s2">&quot;all&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">plots</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;forest_plot&quot;</span><span class="p">,</span> <span class="s2">&quot;residuals_vs_fitted&quot;</span><span class="p">,</span> <span class="s2">&quot;qq_plot&quot;</span><span class="p">],</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">vif_threshold</span><span class="o">=</span><span class="mf">5.0</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="parameters_2">Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>assumptions</code></td>
+<td><code>str</code> or <code>list</code></td>
+<td><code>None</code></td>
+<td>Pass <code>"all"</code> to show all assumption tests, or a list of specific test names. <code>None</code> skips this section.</td>
+</tr>
+<tr>
+<td><code>performance</code></td>
+<td><code>str</code> or <code>list</code></td>
+<td><code>None</code></td>
+<td>Pass <code>"all"</code> to show all performance metrics, or a list of specific metric names. <code>None</code> skips this section.</td>
+</tr>
+<tr>
+<td><code>cross_val</code></td>
+<td><code>str</code> or <code>list</code></td>
+<td><code>None</code></td>
+<td>Pass <code>"all"</code> to show all cross-validation metrics, or a list of specific metric names. <code>None</code> skips this section.</td>
+</tr>
+<tr>
+<td><code>plots</code></td>
+<td><code>list</code></td>
+<td><code>None</code></td>
+<td>A list of plot names to display. Options: <code>"forest_plot"</code>, <code>"residuals_vs_fitted"</code>, <code>"qq_plot"</code>.</td>
+</tr>
+<tr>
+<td><code>vif_threshold</code></td>
+<td><code>float</code></td>
+<td><code>5.0</code></td>
+<td>The threshold above which a VIF value is flagged as indicating multicollinearity.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="assumption-tests">Assumption Tests</h2>
+<p>Assumption tests are run automatically during <code>fit()</code>. Results are accessible via <code>model.assumption_metrics_df</code>.</p>
+<h3 id="available-metrics">Available Metrics</h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Description</th>
+<th>Accessed via</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Durbin-Watson</td>
+<td>Tests for autocorrelation in residuals. Values close to 2 suggest independence. Values below 1.5 suggest positive autocorrelation; above 2.5 suggest negative autocorrelation.</td>
+<td><code>model.dw</code></td>
+</tr>
+<tr>
+<td>Shapiro-Wilk Statistic</td>
+<td>Test statistic for normality of residuals.</td>
+<td><code>model.shapiro_wilk_test_statistic</code></td>
+</tr>
+<tr>
+<td>Shapiro-Wilk p-value</td>
+<td>p-value for the Shapiro-Wilk test. A value below 0.05 suggests residuals are not normally distributed.</td>
+<td><code>model.shapiro_wilk_p_value</code></td>
+</tr>
+<tr>
+<td>Influential Outliers Threshold</td>
+<td>Cook's distance threshold (4/n). Points exceeding this are flagged as influential.</td>
+<td><code>model.influential_outliers_threshold</code></td>
+</tr>
+<tr>
+<td>Number of Influential Points</td>
+<td>Count of observations with Cook's distance above the threshold.</td>
+<td><code>model.influential_points</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="assumption-metrics-dataframe">Assumption Metrics Dataframe</h3>
+<p>All assumption metrics are stored together in a single dataframe:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">model</span><span class="o">.</span><span class="n">assumption_metrics_df</span>
+</code></pre></div>
+<h3 id="vif-dataframe">VIF Dataframe</h3>
+<p>Variance Inflation Factors for each predictor are stored separately:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">model</span><span class="o">.</span><span class="n">vif_df</span>
+</code></pre></div>
+<p>VIF values above <code>vif_threshold</code> (default 5.0) are flagged as indicating potential multicollinearity.</p>
+<h3 id="selecting-specific-assumption-tests">Selecting Specific Assumption Tests</h3>
+<p>Pass a list of test names to <code>summary()</code> to display only those tests:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">model</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">assumptions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Durbin-Watson&quot;</span><span class="p">,</span> <span class="s2">&quot;Shapiro-Wilk p-value&quot;</span><span class="p">,</span> <span class="s2">&quot;VIF&quot;</span><span class="p">,</span> <span class="s2">&quot;Influential Outliers&quot;</span><span class="p">])</span>
+</code></pre></div>
+<p>Available names: <code>"Durbin-Watson"</code>, <code>"Shapiro-Wilk Statistic"</code>, <code>"Shapiro-Wilk p-value"</code>, <code>"Influential Outliers Threshold"</code>, <code>"Number of Influential Points"</code>, <code>"VIF"</code>, <code>"Influential Outliers"</code>.</p>
+<hr />
+<h2 id="performance-metrics">Performance Metrics</h2>
+<p>Performance metrics are computed automatically during <code>fit()</code>. Results are accessible via <code>model.performance_metrics_df</code>.</p>
+<h3 id="available-metrics_1">Available Metrics</h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Description</th>
+<th>Accessed via</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MSE</td>
+<td>Mean Squared Error</td>
+<td><code>model.mse</code></td>
+</tr>
+<tr>
+<td>RMSE</td>
+<td>Root Mean Squared Error</td>
+<td><code>model.rmse</code></td>
+</tr>
+<tr>
+<td>MAE</td>
+<td>Mean Absolute Error</td>
+<td><code>model.mae</code></td>
+</tr>
+<tr>
+<td>R²</td>
+<td>Coefficient of determination</td>
+<td><code>model.r2</code></td>
+</tr>
+<tr>
+<td>Adjusted R²</td>
+<td>R² adjusted for number of independent_vars</td>
+<td><code>model.adjusted_r2</code></td>
+</tr>
+<tr>
+<td>McFadden R²</td>
+<td>Pseudo R² based on log-likelihood ratio</td>
+<td><code>model.mcfadden_r2</code></td>
+</tr>
+<tr>
+<td>Adjusted McFadden R²</td>
+<td>McFadden R² penalised for model complexity</td>
+<td><code>model.mcfadden_adj_r2</code></td>
+</tr>
+<tr>
+<td>Efron R²</td>
+<td>Pseudo R² based on residual sum of squares</td>
+<td><code>model.efron_r2</code></td>
+</tr>
+<tr>
+<td>AIC</td>
+<td>Akaike Information Criterion</td>
+<td><code>model.aic</code></td>
+</tr>
+<tr>
+<td>BIC</td>
+<td>Bayesian Information Criterion</td>
+<td><code>model.bic</code></td>
+</tr>
+<tr>
+<td>LLF</td>
+<td>Log-likelihood of the fitted model</td>
+<td><code>model.llf</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="performance-metrics-dataframe">Performance Metrics Dataframe</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">model</span><span class="o">.</span><span class="n">performance_metrics_df</span>
+</code></pre></div>
+<h3 id="selecting-specific-performance-metrics">Selecting Specific Performance Metrics</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">model</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">performance</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;MSE&quot;</span><span class="p">,</span> <span class="s2">&quot;RMSE&quot;</span><span class="p">,</span> <span class="s2">&quot;R2&quot;</span><span class="p">,</span> <span class="s2">&quot;AIC&quot;</span><span class="p">])</span>
+</code></pre></div>
+<hr />
+<h2 id="cross-validation-metrics">Cross-Validation Metrics</h2>
+<p>Cross-validation is run automatically during <code>fit()</code> when <code>cross_val=True</code>. Results are accessible via <code>model.cv_df</code>.</p>
+<h3 id="available-metrics_2">Available Metrics</h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Description</th>
+<th>Accessed via</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mean CV MSE</td>
+<td>Average MSE across all folds</td>
+<td><code>model.cv_mse_scores.mean()</code></td>
+</tr>
+<tr>
+<td>Standard Deviation of CV MSE</td>
+<td>Variability of MSE across folds</td>
+<td><code>model.cv_mse_scores.std()</code></td>
+</tr>
+<tr>
+<td>Individual Fold MSEs</td>
+<td>MSE for each individual fold</td>
+<td><code>model.cv_mse_scores</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="cross-validation-dataframe">Cross-Validation Dataframe</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">model</span><span class="o">.</span><span class="n">cv_df</span>
+</code></pre></div>
+<h3 id="selecting-specific-cv-metrics">Selecting Specific CV Metrics</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">model</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">cross_val</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Mean CV MSE&quot;</span><span class="p">,</span> <span class="s2">&quot;Standard Deviation of CV MSE&quot;</span><span class="p">])</span>
+</code></pre></div>
+<hr />
+<h2 id="results-summary">Results Summary</h2>
+<p>The coefficient table produced after fitting is stored in <code>model.summary_df</code>. It contains one row per predictor and the following columns:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Variable</code></td>
+<td>Predictor name (or human-readable label if <code>labels</code> were provided)</td>
+</tr>
+<tr>
+<td><code>Coefficient (multi)</code> / <code>Coefficient (uni)</code></td>
+<td>Regression coefficient estimate</td>
+</tr>
+<tr>
+<td><code>LowerCI (multi)</code> / <code>LowerCI (uni)</code></td>
+<td>Lower bound of 95% confidence interval</td>
+</tr>
+<tr>
+<td><code>UpperCI (multi)</code> / <code>UpperCI (uni)</code></td>
+<td>Upper bound of 95% confidence interval</td>
+</tr>
+<tr>
+<td><code>p-value (multi)</code> / <code>p-value (uni)</code></td>
+<td>p-value for the coefficient</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>(multi)</code> or <code>(uni)</code> suffix depends on the <code>regression_type</code> set at initialisation.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">model</span><span class="o">.</span><span class="n">summary_df</span>
+</code></pre></div>
+<hr />
+<h2 id="supported-families-and-links">Supported Families and Links</h2>
+<p>The <code>family</code> and <code>link</code> parameters control the distributional assumptions of the GLM. The following combinations are supported and tested:</p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>Link</th>
+<th>Use case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gaussian</code></td>
+<td><code>identity</code></td>
+<td>Standard linear regression for normally distributed outcomes (default)</td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td><code>log</code></td>
+<td>Positively skewed, strictly positive continuous outcomes</td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td><code>inverse</code></td>
+<td>Alternative for positive continuous outcomes</td>
+</tr>
+<tr>
+<td><code>inv_gaussian</code></td>
+<td><code>inverse</code></td>
+<td>Heavily right-skewed positive outcomes</td>
+</tr>
+<tr>
+<td><code>tweedie</code></td>
+<td><code>log</code></td>
+<td>Outcomes with a mix of zeros and positive continuous values</td>
+</tr>
+</tbody>
+</table>
+<h3 id="all-available-links">All Available Links</h3>
+<p>Not all links are appropriate for all families. The full set of available link functions is: <code>"identity"</code>, <code>"log"</code>, <code>"inverse"</code>, <code>"sqrt"</code>.</p>
+<hr />
+<h2 id="plots">Plots</h2>
+<p>The following plots can be requested via <code>summary(plots=[...])</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Plot name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"forest_plot"</code></td>
+<td>Displays coefficient estimates and 95% confidence intervals for each predictor</td>
+</tr>
+<tr>
+<td><code>"residuals_vs_fitted"</code></td>
+<td>Scatter plot of residuals against fitted values, used to assess homoscedasticity and linearity</td>
+</tr>
+<tr>
+<td><code>"qq_plot"</code></td>
+<td>Quantile-quantile plot of residuals against a normal distribution, used to assess normality of errors</td>
+</tr>
+</tbody>
+</table>
+<h2 id="statistical-notes">Statistical Notes</h2>
+<p><strong>1. The Generalised Linear Model</strong></p>
+<p>The GLM models the relationship between a set of predictors and an outcome whose distribution belongs to the exponential family. It is defined by three components:</p>
+<ul>
+<li>A <strong>random component</strong>: the conditional distribution of the outcome Y, assumed to belong to the exponential family (Gaussian, Gamma, Inverse Gaussian, Tweedie).</li>
+<li>A <strong>systematic component</strong>: a linear predictor <span class="arithmatex">\(\eta = \beta_0 + \beta_1 X_1 + \cdots + \beta_p X_p\)</span>.</li>
+<li>A <strong>link function</strong> <span class="arithmatex">\(g(\cdot)\)</span> such that <span class="arithmatex">\(g(\mu) = \eta\)</span>, connecting the mean of the distribution to the linear predictor.</li>
+</ul>
+<p>The Gaussian family with an identity link recovers standard OLS. Parameters are estimated by maximum likelihood via iteratively reweighted least squares (IRLS).</p>
+<hr />
+<p><strong>Interpreting the GLM</strong></p>
+<p><strong>1. Coefficients</strong></p>
+<p>Under an <strong>identity link</strong> (Gaussian), <span class="arithmatex">\(\beta_j\)</span> is the expected change in <span class="arithmatex">\(Y\)</span> per unit increase in <span class="arithmatex">\(X_j\)</span>, holding all other predictors constant.</p>
+<p>Under a <strong>log link</strong> (Gamma, Tweedie), the coefficient operates on the log-mean scale. Exponentiating recovers a ratio of means:</p>
+<div class="arithmatex">\[
+\text{Mean ratio} = e^{\beta_j}
+\]</div>
+<ul>
+<li>If the mean ratio <span class="arithmatex">\(&gt; 1\)</span>, the predictor increases the outcome mean.</li>
+<li>If the mean ratio <span class="arithmatex">\(&lt; 1\)</span>, the predictor decreases the outcome mean.</li>
+<li>If the mean ratio <span class="arithmatex">\(= 1\)</span>, the predictor has no effect.</li>
+</ul>
+<p>The pipeline labels the exponentiated coefficient according to the family and link combination: <strong>Mean Ratio</strong> for Gamma and Tweedie with a log link, and <strong>Coefficient</strong> for identity link models. These labels are reflected in the forest plot axis and the results table. Coefficients from models with different effect labels are not directly comparable.</p>
+<p><strong>2. Confidence Intervals</strong></p>
+<p>The 95% confidence interval for a coefficient is:</p>
+<div class="arithmatex">\[
+\text{CI} = \left[ \beta_j - 1.96 \cdot \text{SE}(\beta_j),\ \beta_j + 1.96 \cdot \text{SE}(\beta_j) \right]
+\]</div>
+<p>where <span class="arithmatex">\(\text{SE}(\beta_j)\)</span> is derived from the Fisher information matrix. Under a log link, exponentiate both bounds to obtain the CI on the ratio scale. If the CI excludes zero (identity link) or one (log link), the predictor is statistically significant at <span class="arithmatex">\(\alpha = 0.05\)</span>.</p>
+<p><strong>3. p-value</strong></p>
+<p>The p-value tests the null hypothesis that <span class="arithmatex">\(\beta_j = 0\)</span>:</p>
+<ul>
+<li>If <span class="arithmatex">\(p &lt; 0.05\)</span>, the predictor has a statistically significant association with the outcome.</li>
+<li>If <span class="arithmatex">\(p &gt; 0.05\)</span>, there is insufficient evidence to conclude an association exists.</li>
+</ul>
+<p>Statistical significance does not imply clinical relevance. Effect size and confidence interval width should always be considered alongside the p-value.</p>
+<hr />
+<p><strong>Performance Metrics</strong></p>
+<ul>
+<li>
+<p><strong>R² and Adjusted R²</strong>: Proportion of variance in <span class="arithmatex">\(Y\)</span> explained by the model. Only has its conventional interpretation under Gaussian/identity. Adjusted R² penalises for the number of predictors and should be preferred when comparing models of different sizes.</p>
+</li>
+<li>
+<p><strong>Pseudo R²</strong>: For non-Gaussian families, McFadden R² (<span class="arithmatex">\(1 - \text{LLF} / \text{LL}_0\)</span>) and Efron R² are reported as approximate analogues. These are not directly comparable to standard R² or to each other across families. Values of McFadden R² between 0.2 and 0.4 are generally considered good fit.</p>
+</li>
+<li>
+<p><strong>AIC and BIC</strong>: AIC (<span class="arithmatex">\(-2 \cdot \text{LLF} + 2k\)</span>) and BIC (<span class="arithmatex">\(-2 \cdot \text{LLF} + k \cdot \log n\)</span>) penalise log-likelihood for model complexity. Lower values indicate better fit relative to the number of parameters. BIC applies a stronger penalty and is preferred when the goal is identifying the true model rather than optimising prediction.</p>
+</li>
+<li>
+<p><strong>Cross-validation MSE</strong>: The mean and standard deviation of MSE across k folds assesses in-sample stability. A low standard deviation indicates that results are not sensitive to which observations are included in fitting. This is not equivalent to external validation on an independent dataset. The fold split uses a fixed random seed (<code>random_state=42</code>), meaning results are reproducible but not sensitive to the choice of seed; analysts requiring seed sensitivity analysis should implement CV externally.</p>
+</li>
+</ul>
+<hr />
+<p><strong>Advantages</strong></p>
+<ul>
+<li>Unified framework: the same pipeline handles normally distributed, skewed positive, and compound zero-positive outcomes by changing the family and link.</li>
+<li>Interpretable coefficients: additive effects under identity links; multiplicative mean ratios under log links.</li>
+<li>Integrated diagnostics: assumption tests, influence measures, and cross-validation are computed automatically during <code>fit()</code>.</li>
+</ul>
+<hr />
+<p><strong>Limitations</strong></p>
+<ul>
+<li>Family and link selection is the analyst's responsibility. The pipeline does not perform automatic family selection or goodness-of-fit tests to guide this choice.</li>
+<li>Rows with missing values are dropped automatically (listwise deletion). This is valid only under Missing Completely At Random (MCAR). For datasets with substantial missingness, multiple imputation should be applied upstream.</li>
+<li>The pipeline does not support mixed-effects GLMs, penalised regression (ridge, lasso), or time-varying covariates.</li>
+</ul>
+<hr />
+<p><strong>Assumptions of the GLM</strong></p>
+<p>The GLM relies on several critical assumptions that must hold for estimates to be valid. The pipeline provides diagnostic tools to evaluate each.</p>
+<p><br></p>
+<ul>
+<li><strong>Correct Specification of the Linear Predictor</strong>: The relationship between each continuous predictor and the link-transformed outcome is linear, with no relevant predictors omitted.</li>
+<li><strong>Implications</strong>: Misspecification causes biased, inconsistent estimates that do not diminish with larger samples.</li>
+<li><strong>If Violated</strong>: Add polynomial terms, interaction terms, or splines for non-linear predictors. Re-examine variable selection if omitted variable bias is suspected.</li>
+<li><strong>Evaluation</strong>: Inspect the residuals-vs-fitted plot (<code>summary(plots=["residuals_vs_fitted"])</code>). A systematic curve or fan pattern indicates misspecification.</li>
+</ul>
+<p><br></p>
+<ul>
+<li><strong>Correct Distributional Family</strong>: The conditional distribution of <span class="arithmatex">\(Y | X\)</span> belongs to the specified exponential family with the specified variance function.</li>
+<li><strong>Implications</strong>: Under the Gaussian family, misspecification inflates standard errors and invalidates inference. Under non-Gaussian families, mild misspecification may leave point estimates consistent but renders standard errors unreliable.</li>
+<li><strong>If Violated</strong>: Consider a quasi-GLM with robust standard errors, or re-specify the family.</li>
+<li><strong>Evaluation</strong>: Use the QQ plot (<code>summary(plots=["qq_plot"])</code>) to assess normality of residuals under the Gaussian family. For other families, examine Pearson residuals across the fitted value range.</li>
+</ul>
+<p><br></p>
+<ul>
+<li><strong>Independence of Observations</strong>: Observations must be independent of one another. This assumption may be violated in clustered or repeated-measures designs.</li>
+<li><strong>Implications</strong>: Violation leads to underestimated standard errors and anti-conservative p-values. Point estimates remain unbiased but inference is invalid.</li>
+<li><strong>If Violated</strong>: Use mixed-effects models to account for random effects, or apply cluster-robust standard errors.</li>
+<li><strong>Evaluation</strong>: The Durbin-Watson statistic (<code>model.dw</code>) tests for first-order autocorrelation in residuals. Values near 2 indicate independence; values below 1.5 suggest positive autocorrelation. For non-temporal data, review study design for clustering.</li>
+</ul>
+<p><br></p>
+<ul>
+<li><strong>No Influential Outliers</strong>: No individual observation exerts disproportionate leverage on the coefficient estimates.</li>
+<li><strong>Implications</strong>: Highly influential points can substantially shift estimated coefficients, producing results that do not generalise.</li>
+<li><strong>If Violated</strong>: Investigate flagged observations before removing them. Report analyses with and without the influential point.</li>
+<li><strong>Evaluation</strong>: Cook's distance threshold of <span class="arithmatex">\(4/n\)</span> is applied (<code>model.influential_outliers_threshold</code>). This threshold becomes permissive for large <span class="arithmatex">\(n\)</span>; graphical inspection is advisable for large datasets.</li>
+</ul>
+<p><br></p>
+<ul>
+<li><strong>No Multicollinearity</strong>: Predictor variables are not strongly linearly related to one another.</li>
+<li><strong>Implications</strong>: High collinearity inflates standard errors and makes individual coefficient estimates unstable. Overall model fit is unaffected.</li>
+<li><strong>If Violated</strong>: Remove one of the correlated predictors, combine them into a composite, or use ridge regression (L2 regularisation).</li>
+<li><strong>Evaluation</strong>: Variance Inflation Factors are computed for each predictor (<code>model.vif_df</code>). The default flag threshold is VIF &gt; 5.0, a widely used heuristic; some fields use 10. The threshold is configurable via <code>vif_threshold</code>.</li>
+</ul>
+<p><br></p>
+<ul>
+<li><strong>Missing Completely At Random</strong>: Rows with missing values are dropped automatically. This is valid only if the probability of missingness is unrelated to any observed or unobserved variable.</li>
+<li><strong>Implications</strong>: If data are Missing At Random (MAR) or Missing Not At Random (MNAR), listwise deletion produces biased estimates whose severity depends on the proportion missing and the mechanism.</li>
+<li><strong>If Violated</strong>: Apply multiple imputation (e.g. MICE) before passing data to the pipeline.</li>
+<li><strong>Evaluation</strong>: Compare the distribution of key covariates in complete vs. incomplete cases. Systematic differences suggest non-MCAR missingness.</li>
+</ul>
+<p><br></p>
+<hr />
+<h3 id="references">References</h3>
+<p>If you wish to further explore the Generalised Linear Model — its theoretical foundations, distributional families, estimation, and extensions — the following references are recommended:</p>
+<ul>
+<li><strong>Nelder, J. A., &amp; Wedderburn, R. W. M. (1972). Generalized Linear Models.</strong> <em>Journal of the Royal Statistical Society: Series A</em>, 135(3), 370–384. DOI: 10.2307/2344614</li>
+<li>
+<p>The seminal paper introducing the GLM framework, unifying regression models for exponential family distributions under a single estimation approach.</p>
+</li>
+<li>
+<p><strong>McCullagh, P., &amp; Nelder, J. A. (1989). Generalized Linear Models (2nd ed.).</strong> Chapman and Hall. DOI: 10.1007/978-1-4899-3242-6</p>
+</li>
+<li>
+<p>The definitive theoretical reference for GLMs. Covers distributional families, link functions, estimation via IRLS, and model diagnostics in depth.</p>
+</li>
+<li>
+<p><strong>Dobson, A. J., &amp; Barnett, A. G. (2018). An Introduction to Generalized Linear Models (4th ed.).</strong> Chapman and Hall/CRC. DOI: 10.1201/9781315182780</p>
+</li>
+<li>
+<p>An accessible graduate-level introduction with applied examples across a range of families and link functions. Suitable for clinical and epidemiological researchers.</p>
+</li>
+<li>
+<p><strong>Harrell, F. E. Jr. (2015). Regression Modeling Strategies (2nd ed.).</strong> Springer. DOI: 10.1007/978-3-319-19425-7</p>
+</li>
+<li>
+<p>Covers variable selection, multicollinearity, splines for non-linear effects, and model validation strategies applicable to GLMs and related models.</p>
+</li>
+<li>
+<p><strong>McFadden, D. (1974). Conditional logit analysis of qualitative choice behavior.</strong> In P. Zarembka (Ed.), <em>Frontiers in Econometrics</em>. Academic Press.</p>
+</li>
+<li>
+<p>Introduces the McFadden pseudo R² as a likelihood-ratio-based measure of fit for models outside the OLS framework.</p>
+</li>
+<li>
+<p><strong>Akaike, H. (1974). A new look at the statistical model identification.</strong> <em>IEEE Transactions on Automatic Control</em>, 19(6), 716–723. DOI: 10.1109/TAC.1974.1100705</p>
+</li>
+<li>
+<p>Foundational paper introducing the Akaike Information Criterion (AIC) for model selection based on penalised log-likelihood.</p>
+</li>
+<li>
+<p><strong>Schwarz, G. (1978). Estimating the dimension of a model.</strong> <em>Annals of Statistics</em>, 6(2), 461–464. DOI: 10.1214/aos/1176344136</p>
+</li>
+<li>
+<p>Introduces the Bayesian Information Criterion (BIC), applying a stronger complexity penalty than AIC, particularly useful for large samples.</p>
+</li>
+<li>
+<p><strong>Cook, R. D. (1977). Detection of influential observation in linear regression.</strong> <em>Technometrics</em>, 19(1), 15–18. DOI: 10.2307/1268249</p>
+</li>
+<li>
+<p>Introduces Cook's distance as a measure of the influence of individual observations on regression estimates.</p>
+</li>
+<li>
+<p><strong>Durbin, J., &amp; Watson, G. S. (1951). Testing for serial correlation in least squares regression, II.</strong> <em>Biometrika</em>, 38(1–2), 159–177. DOI: 10.2307/2332325</p>
+</li>
+<li>
+<p>Introduces the Durbin-Watson statistic for detecting first-order autocorrelation in regression residuals.</p>
+</li>
+<li>
+<p><strong>Rubin, D. B. (1976). Inference and missing data.</strong> <em>Biometrika</em>, 63(3), 581–592. DOI: 10.2307/2335739</p>
+</li>
+<li>Establishes the MCAR / MAR / MNAR taxonomy for missing data mechanisms, which underpins the validity conditions for listwise deletion.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 ISARIC - International Severe Acute Respiratory and emerging Infection Consortium
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ISARICResearch" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://isaric.org" target="_blank" rel="noopener" title="isaric.org" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M351.9 280H161c2.9 64.5 17.2 123.9 37.5 167.4 11.4 24.5 23.7 41.8 35.1 52.4 11.2 10.5 18.9 12.2 22.9 12.2s11.7-1.7 22.9-12.2c11.4-10.6 23.7-28 35.1-52.4 20.3-43.5 34.6-102.9 37.5-167.4zm-191-48h190.9c-2.8-64.5-17.1-123.9-37.4-167.4-11.4-24.4-23.7-41.8-35.1-52.4C268.1 1.7 260.4 0 256.4 0s-11.7 1.7-22.9 12.2c-11.4 10.6-23.7 28-35.1 52.4-20.3 43.5-34.6 102.9-37.5 167.4m-48 0c3.5-85.6 25.6-165.1 57.9-217.3C78.7 47.3 10.9 131.2 1.5 232zM1.5 280c9.4 100.8 77.2 184.7 169.3 217.3-32.3-52.2-54.4-131.7-57.9-217.3zm398.4 0c-3.5 85.6-25.6 165.1-57.9 217.3 92.1-32.7 159.9-116.5 169.3-217.3zm111.4-48C501.9 131.2 434.1 47.3 342 14.7c32.3 52.2 54.4 131.7 57.9 217.3z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.tracking", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "toc.follow", "toc.integrate", "header.autohide"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
