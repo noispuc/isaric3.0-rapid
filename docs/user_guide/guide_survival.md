@@ -126,23 +126,21 @@ pipeline_c2.summary(
 ```
 ### Development notes
 
-> [! IMPORTANT]
-
+> [!IMPORTANT]
+> 
 > In this version, survival analysis is conducted solely using the listwise deletion method to address missing data.
-
-> To implement the Cox Proportional we used the <code>lifelines</code> library — a specialized package for survival analysis. It provides easy-to-use tools for fitting and interpreting models like Kaplan-Meier, Cox Proportional Hazards, and more. You can learn more about it's own official documentation at:
-https://lifelines.readthedocs.io
-
-> To implement the formulas for personalized X and y matrices generation we used <code>Formulaic</code>. A high-performance implementation of Wilkinson formulas for Python, which are very useful for transforming dataframes into a form suitable for ingestion into various modelling frameworks. You can learn more about it's own official documentation at:
-https://matthewwardrop.github.io/formulaic/latest/
+> 
+> To implement the Cox Proportional we used the `lifelines` library — a specialized package for survival analysis. It provides easy-to-use tools for fitting and interpreting models like Kaplan-Meier, Cox Proportional Hazards, and more. You can learn more about its official documentation at:
+> https://lifelines.readthedocs.io
+> 
+> To implement the formulas for personalized X and y matrices generation we used `Formulaic`. A high-performance implementation of Wilkinson formulas for Python, which are very useful for transforming dataframes into a form suitable for ingestion into various modelling frameworks. You can learn more about its official documentation at:
+> https://matthewwardrop.github.io/formulaic/latest/
 
 ---
 
 ## Statistical Notes
 
 **1. Hazard Function in the Cox Model**
-
-<dd>
 
 The hazard function, denoted as $h(t)$, represents the instantaneous risk of an event occurring at time $t$, given survival up to that time. The Cox model assumes that this hazard function can be expressed as:
 
@@ -160,11 +158,7 @@ where:
 
 This formulation allows us to analyze the effect of covariates on survival without making assumptions about the baseline hazard $h_0(t)$.
 
-<dt>
-
 **2. Proportional Hazards Assumption**
-
-<dd>
 
 The term proportional hazards comes from the assumption that the hazard ratios between individuals remain constant over time. That is, the effect of a covariate does not change as time progresses. Mathematically, for two individuals with predictor values $x_A$ and $x_B$:
 
@@ -176,19 +170,11 @@ Since $h_0(t)$ cancels out, the hazard ratio is independent of time $t$.
 
 If this assumption does not hold, alternative models like time-dependent covariates or stratified Cox models may be necessary.
 
-<dt>
-
-<br>
-
 ---
 
-<br>
-
-**Interpreting the Cox Model**
+### Interpreting the Cox Model
 
 **1. Hazard Ratio ($\mathrm{HR}$)**
-
-<dd>
 
 The hazard ratio (HR) quantifies the effect of a predictor variable on survival. It is calculated as:
 
@@ -206,11 +192,7 @@ where:
 *   If $\mathrm{HR} = 1$, the predictor has no effect on survival.
 
 
-<dt>
-
 **2. Confidence Intervals ($\mathrm{CI}$)**
-
-<dd>
 
 To assess statistical significance, we compute the 95% confidence interval (CI) for the hazard ratio:
 
@@ -224,26 +206,16 @@ where ${σ}$ is the standard error of the coefficient.
 *   If the $\mathrm{CI}$ includes 1, the data do not provide strong enough evidence to conclude that an association between the predictor and the hazard exists.
 
 
-<dt>
-
 **3. p-value**
-
-<dd>
 
 The p-value tests whether the predictor has a significant effect on survival:
 
 *   If p < 0.05, the variable is statistically significant.
 *   If p > 0.05, there is no strong evidence that the predictor affects survival.
 
-<dt>
-
-<br>
-
 ---
 
-<br>
-
-**Advantages**
+### Advantages
 
 
 *   No assumption on survival time distribution: Unlike parametric models, the Cox model does not require specifying the shape of the survival curve.
@@ -252,66 +224,42 @@ The p-value tests whether the predictor has a significant effect on survival:
 
 *   Interpretable coefficients: The exponentiated coefficients provide direct insights into risk factors.
 
-<br>
-
 ---
 
-<br>
-
-
-**Limitations**
+### Limitations
 
 *   Time-dependent covariates: While the basic Cox model assumes time-independent covariates, it can be extended to handle time-dependent covariates using appropriate data structures and modeling techniques.
 
 *   Baseline hazard is not estimated: The model focuses on relative risks rather than predicting absolute survival probabilities.
 
-<br>
-
 ---
 
-<br>
-
-**Assumptions of the Cox Proportional Hazards Model**
-
-<dd>
+### Assumptions of the Cox Proportional Hazards Model
 
 The Cox model relies on several critical assumptions that must hold for its estimates to be valid and interpretable. These assumptions relate to the nature of covariate effects, data structure, and censoring mechanisms.
-
-<br>
 
 * **Proportional Hazards Assumption**: This is the primary structural assumption of the Cox model. It states that the hazard ratios between individuals are constant over time. That is, the effect of a covariate is multiplicative with respect to the baseline hazard and does not vary during follow-up.
   * **Implications**: Enables a time-invariant interpretation of covariate effects as hazard ratios.
   * **If Violated**: Incorporate time-dependent covariate interactions or use stratified Cox models.
   * **Evaluation**: Checked using Schoenfeld residuals or log(-log(survival)) vs. log(time) plots. Temporal trends indicate violations.
 
-<br>
-
 * **Linearity on the Log-Hazard Scale**: The model assumes a linear relationship between continuous covariates and the logarithm of the hazard function. This does not apply to categorical variables, which are handled through dummy encoding.
   * **Implications**: Non-linearity may lead to biased effect estimates and reduced model fit.
   * **If Violated**: Use polynomial terms or splines (e.g., restricted cubic splines) to better model the functional form.
   * **Evaluation**: Martingale residuals plotted against covariates can reveal non-linear patterns.
-
-<br>
 
 * **Independence of Observations**: Survival times across individuals must be independent. This assumption may be violated in clustered or repeated-measures designs.
   * **Implications**: Ignoring dependence leads to underestimated standard errors and invalid inferences.
   * **If Violated**: Use frailty models or apply robust (clustered) standard errors.
   * **Evaluation**: Not directly testable; however, study design review and examining residual structure across groups (e.g., hospitals) may reveal dependence.
 
-<br>
-
 * **Non-Informative Censoring**: The probability of being censored must be independent of the underlying event risk, conditional on covariates.
   * **Implications**: Informative censoring can bias hazard ratios and survival estimates.
   * **If Violated**: Consider joint models or alternative frameworks that explicitly model the censoring process.
   * **Evaluation**: This cannot be formally tested with survival data alone. Assess whether censored individuals differ systematically from those with observed events (e.g., via descriptive statistics or survival curves stratified by censoring groups).
 
-<dt>
 
-<br>
-
-
-### **References**
-
+## References
 
 If you wish to further explore the Cox Proportional Hazards model—its assumptions, estimation methods, applications in medical research, and extensions—there are several foundational and practical works that provide in-depth explanations. Below are some of the most recommended references for both theoretical and applied studies of the method:
 
