@@ -114,5 +114,5 @@ print(cm)
 
 ## 💬 Need Help?
 
-- **[🐙 GitHub Issues](https://github.com/ISARICResearch)** – Report bugs or request features.
+- **[🐙 GitHub Issues](https://github.com/noispuc/isaric3.0-rapid/issues)** – Report bugs or request features.
 - **[📧 Contact Support](mailto:data@isaric.org)** – Get help from the ISARIC team.

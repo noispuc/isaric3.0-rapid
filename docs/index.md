@@ -101,5 +101,5 @@ See our **[Contributing Guidelines](contributing.md)** to get involved.
 ## 📬 Contact & Support
 
 - 📧 **Email:** [data@isaric.org](mailto:data@isaric.org)
-- 🐙 **GitHub:** [ISARICResearch/rapid-pipeline](https://github.com/ISARICResearch){:target="_blank"}
+- 🐙 **GitHub Issues:** [noispuc/isaric3.0-rapid](https://github.com/noispuc/isaric3.0-rapid/issues)
 - 🌐 **ISARIC:** [isaric.org](https://isaric.org)

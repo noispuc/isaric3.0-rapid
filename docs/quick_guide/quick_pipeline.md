@@ -116,21 +116,7 @@ All follow: **Initialize → Fit → Summary**
 | AUC-ROC | 0.5 – 1.0 | Discrimination at `target_time` |
 | Brier Score | 0 – 0.25 | Lower = better calibration |
 
-## 5. Using Formulas (Alternative Syntax)
 
-```python
-# Instead of dependent_var + independent_vars
-model = factory.create(
-    "survival",
-    data=df,
-    duration_var="time",
-    dependent_var="event",
-    independent_vars=["age", "sex", "bmi"]
-)
-
-# Use formula notation with interactions
-model.fit(formula="time + event ~ age * sex + bmi")
-```
 
 ## 🔗 Next Steps
 

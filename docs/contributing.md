@@ -148,4 +148,4 @@ Before submitting a PR, ensure:
 ## 💬 Questions?
 
 - **Email:** [data@isaric.org](mailto:data@isaric.org)
-- **GitHub Issues:** [ISARICResearch/rapid-pipeline](https://github.com/ISARICResearch)
+- **GitHub Issues:** [noispuc/isaric3.0-rapid](https://github.com/noispuc/isaric3.0-rapid/issues)
