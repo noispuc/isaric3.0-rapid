@@ -3,10 +3,10 @@
 Welcome to the **RAPID Examples Gallery**. Here you'll find Jupyter notebooks demonstrating real-world applications of the RAPID methodology.
 
 Each example includes:
-- Data loading and preprocessing
-- Model initialization and fitting
-- Results interpretation
-- Diagnostic plots
+1. Data loading and preprocessing
+2. Model initialization and fitting
+3. Results interpretation
+4. Diagnostic plots
 
 ---
 
