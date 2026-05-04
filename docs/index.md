@@ -1,4 +1,4 @@
-# 🌟 ISARIC Clinical Epidemiology Platform
+# ISARIC Reusable Analytical Pipelines for Infectious Diseases (RAPID)
 
 ## RAPID Methodology: Reusable Analytical Pipelines for Infectious Diseases
 
@@ -12,6 +12,8 @@ Our core objective is to ensure that analyses are **Reproducible, Transparent, E
 
 ## 🔄 The RAPID Methodology Flow
 The RAPID methodology transforms a clinical research question and a curated dataset into a transparent and validated analysis with clinical relevance.
+Here's the updated Mermaid block — just replace the existing one:
+
 ```mermaid
 graph LR
     subgraph INPUT
@@ -20,18 +22,18 @@ graph LR
     end
     
     subgraph PROCESS["⚙️ RAPID Methodology"]
-        C1[🧹 Cleaning] --> C2[📐 Preprocessing]
-        C2 --> C3[📈 Modeling]
-        C3 --> C4[✅ Evaluation]
-        C4 --> C5[🔬 Validation]
-        C5 --> C6[📊 Visualization]
+        C1[1 🧹 Cleaning] --> C2[2 📐 Preprocessing]
+        C2 --> C3[3 📈 Modeling]
+        C3 --> C4[4 ✅ Evaluation]
+        C4 --> C5[5 🔬 Validation]
+        C5 --> C6[6 📊 Visualization]
         C6 -.->|Iterate| C2
     end
     
     subgraph OUTPUT
         D[🎯 Validated<br/>Analysis]
     end
-    
+
     A --> C1
     B --> C1
     C6 --> D
