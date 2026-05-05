@@ -25,7 +25,7 @@ graph LR
         C3 --> C4[✅ Evaluation]
         C4 --> C5[🔬 Validation]
         C5 --> C6[📊 Visualization]
-        C6 -.->|Iterate| C2
+        C6 -.-> C2
     end
     
     subgraph OUTPUT
@@ -41,7 +41,6 @@ graph LR
 
 ## 📖 The 6-Step RAPID Workflow
 
-![RAPID Methodology - 6 Steps](assets/steps.png)
 
 | Step | Phase | Mandatory | Description |
 |:----:|-------|:---------:|-------------|
