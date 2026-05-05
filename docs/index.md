@@ -81,6 +81,7 @@ For detailed instructions and alternative methods, see the **[Installation Guide
 | You want to... | Go to... |
 |----------------|----------|
 | Understand why RAPID exists | **[Why RAPID?](getting_started/why_rapid.md)** |
+| Install the package| **[Installation Guide](getting_started/installation.md)** |
 | Get started quickly | **[Quickstart Guide](getting_started/quickstart.md)** |
 | Learn statistical theory + practice | **[User Guide](user_guide/guide_logistic.md)** |
 | Quick reference (parameters & methods) | **[Quick Guide](quick_guide/quick_logistic.md)** |
