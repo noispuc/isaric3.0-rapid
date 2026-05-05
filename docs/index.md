@@ -26,6 +26,14 @@ graph LR
         C4 --> C5[🔬 Validation]
         C5 --> C6[📊 Visualization]
         C6 -.-> C2
+=======
+        C1[1 🧹 Cleaning] --> C2[2 📐 Preprocessing]
+        C2 --> C3[3 📈 Modeling]
+        C3 --> C4[4 ✅ Evaluation]
+        C4 --> C5[5 🔬 Validation]
+        C5 --> C6[6 📊 Visualization]
+        C6 -.->|Iterate| C2
+>>>>>>> f0ca92a32408eb33d5cf778b63c054c0f494f740
     end
     
     subgraph OUTPUT
