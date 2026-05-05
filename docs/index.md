@@ -27,7 +27,7 @@ graph LR
         C3 --> C4[4 ✅ Evaluation]
         C4 --> C5[5 🔬 Validation]
         C5 --> C6[6 📊 Visualization]
-        C6 -.->|Iterate| C2
+        C6 -.-> C2
     end
     
     subgraph OUTPUT
