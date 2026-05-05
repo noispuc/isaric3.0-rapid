@@ -79,13 +79,13 @@
 
 ---
 
-## 📈 Supported Links
+## 📈 Supported Families & Links
 
-| Link | Description | Interpretation |
-|------|-------------|----------------|
-| `logit` | Standard logistic regression (default) | Odds Ratios |
-| `probit` | Inverse normal CDF | Not odds ratios |
-| `cloglog` | Complementary log-log | Approximates hazard ratios |
+| Family | Link | Application | Interpretation |
+|--------|------|-------------|----------------|
+| `binomial` | `logit` | Standard logistic regression (default) | Odds Ratios |
+| `binomial` | `probit` | Inverse normal CDF | Not odds ratios |
+| `binomial` | `cloglog` | Complementary log-log | Approximates hazard ratios |
 
 ---
 

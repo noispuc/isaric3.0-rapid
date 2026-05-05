@@ -28,12 +28,12 @@ pipeline = factory.create(
 
 ### Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `data` | `pd.DataFrame` | required | The input dataset containing the variables for analysis. |
-| `duration_var` | `str` | required | The name of the column representing time-to-event (e.g., days until discharge or death). |
-| `dependent_var` | `str` | required | The name of the binary column where `1` indicates the event occurred and `0` indicates censoring. |
-| `independent_vars` | `list of str` | required | A list of feature names to be used as covariates in the survival model. |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `data` | `pd.DataFrame` | required | The input dataset containing the variables for analysis. | Preprocessing |
+| `duration_var` | `str` | required | The name of the column representing time-to-event (e.g., days until discharge or death). | Modeling |
+| `dependent_var` | `str` | required | The name of the binary column where `1` indicates the event occurred and `0` indicates censoring. | Modeling |
+| `independent_vars` | `list of str` | required | A list of feature names to be used as covariates in the survival model. | Modeling |
 
 ---
 
@@ -52,11 +52,11 @@ pipeline.fit(
 
 ### Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `formula` | `str` | `None` | R-style formula string for data transformation. Implemented with the `Formulaic` library. Allows specifying interactions and custom model structures. See [Formulaic docs](https://matthewwardrop.github.io/formulaic/latest/). |
-| `labels` | `dict` | `None` | A dictionary mapping internal column names to human-readable labels for reporting. |
-| `penalizer` | `float` | `0.1` | L2 regularization parameter to improve model stability and prevent overfitting. |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `formula` | `str` | `None` | R-style formula string for data transformation. Implemented with the `Formulaic` library. Allows specifying interactions and custom model structures. See [Formulaic docs](https://matthewwardrop.github.io/formulaic/latest/). | Modeling |
+| `labels` | `dict` | `None` | A dictionary mapping internal column names to human-readable labels for reporting. | Evaluation |
+| `penalizer` | `float` | `0.1` | L2 regularization parameter to improve model stability and prevent overfitting. | Modeling |
 
 ---
 
@@ -75,12 +75,12 @@ pipeline.summary(
 
 ### Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `assumptions` | `bool` | `False` | If `True`, displays results of assumption tests including Multicollinearity (VIF) and Influential Outliers (Cook's Distance, Leverage, DFBetas). |
-| `performance` | `bool` | `False` | If `True`, displays performance metrics including Accuracy, Precision, Recall, F1 Score, Log Loss, and ROC AUC Score. |
-| `plots` | `list of str` | `None` | A list of plot names to display. Supported options: `"forest_plot"`, `"roc_auc"`, `"martingale"`. |
-| `target_time` | `float` | `None` | The specific time point used for calculating ROC curves and AUC. |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `assumptions` | `bool` | `False` | If `True`, displays results of assumption tests including Multicollinearity (VIF) and Influential Outliers (Cook's Distance, Leverage, DFBetas). | Evaluation |
+| `performance` | `bool` | `False` | If `True`, displays performance metrics including Accuracy, Precision, Recall, F1 Score, Log Loss, and ROC AUC Score. | Evaluation |
+| `plots` | `list of str` | `None` | A list of plot names to display. Supported options: `"forest_plot"`, `"roc_auc"`, `"martingale"`. | Evaluation |
+| `target_time` | `float` | `None` | The specific time point used for calculating ROC curves and AUC. | Evaluation |
 
 ---
 
