@@ -19,25 +19,25 @@
 
 ## 🔧 Parameters - MICEImputer()
 
-| Parameter | Type | Default | Notes |
-|-----------|------|---------|-------|
-| `n` | int | `5` | Number of imputed datasets |
-| `max_iter` | int | `10` | Iterations per imputation |
-| `random_state` | int | `None` | Seed for reproducibility |
-| `initial_strategy` | str | `'most_frequent'` | `'mean'`, `'median'`, `'most_frequent'`, `'constant'` |
-| `force_binary` | bool | `False` | Round dummies to 0/1 |
-| `cutoff` | float | `0.5` | Threshold for binarising |
-| `tie_strategy` | str | `'highest_probability'` | `'highest_probability'`, `'first'`, `'nan'`, `'force_class'` |
+| Parameter | Type | Default | Notes | Methodological Stage |
+|-----------|------|---------|-------|----------------------|
+| `n` | int | `5` | Number of imputed datasets | Preprocessing |
+| `max_iter` | int | `10` | Iterations per imputation | Preprocessing |
+| `random_state` | int | `None` | Seed for reproducibility | Preprocessing |
+| `initial_strategy` | str | `'most_frequent'` | `'mean'`, `'median'`, `'most_frequent'`, `'constant'` | Preprocessing |
+| `force_binary` | bool | `False` | Round dummies to 0/1 | Preprocessing |
+| `cutoff` | float | `0.5` | Threshold for binarising | Preprocessing |
+| `tie_strategy` | str | `'highest_probability'` | `'highest_probability'`, `'first'`, `'nan'`, `'force_class'` | Preprocessing |
 
 ---
 
 ## 🔧 Parameters - fit()
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `df` | DataFrame | required | Input data with missing values |
-| `interest_vars` | list | `None` | Variables to include in stats table |
-| `show_results` | bool | `True` | Print stats table after fitting |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `df` | DataFrame | required | Input data with missing values | Preprocessing |
+| `interest_vars` | list | `None` | Variables to include in stats table | Evaluation |
+| `show_results` | bool | `True` | Print stats table after fitting | Evaluation |
 
 ---
 

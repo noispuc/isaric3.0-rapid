@@ -20,33 +20,33 @@
 
 ## 🔧 Parameters - create()
 
-| Parameter | Type | Default | Notes |
-|-----------|------|---------|-------|
-| `data` | DataFrame | required | Dataset |
-| `duration_var` | str | required | Time-to-event column |
-| `dependent_var` | str | required | Event indicator (1=event, 0=censored) |
-| `independent_vars` | list | None | Predictors |
+| Parameter | Type | Default | Notes | Methodological Stage |
+|-----------|------|---------|-------|----------------------|
+| `data` | DataFrame | required | Dataset | Preprocessing |
+| `duration_var` | str | required | Time-to-event column | Modeling |
+| `dependent_var` | str | required | Event indicator (1=event, 0=censored) | Modeling |
+| `independent_vars` | list | None | Predictors | Modeling |
 
 ---
 
 ## 🔧 Parameters - fit()
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `formula` | str | None | R-style formula: `"time + event ~ age + sex"` |
-| `labels` | dict | None | Readable names: `{"age": "Age (years)"}` |
-| `penalizer` | float | `0.1` | L2 regularization strength |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `formula` | str | None | R-style formula: `"time + event ~ age + sex"` | Modeling |
+| `labels` | dict | None | Readable names: `{"age": "Age (years)"}` | Evaluation |
+| `penalizer` | float | `0.1` | L2 regularization strength | Modeling |
 
 ---
 
 ## 🔧 Parameters - summary()
 
-| Parameter | Type | Default | Options |
-|-----------|------|---------|---------|
-| `assumptions` | bool | `False` | Show VIF, outliers, PH test |
-| `performance` | bool | `False` | Show Accuracy, Precision, Recall, F1, AUC |
-| `plots` | list | None | `["forest_plot", "roc_auc", "martingale"]` |
-| `target_time` | float | None | Time point for ROC AUC calculation |
+| Parameter | Type | Default | Options | Methodological Stage |
+|-----------|------|---------|---------|----------------------|
+| `assumptions` | bool | `False` | Show VIF, outliers, PH test | Evaluation |
+| `performance` | bool | `False` | Show Accuracy, Precision, Recall, F1, AUC | Evaluation |
+| `plots` | list | None | `["forest_plot", "roc_auc", "martingale"]` | Evaluation |
+| `target_time` | float | None | Time point for ROC AUC calculation | Evaluation |
 
 ---
 

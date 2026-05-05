@@ -22,15 +22,15 @@ model = factory.create(
 
 ### Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `data` | `pd.DataFrame` | required | The dataset to analyse. Must contain all outcome and predictor columns. Rows with missing values are dropped automatically. |
-| `dependent_var` | `str` | `None` | The name of the outcome (dependent) variable column. Required if `formula` is not provided. |
-| `independent_vars` | `list` | `None` | A list of predictor (independent) variable column names. Required if `formula` is not provided. |
-| `formula` | `str` | `None` | A Patsy-style formula string (e.g. `"outcome ~ age + sex"`). If provided, `dependent_var` and `independent_vars` are not required. |
-| `family` | `str` | `"gaussian"` | The distributional family for the GLM. See [Supported Families and Links](#supported-families-and-links). |
-| `link` | `str` | `"identity"` | The link function for the GLM. See [Supported Families and Links](#supported-families-and-links). |
-| `regression_type` | `str` | `"Multi"` | Either `"Multi"` for multivariable regression or `"Uni"` for univariable regression. Affects column naming in the results table. |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `data` | `pd.DataFrame` | required | The dataset to analyse. Must contain all outcome and predictor columns. Rows with missing values are dropped automatically. | Preprocessing |
+| `dependent_var` | `str` | `None` | The name of the outcome (dependent) variable column. Required if `formula` is not provided. | Modeling |
+| `independent_vars` | `list` | `None` | A list of predictor (independent) variable column names. Required if `formula` is not provided. | Modeling |
+| `formula` | `str` | `None` | A Patsy-style formula string (e.g. `"outcome ~ age + sex"`). If provided, `dependent_var` and `independent_vars` are not required. | Modeling |
+| `family` | `str` | `"gaussian"` | The distributional family for the GLM. See [Supported Families and Links](#supported-families-and-links). | Modeling |
+| `link` | `str` | `"identity"` | The link function for the GLM. See [Supported Families and Links](#supported-families-and-links). | Modeling |
+| `regression_type` | `str` | `"Multi"` | Either `"Multi"` for multivariable regression or `"Uni"` for univariable regression. Affects column naming in the results table. | Modeling |
 
 ---
 
@@ -48,11 +48,11 @@ model.fit(
 
 ### Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `labels` | `dict` | `None` | A dictionary mapping raw variable names to human-readable labels for display in result tables. |
-| `cross_val` | `bool` | `True` | Whether to perform k-fold cross-validation after fitting. |
-| `n_splits` | `int` | `5` | Number of folds for cross-validation. Only used if `cross_val=True`. |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `labels` | `dict` | `None` | A dictionary mapping raw variable names to human-readable labels for display in result tables. | Evaluation |
+| `cross_val` | `bool` | `True` | Whether to perform k-fold cross-validation after fitting. | Validation |
+| `n_splits` | `int` | `5` | Number of folds for cross-validation. Only used if `cross_val=True`. | Validation |
 
 ---
 
@@ -72,13 +72,13 @@ model.summary(
 
 ### Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `assumptions` | `str` or `list` | `None` | Pass `"all"` to show all assumption tests, or a list of specific test names. `None` skips this section. |
-| `performance` | `str` or `list` | `None` | Pass `"all"` to show all performance metrics, or a list of specific metric names. `None` skips this section. |
-| `cross_val` | `str` or `list` | `None` | Pass `"all"` to show all cross-validation metrics, or a list of specific metric names. `None` skips this section. |
-| `plots` | `list` | `None` | A list of plot names to display. Options: `"forest_plot"`, `"residuals_vs_fitted"`, `"qq_plot"`. |
-| `vif_threshold` | `float` | `5.0` | The threshold above which a VIF value is flagged as indicating multicollinearity. |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `assumptions` | `str` or `list` | `None` | Pass `"all"` to show all assumption tests, or a list of specific test names. `None` skips this section. | Evaluation |
+| `performance` | `str` or `list` | `None` | Pass `"all"` to show all performance metrics, or a list of specific metric names. `None` skips this section. | Evaluation |
+| `cross_val` | `str` or `list` | `None` | Pass `"all"` to show all cross-validation metrics, or a list of specific metric names. `None` skips this section. | Evaluation |
+| `plots` | `list` | `None` | A list of plot names to display. Options: `"forest_plot"`, `"residuals_vs_fitted"`, `"qq_plot"`. | Evaluation |
+| `vif_threshold` | `float` | `5.0` | The threshold above which a VIF value is flagged as indicating multicollinearity. | Evaluation |
 
 ---
 

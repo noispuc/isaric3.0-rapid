@@ -19,35 +19,35 @@
 
 ## 🔧 Parameters - create()
 
-| Parameter | Type | Default | Notes |
-|-----------|------|---------|-------|
-| `data` | DataFrame | required | Dataset |
-| `dependent_var` | str | None | Outcome variable |
-| `independent_vars` | list | None | Predictors |
-| `formula` | str | None | Alternative: `"y ~ x1 + x2"` |
-| `family` | str | `"gaussian"` | `"gaussian"`, `"gamma"`, `"inv_gaussian"`, `"tweedie"` |
-| `link` | str | `"identity"` | `"identity"`, `"log"`, `"inverse"`, `"sqrt"` |
+| Parameter | Type | Default | Notes | Methodological Stage |
+|-----------|------|---------|-------|----------------------|
+| `data` | DataFrame | required | Dataset | Preprocessing |
+| `dependent_var` | str | None | Outcome variable | Modeling |
+| `independent_vars` | list | None | Predictors | Modeling |
+| `formula` | str | None | Alternative: `"y ~ x1 + x2"` | Modeling |
+| `family` | str | `"gaussian"` | `"gaussian"`, `"gamma"`, `"inv_gaussian"`, `"tweedie"` | Modeling |
+| `link` | str | `"identity"` | `"identity"`, `"log"`, `"inverse"`, `"sqrt"` | Modeling |
 
 ---
 
 ## 🔧 Parameters - fit()
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `labels` | dict | None | Readable names: `{"age": "Age (years)"}` |
-| `cross_val` | bool | True | Enable cross-validation |
-| `n_splits` | int | 5 | Number of folds |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `labels` | dict | None | Readable names: `{"age": "Age (years)"}` | Evaluation |
+| `cross_val` | bool | True | Enable cross-validation | Validation |
+| `n_splits` | int | 5 | Number of folds | Validation |
 
 ---
 
 ## 🔧 Parameters - summary()
 
-| Parameter | Type | Default | Common Values |
-|-----------|------|---------|---------------|
-| `assumptions` | str/list | None | `"all"`, `["Durbin-Watson", "VIF"]` |
-| `performance` | str/list | None | `"all"`, `["R2", "AIC", "RMSE"]` |
-| `plots` | list | None | `["forest_plot", "residuals_vs_fitted", "qq_plot"]` |
-| `vif_threshold` | float | 5.0 | Multicollinearity alert threshold |
+| Parameter | Type | Default | Common Values | Methodological Stage |
+|-----------|------|---------|---------------|----------------------|
+| `assumptions` | str/list | None | `"all"`, `["Durbin-Watson", "VIF"]` | Evaluation |
+| `performance` | str/list | None | `"all"`, `["R2", "AIC", "RMSE"]` | Evaluation |
+| `plots` | list | None | `["forest_plot", "residuals_vs_fitted", "qq_plot"]` | Evaluation |
+| `vif_threshold` | float | 5.0 | Multicollinearity alert threshold | Evaluation |
 
 ---
 

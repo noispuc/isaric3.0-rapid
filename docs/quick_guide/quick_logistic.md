@@ -20,35 +20,35 @@
 
 ## 🔧 Parameters - create()
 
-| Parameter | Type | Default | Notes |
-|-----------|------|---------|-------|
-| `data` | DataFrame | required | Dataset |
-| `dependent_var` | str | None | **Must be 0/1** |
-| `independent_vars` | list | None | Predictors |
-| `formula` | str | None | Alternative: `"y ~ x1 + x2"` |
-| `link` | str | `"logit"` | `"logit"`, `"probit"`, `"cloglog"` |
-| `classification_threshold` | float | `0.5` | Threshold for binary predictions |
+| Parameter | Type | Default | Notes | Methodological Stage |
+|-----------|------|---------|-------|----------------------|
+| `data` | DataFrame | required | Dataset | Preprocessing |
+| `dependent_var` | str | None | **Must be 0/1** | Modeling |
+| `independent_vars` | list | None | Predictors | Modeling |
+| `formula` | str | None | Alternative: `"y ~ x1 + x2"` | Modeling |
+| `link` | str | `"logit"` | `"logit"`, `"probit"`, `"cloglog"` | Modeling |
+| `classification_threshold` | float | `0.5` | Threshold for binary predictions | Modeling |
 
 ---
 
 ## 🔧 Parameters - fit()
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `labels` | dict | None | Readable names: `{"age": "Age (years)"}` |
-| `cross_val` | bool | True | Enable cross-validation |
-| `n_splits` | int | 5 | Number of folds |
+| Parameter | Type | Default | Description | Methodological Stage |
+|-----------|------|---------|-------------|----------------------|
+| `labels` | dict | None | Readable names: `{"age": "Age (years)"}` | Evaluation |
+| `cross_val` | bool | True | Enable cross-validation | Validation |
+| `n_splits` | int | 5 | Number of folds | Validation |
 
 ---
 
 ## 🔧 Parameters - summary()
 
-| Parameter | Type | Default | Common Values |
-|-----------|------|---------|---------------|
-| `assumptions` | str/list | None | `"all"`, `["VIF", "EPV"]` |
-| `performance` | str/list | None | `"all"`, `["AUC", "AIC", "F1"]` |
-| `plots` | list | None | `["forest_plot", "roc_curve", "confusion_matrix"]` |
-| `vif_threshold` | float | 5.0 | Multicollinearity alert |
+| Parameter | Type | Default | Common Values | Methodological Stage |
+|-----------|------|---------|---------------|----------------------|
+| `assumptions` | str/list | None | `"all"`, `["VIF", "EPV"]` | Evaluation |
+| `performance` | str/list | None | `"all"`, `["AUC", "AIC", "F1"]` | Evaluation |
+| `plots` | list | None | `["forest_plot", "roc_curve", "confusion_matrix"]` | Evaluation |
+| `vif_threshold` | float | 5.0 | Multicollinearity alert | Evaluation |
 
 ---
 
