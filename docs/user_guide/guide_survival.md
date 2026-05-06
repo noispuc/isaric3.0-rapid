@@ -4,6 +4,8 @@
 
 > Survival analysis is a branch of statistics dedicated to analysing the time until one or more events occur (time-to-event). The Cox Proportional Hazards Model is a semi-parametric regression model used to assess the effect of predictor variables on survival time. It does not require specifying the underlying distribution of survival times, only that the hazard ratio between any two individuals remains constant over time.
 
+This page describes the objectives, parameters, and statistical methods of the RAPID_SurvivalCox pipeline.This page describes the objectives, parameters, and statistical methods of the RAPID_SurvivalCox pipeline. The pipeline fits a Cox Proportional Hazards model to a user-specified time-to-event outcome and set of predictors, estimating hazard ratios and their confidence intervals under the proportional hazards assumption. Following model fitting, it automatically evaluates assumption diagnostics — including the proportional hazards assumption, multicollinearity via VIF, and influential observations via Cook's distance — alongside discrimination metrics (AUC-ROC at a target time point) and optional diagnostic plots. Results are accessible both programmatically and through a unified summary() display.
+
 ---
 
 The `RAPID_SurvivalCox` class is a specialized pipeline designed for **Survival Analysis** within epidemiological contexts. It facilitates the end-to-end workflow from raw data to the estimation of Cox Proportional Hazards models and the generation of clinical reports.

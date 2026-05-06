@@ -7,6 +7,8 @@
 
 Missing data is a common challenge in clinical and epidemiological research. MICE (Multiple Imputation by Chained Equations) addresses this by generating multiple plausible completed datasets, running statistical models on each, and pooling the results — preserving uncertainty about the missing values rather than replacing them with a single guess.
 
+This page describes the objectives, parameters, and statistical methods of the MICEImputer class. The class implements Multiple Imputation by Chained Equations (MICE) for mixed-type datasets, extending sklearn's IterativeImputer to support categorical variables through one-hot encoding and configurable reconstruction strategies. It handles the full imputation pipeline — encoding, running n independent imputations with distinct random seeds, pooling results, and producing a statistical summary table — with outputs accessible as individual imputed datasets, a pooled dataframe, and a per-variable diagnostics table suitable for downstream inference via Rubin's Rules.
+
 ### How MICE Works
 
 MICE operates iteratively. For each variable with missing data, it fits a regression model using all other variables as predictors, then imputes the missing values by drawing from the resulting predictive distribution. This cycle repeats for a configurable number of rounds (`max_iter`), after which one completed dataset is produced. The whole process is then repeated `n` times with different random seeds, yielding `n` independently imputed datasets.

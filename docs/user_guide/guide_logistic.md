@@ -2,6 +2,8 @@
 
 The `RAPID_LogisticRegression` pipeline provides a full logistic regression analysis for binary outcomes. It is built on a Generalised Linear Model (GLM) framework using the Binomial family, and supports multiple link functions to accommodate different modelling assumptions. It is suited for clinical and epidemiological research where the outcome of interest is a binary event, such as mortality, readmission, or disease presence.
 
+This page describes the objectives, parameters, and statistical methods of the RAPID_LogisticRegression pipeline. The pipeline fits a logistic regression model to a user-specified binary outcome and set of predictors, supporting logit, probit, and complementary log-log link functions within a Binomial GLM framework. Following model fitting, it automatically evaluates a suite of assumption diagnostics — including Events Per Variable (EPV), Cook's distance for influential observations, and Variance Inflation Factors for multicollinearity — alongside performance metrics (AUC-ROC, accuracy, F1, pseudo R² variants, AIC, and BIC) and optional k-fold cross-validation. Results are accessible both programmatically and through a unified summary() display with optional diagnostic plots.
+
 !!! note "Outcome variable requirements"
     The outcome variable must be binary and coded strictly as `0` and `1`. Any other coding will raise a validation error before the model is fitted.
 

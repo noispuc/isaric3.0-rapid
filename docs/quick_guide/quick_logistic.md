@@ -1,10 +1,10 @@
 # 📊 Logistic Regression
 
 !!! abstract "TL;DR"
-    **Assinatura:** `factory.create("logistic", data=df, dependent_var="outcome", independent_vars=[...])`
-    **O que faz:** Regressão logística para desfechos binários.
-    **Quando usar:** Predizer eventos como mortalidade, readmissão ou presença de doença.
-    ⚠️ **Pré-requisito:** Variável dependente deve ser estritamente `0` e `1`.
+    **Signature:** `factory.create("logistic", data=df, dependent_var="outcome", independent_vars=[...])`
+    **What it does:** Logistic regression for binary outcomes.
+    **When to use:** Predicting events such as mortality, readmission, or disease presence.
+    ⚠️ **Prerequisite:** The dependent variable must be strictly `0` and `1`.
 
 ---
 

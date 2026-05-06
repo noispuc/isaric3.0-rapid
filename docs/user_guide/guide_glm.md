@@ -1,6 +1,9 @@
 # Generalized Linear Model (GLM)
 
 The `RAPID_GLM` pipeline provides a full linear regression analysis for continuous outcomes. It is built on a Generalised Linear Model (GLM) framework, meaning it supports several distributional families beyond the standard Gaussian, making it suitable for a range of continuous outcome types encountered in clinical and epidemiological research.
+ 
+This page describes the objectives, parameters, and statistical methods of the `RAPID_GLM` pipeline. The pipeline fits a GLM to a user-specified outcome and set of predictors, supporting Gaussian, Gamma, Inverse Gaussian, and Tweedie distributional families with configurable link functions. Following model fitting, it automatically evaluates a suite of assumption diagnostics — including the Durbin-Watson test for residual autocorrelation, the Shapiro-Wilk test for normality, Cook's distance for influential observations, and Variance Inflation Factors for multicollinearity — alongside performance metrics (R², AIC, BIC, MSE, and pseudo R² variants) and optional k-fold cross-validation. Results are accessible both programmatically and through a unified `summary()` display with optional diagnostic plots.
+
 
 ---
 
