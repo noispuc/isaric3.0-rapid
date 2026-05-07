@@ -7,6 +7,8 @@
 
 ---
 
+This page provides a quickstart reference for the RAPID_GLM pipeline, covering initialisation, fitting, and results display. For full parameter documentation, assumption details, and statistical methodology, see the GLM User Guide.
+
 ## ⚡ Quick Reference
 
 | Method | Description | Example |

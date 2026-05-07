@@ -6,6 +6,7 @@
     **Quando usar:** Datasets clínicos com valores ausentes em variáveis numéricas e categóricas.
 
 ---
+This page provides a quickstart reference for the MICEImputer class, covering initialisation, fitting, and results retrieval.This page provides a quickstart reference for the MICEImputer class, covering initialisation, fitting, and results retrieval. For full parameter documentation, output details, and statistical methodology, see the MICE Imputer User Guide.
 
 ## ⚡ Quick Reference
 

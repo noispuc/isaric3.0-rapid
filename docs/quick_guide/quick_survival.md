@@ -7,6 +7,7 @@
     ⚠️ **Pré-requisito:** `dependent_var` deve ser binário (1 = evento, 0 = censura).
 
 ---
+This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, covering initialisation, fitting, and results display. For full parameter documentation, assumption details, and statistical methodology, see the Survival Analysis User Guide.
 
 ## ⚡ Quick Reference
 

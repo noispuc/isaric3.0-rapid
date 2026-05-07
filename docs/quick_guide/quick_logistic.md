@@ -7,6 +7,7 @@
     ⚠️ **Prerequisite:** The dependent variable must be strictly `0` and `1`.
 
 ---
+This page provides a quickstart reference for the RAPID_LogisticRegression pipeline, covering initialisation, fitting, and results display. For full parameter documentation, assumption details, and statistical methodology, see the Logistic Regression User Guide.
 
 ## ⚡ Quick Reference
 
