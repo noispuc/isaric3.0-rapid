@@ -1,4 +1,4 @@
-# `Survival Analysis (Cox)`
+# Survival Analysis (Cox)
 
 `class survival_pipeline.RAPID_SurvivalCox(data, duration_var, dependent_var, independent_vars)` [[source]](https://github.com/noispuc/isaric3.0-rapid/blob/main/src/isaric/pipelines/)
 
