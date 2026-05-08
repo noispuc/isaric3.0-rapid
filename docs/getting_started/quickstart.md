@@ -99,6 +99,7 @@ print(metrics)
 cm = model.cm
 print(cm)
 ```
+
 ---
 
 ## 4. Supported Models
