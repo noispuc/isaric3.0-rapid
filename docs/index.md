@@ -46,12 +46,12 @@ graph LR
 
 | Step | Phase | Mandatory | Description |
 |:----:|-------|:---------:|-------------|
-| 1 |  **Cleaning** |  | Remove outliers, handle duplicates, standardize formats |
-| 2 |  **Preprocessing** |  | MICE imputation, encoding, normalization |
-| 3 |  **Modeling** |  | Apply statistical models (GLM, Survival, MICE) |
-| 4 |  **Evaluation** |  | Performance metrics, concordance index, Brier score |
-| 5 |  **Validation** |  | Bootstrapping, cross-validation |
-| 6 |  **Visualization** |  | Survival curves, forest plots, hazard ratios |
+| 1 |  **Cleaning** | ❌ | Remove outliers, handle duplicates, standardize formats |
+| 2 |  **Preprocessing** | ✅ | MICE imputation, encoding, normalization |
+| 3 |  **Modeling** | ✅ | Apply statistical models (GLM, Survival, MICE) |
+| 4 |  **Evaluation** | ✅ | Performance metrics, concordance index, Brier score |
+| 5 |  **Validation** | ✅ | Bootstrapping, cross-validation |
+| 6 |  **Visualization** | ❌ | Survival curves, forest plots, hazard ratios |
 
 !!! info "Iterative Process"
     Visualization can occur at any stage. The dashed arrows indicate that researchers may return to previous steps to refine the model based on evaluation results.
