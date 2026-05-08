@@ -1,4 +1,4 @@
-# 📊 GLM (Generalized Linear Model)
+#  GLM (Generalized Linear Model)
 
 !!! abstract "TL;DR"
     **Assinatura:** `factory.create("glm", data=df, dependent_var="outcome", independent_vars=[...])`
@@ -9,7 +9,7 @@
 
 This page provides a quickstart reference for the RAPID_GLM pipeline, covering initialisation, fitting, and results display. For full parameter documentation, assumption details, and statistical methodology, see the GLM User Guide.
 
-## ⚡ Quick Reference
+##  Quick Reference
 
 | Method | Description | Example |
 |--------|-------------|---------|
@@ -19,7 +19,7 @@ This page provides a quickstart reference for the RAPID_GLM pipeline, covering i
 
 ---
 
-## 🔧 Parameters - create()
+##  Parameters - create()
 
 | Parameter | Type | Default | Notes | Methodological Stage |
 |-----------|------|---------|-------|----------------------|
@@ -32,7 +32,7 @@ This page provides a quickstart reference for the RAPID_GLM pipeline, covering i
 
 ---
 
-## 🔧 Parameters - fit()
+##  Parameters - fit()
 
 | Parameter | Type | Default | Description | Methodological Stage |
 |-----------|------|---------|-------------|----------------------|
@@ -42,7 +42,7 @@ This page provides a quickstart reference for the RAPID_GLM pipeline, covering i
 
 ---
 
-## 🔧 Parameters - summary()
+##  Parameters - summary()
 
 | Parameter | Type | Default | Common Values | Methodological Stage |
 |-----------|------|---------|---------------|----------------------|
@@ -53,7 +53,7 @@ This page provides a quickstart reference for the RAPID_GLM pipeline, covering i
 
 ---
 
-## 📊 Main Attributes (post-fit)
+##  Main Attributes (post-fit)
 
 | Attribute | Content |
 |-----------|---------|
@@ -65,7 +65,7 @@ This page provides a quickstart reference for the RAPID_GLM pipeline, covering i
 
 ---
 
-## 📈 Common Metrics
+##  Common Metrics
 
 | Category | Metric | Attribute |
 |----------|--------|-----------|
@@ -79,7 +79,7 @@ This page provides a quickstart reference for the RAPID_GLM pipeline, covering i
 
 ---
 
-## 📈 Supported Families & Links
+##  Supported Families & Links
 
 | Family | Link | Use Case |
 |--------|------|----------|
@@ -89,7 +89,7 @@ This page provides a quickstart reference for the RAPID_GLM pipeline, covering i
 
 ---
 
-## 🎯 Minimal Example
+##  Minimal Example
 
 ```python
 from isaric.pipelines.factory import RAPID_PipelineFactory
@@ -120,7 +120,7 @@ model.summary(
 print(model.summary_df)
 ```
 
-## 🔗 Quick Links
+##  Quick Links
 
 | Want to... | Go to... |
 |------------|----------|

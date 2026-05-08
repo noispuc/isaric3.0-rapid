@@ -1,4 +1,4 @@
-# 🚀 Quickstart Guide
+#  Quickstart Guide
 
 The **RAPID Pipeline** is designed as a **modular and extensible structure** for implementing various statistical and machine learning models for clinical research.
 
@@ -112,7 +112,7 @@ print(cm)
 
 ---
 
-## 💬 Need Help?
+##  Need Help?
 
-- **[🐙 GitHub Issues](https://github.com/noispuc/isaric3.0-rapid/issues)** – Report bugs or request features.
-- **[📧 Contact Support](mailto:data@isaric.org)** – Get help from the ISARIC team.
+- **[ GitHub Issues](https://github.com/noispuc/isaric3.0-rapid/issues)** – Report bugs or request features.
+- **[ Contact Support](mailto:data@isaric.org)** – Get help from the ISARIC team.

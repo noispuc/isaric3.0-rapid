@@ -1,10 +1,10 @@
-# ⚙️ Installation
+#  Installation
 
 This guide covers how to install the **ISARIC RAPID** package for different use cases.
 
 ---
 
-## 📋 Requirements
+##  Requirements
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
@@ -14,7 +14,7 @@ This guide covers how to install the **ISARIC RAPID** package for different use 
 
 ---
 
-## 🚀 Quick Install (Recommended for Most Users)
+##  Quick Install (Recommended for Most Users)
 
 Install the latest version directly from GitHub:
 
@@ -32,7 +32,7 @@ This will install the `isaric` package and all required dependencies automatical
 
 ---
 
-## 🛠️ Install from Source (Developers & Contributors)
+##  Install from Source (Developers & Contributors)
 
 If you plan to modify the code or contribute to RAPID:
 
@@ -63,7 +63,7 @@ The `-e` flag installs the package in "editable" mode, meaning changes to the so
 
 ---
 
-## ✅ Verify Installation
+##  Verify Installation
 After installation, verify that RAPID is working correctly:
 ```python
 from isaric.pipelines.factory import RAPID_PipelineFactory
@@ -72,7 +72,7 @@ print("RAPID installed successfully!")
 
 ---
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
@@ -82,8 +82,8 @@ print("RAPID installed successfully!")
 
 ---
 
-## 📚 Next Steps
+##  Next Steps
 
-- **[⚡ Quickstart Guide](quickstart.md)** – Run your first analysis.
-- **[📖 User Guide](../user_guide/guide_logistic.md)** – Learn statistical methods.
-- **[🤝 Contributing](../contributing.md)** – Set up development environment.
+- **[ Quickstart Guide](quickstart.md)** – Run your first analysis.
+- **[ User Guide](../user_guide/guide_logistic.md)** – Learn statistical methods.
+- **[ Contributing](../contributing.md)** – Set up development environment.

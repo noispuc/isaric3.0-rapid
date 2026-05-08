@@ -1,5 +1,5 @@
 
-# ⚡ Quickstart: Running the RAPID Pipeline
+#  Quickstart: Running the RAPID Pipeline
 
 This guide demonstrates how to run an end-to-end analysis using the **RAPID Pipeline**. The same three-phase pattern works for **all models** (Logistic, GLM, Survival, MICE).
 
@@ -118,7 +118,7 @@ All follow: **Initialize → Fit → Summary**
 
 
 
-## 🔗 Next Steps
+##  Next Steps
 
 | Want to... | Go to... |
 |------------|----------|

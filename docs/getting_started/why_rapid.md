@@ -1,4 +1,4 @@
-# 💡 Why RAPID?
+#  Why RAPID?
 In the fast-paced world of healthcare data science, researchers often face a significant gap between "running a model" and "producing a validated, reproducible, and publication-ready analysis". The **RAPID Pipeline** (Robust Analytical Pipeline for Integrated Diagnostics) was created to bridge this gap.
 
 ## 1. Standardizing Medical Data Science
@@ -26,8 +26,8 @@ Writing the "Methods" and "Results" sections of a paper is time-consuming. RAPID
 
 ---
 
-## 🚀 Ready to Start?
+##  Ready to Start?
 
-- **[📦 Installation Guide](installation.md)** – Get RAPID up and running.
-- **[⚡ Quickstart Guide](quickstart.md)** – Run your first analysis in minutes.
-- **[📚 User Guide](../user_guide/guide_logistic.md)** – Deep dive into statistical methods.
+- **[ Installation Guide](installation.md)** – Get RAPID up and running.
+- **[ Quickstart Guide](quickstart.md)** – Run your first analysis in minutes.
+- **[ User Guide](../user_guide/guide_logistic.md)** – Deep dive into statistical methods.

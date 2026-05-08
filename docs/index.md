@@ -10,28 +10,28 @@ Our core objective is to ensure that analyses are **Reproducible, Transparent, E
 
 ---
 
-## 🔄 The RAPID Methodology Flow
+##  The RAPID Methodology Flow
 The RAPID methodology transforms a clinical research question and a curated dataset into a transparent and validated analysis with clinical relevance.
 Here's the updated Mermaid block — just replace the existing one:
 
 ```mermaid
 graph LR
     subgraph INPUT
-        A[📋 Research<br/>Question]
-        B[📊 Curated<br/>Dataset]
+        A[ Research<br/>Question]
+        B[ Curated<br/>Dataset]
     end
     
-    subgraph PROCESS["⚙️ RAPID Methodology"]
-        C1[1 🧹 Cleaning] --> C2[2 📐 Preprocessing]
-        C2 --> C3[3 📈 Modeling]
-        C3 --> C4[4 ✅ Evaluation]
-        C4 --> C5[5 🔬 Validation]
-        C5 --> C6[6 📊 Visualization]
+    subgraph PROCESS[" RAPID Methodology"]
+        C1[1  Cleaning] --> C2[2 Preprocessing]
+        C2 --> C3[3 Modeling]
+        C3 --> C4[4 Evaluation]
+        C4 --> C5[5 Validation]
+        C5 --> C6[6 Visualization]
         C6 -.-> C2
     end
     
     subgraph OUTPUT
-        D[🎯 Validated<br/>Analysis]
+        D[ Validated<br/>Analysis]
     end
 
     A --> C1
@@ -41,32 +41,32 @@ graph LR
 
 ---
 
-## 📖 The 6-Step RAPID Workflow
+##  The 6-Step RAPID Workflow
 
 
 | Step | Phase | Mandatory | Description |
 |:----:|-------|:---------:|-------------|
-| 1 | 🧹 **Cleaning** | ❌ | Remove outliers, handle duplicates, standardize formats |
-| 2 | 📐 **Preprocessing** | ✅ | MICE imputation, encoding, normalization |
-| 3 | 📈 **Modeling** | ✅ | Apply statistical models (GLM, Survival, MICE) |
-| 4 | ✅ **Evaluation** | ✅ | Performance metrics, concordance index, Brier score |
-| 5 | 🔬 **Validation** | ✅ | Bootstrapping, cross-validation |
-| 6 | 📊 **Visualization** | ❌ | Survival curves, forest plots, hazard ratios |
+| 1 |  **Cleaning** |  | Remove outliers, handle duplicates, standardize formats |
+| 2 |  **Preprocessing** |  | MICE imputation, encoding, normalization |
+| 3 |  **Modeling** |  | Apply statistical models (GLM, Survival, MICE) |
+| 4 |  **Evaluation** |  | Performance metrics, concordance index, Brier score |
+| 5 |  **Validation** |  | Bootstrapping, cross-validation |
+| 6 |  **Visualization** |  | Survival curves, forest plots, hazard ratios |
 
 !!! info "Iterative Process"
     Visualization can occur at any stage. The dashed arrows indicate that researchers may return to previous steps to refine the model based on evaluation results.
 
-### 📄 Full Methodology Document
+###  Full Methodology Document
 
 For complete details on the RAPID methodology, including theoretical foundations and design decisions:
 
-📥 **[Download the RAPID Methodology (PDF)](assets/methodology_v01.pdf){:target="_blank"}**
+ **[Download the RAPID Methodology (PDF)](assets/methodology_v01.pdf){:target="_blank"}**
 
 ---
 
-## 🚀 Start Your Analysis
+##  Start Your Analysis
 
-### 📦 Installation
+###  Installation
 
 Install the RAPID package directly from GitHub:
 
@@ -76,7 +76,7 @@ pip install git+https://github.com/noispuc/isaric3.0-rapid.git
 
 For detailed instructions and alternative methods, see the **[Installation Guide](getting_started/installation.md)**
 
-### 📚 Choose Your Path
+###  Choose Your Path
 
 | You want to... | Go to... |
 |----------------|----------|
@@ -100,8 +100,8 @@ See our **[Contributing Guidelines](contributing.md)** to get involved.
 
 ---
 
-## 📬 Contact & Support
+##  Contact & Support
 
-- 📧 **Email:** [data@isaric.org](mailto:data@isaric.org)
-- 🐙 **GitHub Issues:** [noispuc/isaric3.0-rapid](https://github.com/noispuc/isaric3.0-rapid/issues)
-- 🌐 **ISARIC:** [isaric.org](https://isaric.org)
+-  **Email:** [data@isaric.org](mailto:data@isaric.org)
+-  **GitHub Issues:** [noispuc/isaric3.0-rapid](https://github.com/noispuc/isaric3.0-rapid/issues)
+-  **ISARIC:** [isaric.org](https://isaric.org)

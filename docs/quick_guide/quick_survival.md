@@ -1,15 +1,15 @@
-# ⏳ Survival Analysis (Cox PH)
+#  Survival Analysis (Cox PH)
 
 !!! abstract "TL;DR"
     **Assinatura:** `factory.create("survival", data=df, duration_var="time", dependent_var="event", independent_vars=[...])`
     **O que faz:** Análise de sobrevivência com modelo Cox Proportional Hazards.
     **Quando usar:** Dados time-to-event (mortalidade, readmissão, tempo até alta).
-    ⚠️ **Pré-requisito:** `dependent_var` deve ser binário (1 = evento, 0 = censura).
+     **Pré-requisito:** `dependent_var` deve ser binário (1 = evento, 0 = censura).
 
 ---
 This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, covering initialisation, fitting, and results display. For full parameter documentation, assumption details, and statistical methodology, see the Survival Analysis User Guide.
 
-## ⚡ Quick Reference
+##  Quick Reference
 
 | Method | Description | Example |
 |--------|-------------|---------|
@@ -19,7 +19,7 @@ This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, co
 
 ---
 
-## 🔧 Parameters - create()
+##  Parameters - create()
 
 | Parameter | Type | Default | Notes | Methodological Stage |
 |-----------|------|---------|-------|----------------------|
@@ -30,7 +30,7 @@ This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, co
 
 ---
 
-## 🔧 Parameters - fit()
+##  Parameters - fit()
 
 | Parameter | Type | Default | Description | Methodological Stage |
 |-----------|------|---------|-------------|----------------------|
@@ -40,7 +40,7 @@ This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, co
 
 ---
 
-## 🔧 Parameters - summary()
+##  Parameters - summary()
 
 | Parameter | Type | Default | Options | Methodological Stage |
 |-----------|------|---------|---------|----------------------|
@@ -51,7 +51,7 @@ This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, co
 
 ---
 
-## 📊 Main Attributes (post-fit)
+##  Main Attributes (post-fit)
 
 | Attribute | Content |
 |-----------|---------|
@@ -63,7 +63,7 @@ This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, co
 
 ---
 
-## 📈 Common Metrics
+##  Common Metrics
 
 | Category | Metric | Interpretation |
 |----------|--------|----------------|
@@ -75,7 +75,7 @@ This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, co
 
 ---
 
-## 📈 Hazard Ratio Interpretation
+##  Hazard Ratio Interpretation
 
 | HR Value | Interpretation |
 |----------|----------------|
@@ -85,7 +85,7 @@ This page provides a quickstart reference for the RAPID_SurvivalCox pipeline, co
 
 ---
 
-## 🎯 Minimal Example
+##  Minimal Example
 
 ```python
 from isaric.pipelines.factory import RAPID_PipelineFactory
@@ -119,7 +119,7 @@ model.summary(
 print(model.summary_df)
 ```
 
-## 🎯 Formula Example
+##  Formula Example
 
 ```python
 # Using formula notation with interaction
@@ -134,7 +134,7 @@ model = factory.create(
 model.fit(formula="time + event ~ age * sex + bmi")
 ```
 
-## 🔗 Quick Links
+##  Quick Links
 
 | Want to... | Go to... |
 |------------|----------|

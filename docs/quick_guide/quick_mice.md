@@ -1,4 +1,4 @@
-# 🧹 MICE Imputer
+#  MICE Imputer
 
 !!! abstract "TL;DR"
     **Assinatura:** `MICEImputer(n=5, max_iter=10, random_state=42)`
@@ -8,7 +8,7 @@
 ---
 This page provides a quickstart reference for the MICEImputer class, covering initialisation, fitting, and results retrieval.This page provides a quickstart reference for the MICEImputer class, covering initialisation, fitting, and results retrieval. For full parameter documentation, output details, and statistical methodology, see the MICE Imputer User Guide.
 
-## ⚡ Quick Reference
+##  Quick Reference
 
 | Method | Description | Example |
 |--------|-------------|---------|
@@ -18,7 +18,7 @@ This page provides a quickstart reference for the MICEImputer class, covering in
 
 ---
 
-## 🔧 Parameters - MICEImputer()
+##  Parameters - MICEImputer()
 
 | Parameter | Type | Default | Notes | Methodological Stage |
 |-----------|------|---------|-------|----------------------|
@@ -32,7 +32,7 @@ This page provides a quickstart reference for the MICEImputer class, covering in
 
 ---
 
-## 🔧 Parameters - fit()
+##  Parameters - fit()
 
 | Parameter | Type | Default | Description | Methodological Stage |
 |-----------|------|---------|-------------|----------------------|
@@ -42,7 +42,7 @@ This page provides a quickstart reference for the MICEImputer class, covering in
 
 ---
 
-## 📊 Main Outputs - get_results()
+##  Main Outputs - get_results()
 
 | Output | Type | Description |
 |--------|------|-------------|
@@ -52,7 +52,7 @@ This page provides a quickstart reference for the MICEImputer class, covering in
 
 ---
 
-## 📈 stats_df Columns
+##  stats_df Columns
 
 | Column | Description |
 |--------|-------------|
@@ -65,7 +65,7 @@ This page provides a quickstart reference for the MICEImputer class, covering in
 
 ---
 
-## 🎯 Minimal Example
+##  Minimal Example
 
 ```python
 import pandas as pd
@@ -98,7 +98,7 @@ for ds in datasets:
 print(stats[['VARIABLE', 'MISSINGS', 'P-VALUE', 'IMPUTATION VARIANCE']])
 ```
 
-## 🎯 Tie-Breaking Strategies
+##  Tie-Breaking Strategies
 
 | Strategy | Description |
 |----------|-------------|
@@ -109,7 +109,7 @@ print(stats[['VARIABLE', 'MISSINGS', 'P-VALUE', 'IMPUTATION VARIANCE']])
 
 ---
 
-## 📁 Output Files
+##  Output Files
 
 After `fit()`, a file `imputed_datasets.zip` is saved with `n` Excel files:
 
@@ -120,7 +120,7 @@ imputed_dataset_2.xlsx
 imputed_dataset_n.xlsx
 
 
-## 🔗 Quick Links
+##  Quick Links
 
 | Want to... | Go to... |
 |------------|----------|

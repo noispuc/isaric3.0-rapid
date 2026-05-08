@@ -1,15 +1,15 @@
-# 📊 Logistic Regression
+#  Logistic Regression
 
 !!! abstract "TL;DR"
     **Signature:** `factory.create("logistic", data=df, dependent_var="outcome", independent_vars=[...])`
     **What it does:** Logistic regression for binary outcomes.
     **When to use:** Predicting events such as mortality, readmission, or disease presence.
-    ⚠️ **Prerequisite:** The dependent variable must be strictly `0` and `1`.
+     **Prerequisite:** The dependent variable must be strictly `0` and `1`.
 
 ---
 This page provides a quickstart reference for the RAPID_LogisticRegression pipeline, covering initialisation, fitting, and results display. For full parameter documentation, assumption details, and statistical methodology, see the Logistic Regression User Guide.
 
-## ⚡ Quick Reference
+##  Quick Reference
 
 | Method | Description | Example |
 |--------|-------------|---------|
@@ -19,7 +19,7 @@ This page provides a quickstart reference for the RAPID_LogisticRegression pipel
 
 ---
 
-## 🔧 Parameters - create()
+##  Parameters - create()
 
 | Parameter | Type | Default | Notes | Methodological Stage |
 |-----------|------|---------|-------|----------------------|
@@ -32,7 +32,7 @@ This page provides a quickstart reference for the RAPID_LogisticRegression pipel
 
 ---
 
-## 🔧 Parameters - fit()
+##  Parameters - fit()
 
 | Parameter | Type | Default | Description | Methodological Stage |
 |-----------|------|---------|-------------|----------------------|
@@ -42,7 +42,7 @@ This page provides a quickstart reference for the RAPID_LogisticRegression pipel
 
 ---
 
-## 🔧 Parameters - summary()
+##  Parameters - summary()
 
 | Parameter | Type | Default | Common Values | Methodological Stage |
 |-----------|------|---------|---------------|----------------------|
@@ -53,7 +53,7 @@ This page provides a quickstart reference for the RAPID_LogisticRegression pipel
 
 ---
 
-## 📊 Main Attributes (post-fit)
+##  Main Attributes (post-fit)
 
 | Attribute | Content |
 |-----------|---------|
@@ -65,7 +65,7 @@ This page provides a quickstart reference for the RAPID_LogisticRegression pipel
 
 ---
 
-## 📈 Common Metrics
+##  Common Metrics
 
 | Category | Metric | Attribute |
 |----------|--------|-----------|
@@ -80,7 +80,7 @@ This page provides a quickstart reference for the RAPID_LogisticRegression pipel
 
 ---
 
-## 📈 Supported Families & Links
+##  Supported Families & Links
 
 | Family | Link | Application | Interpretation |
 |--------|------|-------------|----------------|
@@ -90,7 +90,7 @@ This page provides a quickstart reference for the RAPID_LogisticRegression pipel
 
 ---
 
-## 🎯 Minimal Example
+##  Minimal Example
 
 ```python
 from isaric.pipelines.factory import RAPID_PipelineFactory
@@ -119,7 +119,7 @@ model.summary(
 print(model.summary_df)
 ```
 
-## 🔗 Quick Links
+##  Quick Links
 
 | Want to... | Go to... |
 |------------|----------|

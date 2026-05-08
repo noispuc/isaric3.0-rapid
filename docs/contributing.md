@@ -1,4 +1,4 @@
-# 🏗️ Contributing to RAPID
+#  Contributing to RAPID
 
 Thank you for your interest in contributing to the **RAPID Pipeline**!
 
@@ -6,7 +6,7 @@ To maintain consistency, scientific integrity, and performance across biostatist
 
 ---
 
-## 🚀 Development Environment Setup
+##  Development Environment Setup
 
 ### 1. Clone and Install
 
@@ -29,7 +29,7 @@ src/isaric/
 ├── validation/     # Cross-validation and bootstrapping
 └── visualization/  # Plotting functions
 
-## 🧬 The RAPID_Pipeline Base Class
+##  The RAPID_Pipeline Base Class
 
 To ensure seamless integration, **all model classes must inherit from `RAPID_Pipeline`**. This guarantees a common interface across all analytical tools.
 
@@ -43,7 +43,7 @@ class MyNewModel(RAPID_Pipeline):
 
 ---
 
-## 🧩 Abstract Methods (Required)
+##  Abstract Methods (Required)
 
 All new pipelines must implement the following core methods:
 
@@ -75,7 +75,7 @@ class MyNewModel(RAPID_Pipeline):
         pass
 ```
 
-## 🏭 Factory Integration
+##  Factory Integration
 All models must be registered with the RAPID_PipelineFactory to enable the unified create() interface:
 
 ```python
@@ -92,7 +92,7 @@ This allows users to instantiate your model with:
 model = factory.create("my_model", data=df, param1=value)
 ```
 
-## 📏 Naming Conventions
+##  Naming Conventions
 
 | Element | Convention | Example |
 |---------|------------|---------|
@@ -103,7 +103,7 @@ model = factory.create("my_model", data=df, param1=value)
 
 ---
 
-## 📤 Return Types and Attributes
+##  Return Types and Attributes
 
 All models should expose results via standardized attributes:
 
@@ -116,7 +116,7 @@ All models should expose results via standardized attributes:
 
 ---
 
-## 📝 Documentation
+##  Documentation
 
 Update the following files when adding a new model:
 
@@ -129,7 +129,7 @@ Update the following files when adding a new model:
 
 ---
 
-## ✅ Pull Request Checklist
+##  Pull Request Checklist
 
 Before submitting a PR, ensure:
 
@@ -145,7 +145,7 @@ Before submitting a PR, ensure:
 
 ---
 
-## 💬 Questions?
+##  Questions?
 
 - **Email:** [data@isaric.org](mailto:data@isaric.org)
 - **GitHub Issues:** [noispuc/isaric3.0-rapid](https://github.com/noispuc/isaric3.0-rapid/issues)
