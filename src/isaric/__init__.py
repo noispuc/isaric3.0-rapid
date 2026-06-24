@@ -20,10 +20,9 @@ from isaric.preprocessing import (
 )
 
 from isaric.modeling import (
-    clustering, 
-    descriptivestats, 
-    regression, 
-    survival, 
+    clustering,
+    regression,
+    survival,
     treebased
 )
 
@@ -43,12 +42,7 @@ from isaric.validation import (
 )
 
 from isaric.visualization import (
-    barplots, 
-    forestplots, 
-    heatmaps, 
-    lineplots, 
-    sankey, 
-    survivalcurves
+    forestplots
 )
 
 # Fachadas por etapa
@@ -92,7 +86,7 @@ class Preprocessing:
 
 class Modeling:
     def generate_summary_statistics(self, df):
-        return descriptivestats.generate_summary_statistics(df)
+        return df.describe()
 
     def fit_linear_regression(self, df, target):
         return regression.fit_linear_regression(df, target)
@@ -136,26 +130,8 @@ class Validation:
         return netprofit.calculate_net_profit(df, cost_col, revenue_col)
 
 class Visualization:
-    def plot_line(self, df, x, y):
-        return lineplots.plot_line(df, x, y)
-
-    def plot_bar(self, df, x, y):
-        return barplots.plot_bar(df, x, y)
-
-    def plot_upset(self, df, sets):
-        return sankey.plot_upset(df, sets)
-
-    def plot_survival_curve(self, df, duration_col, event_col):
-        return survivalcurves.plot_survival_curve(df, duration_col, event_col)
-
-    def plot_heatmap(self, df):
-        return heatmaps.plot_heatmap(df)
-
     def plot_forest(self, df, effect_col, ci_lower_col, ci_upper_col):
         return forestplots.plot_forest(df, effect_col, ci_lower_col, ci_upper_col)
-
-    def plot_sankey(self, df, source_col, target_col, value_col):
-        return sankey.plot_sankey(df, source_col, target_col, value_col)
 
 # Exposição pública da API
 datacleaning = DataCleaning()
