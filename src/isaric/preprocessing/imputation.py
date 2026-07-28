@@ -527,3 +527,52 @@ def impute_missing(df, strategy="mean"):
     """
     imputer = SimpleImputer(strategy=strategy)
     return pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
+
+
+# ------------------------------------------------------------------
+# ESTRATÉGIA DE IMPUTAÇÃO PARA PIPELINES PREDITIVOS (fit-only-on-train)
+# ------------------------------------------------------------------
+
+def drop_high_missingness_columns(df, max_missing_frac=0.95):
+    """
+    Description:
+        Descarta colunas cuja fração de valores ausentes excede
+        max_missing_frac, evitando que colunas praticamente vazias (ex.:
+        100% missing) quebrem ou distorçam a imputação MICE.
+
+    Args:
+        df (pandas.DataFrame): Dataset de entrada.
+        max_missing_frac (float): Fração máxima de missing tolerada (0-1).
+
+    Returns:
+        tuple: (df_filtrado, colunas_descartadas)
+    """
+    missing_frac = df.isna().mean()
+    dropped = missing_frac[missing_frac > max_missing_frac].index.tolist()
+    return df.drop(columns=dropped), dropped
+
+
+def build_imputer(strategy="mice", random_state=42, **kwargs):
+    """
+    Description:
+        Cria um imputador sklearn-compatível (com .fit_transform) pronto
+        para uso dentro de um sklearn/imblearn Pipeline, garantindo que o
+        ajuste ocorra apenas no bloco de treino. 'mice' é a estratégia
+        principal; 'median'/'mode' servem como análise de sensibilidade.
+
+    Args:
+        strategy (str): 'mice' (IterativeImputer), 'median' ou 'mode'
+            (SimpleImputer com most_frequent).
+        random_state (int): Semente, usada apenas por 'mice'.
+        **kwargs: Argumentos adicionais repassados ao imputador.
+
+    Returns:
+        sklearn.impute.IterativeImputer ou sklearn.impute.SimpleImputer.
+    """
+    if strategy == "mice":
+        return IterativeImputer(random_state=random_state, **kwargs)
+    if strategy == "median":
+        return SimpleImputer(strategy="median", **kwargs)
+    if strategy == "mode":
+        return SimpleImputer(strategy="most_frequent", **kwargs)
+    raise ValueError(f"strategy inválida: '{strategy}'. Use 'mice', 'median' ou 'mode'.")

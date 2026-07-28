@@ -4,6 +4,13 @@ from isaric.modeling.glm import RAPID_GLM
 from isaric.modeling.logistic_regression import RAPID_LogisticRegression
 from isaric.modeling.survival import RAPID_SurvivalCox
 from isaric.modeling.LCA import RAPID_PhenotypeLCA
+from isaric.modeling.predictive_classifier import (
+    RAPID_LogisticL2,
+    RAPID_DecisionTree,
+    RAPID_RandomForest,
+    RAPID_SVM,
+    RAPID_XGBoost,
+)
 
 class RAPID_PipelineFactory:
     def __init__(self):
@@ -12,6 +19,11 @@ class RAPID_PipelineFactory:
             "logistic": RAPID_LogisticRegression,
             "survival": RAPID_SurvivalCox,
             "lca": RAPID_PhenotypeLCA,
+            "logistic_l2": RAPID_LogisticL2,
+            "decision_tree": RAPID_DecisionTree,
+            "random_forest": RAPID_RandomForest,
+            "svm": RAPID_SVM,
+            "xgboost": RAPID_XGBoost,
         }
 
     def register(self, name: str, pipeline_cls: Type[RAPID_BasePipeline]):
