@@ -1,382 +1,722 @@
-from abc import abstractmethod
+"""
+Regression models for the RAPID methodology.
+
+This module provides functions to configure regression models and
+concrete pipeline classes for logistic regression and generalized
+linear models (GLM).
+
+Functions (Configuration):
+- create_logistic_model: Configure a logistic regression (binomial GLM).
+- create_glm_model: Configure a generalized linear model.
+
+Subclasses (Pipelines):
+- LogisticRegression: Concrete pipeline for logistic regression.
+- GLM: Concrete pipeline for generalized linear model.
+
+Helper Functions:
+- _prepare_data_from_vars: Prepare y/X from variable names.
+- _prepare_data_from_formula: Prepare y/X from formula.
+- _build_result_df: Build formatted results DataFrame.
+- _map_variable_label: Apply display labels to variable names.
+- _parse_variable_name: Parse variable names with interactions/categories.
+- _validate_inputs: Validate user input parameters.
+- _validate_binary_outcome: Validate that the outcome variable is binary.
+"""
 
 import pandas as pd
-import statsmodels.api as sm
 import numpy as np
-
-from isaric.preprocessing.formulaprocessor import RapidPreprocessor
-from isaric.modelevaluation.assumptiontester import ModelAssumptionTester
-from isaric.modeling.base_model import RAPID_BasePipeline
+import statsmodels.api as sm
+from typing import Any, Dict, List, Optional, Tuple
 
 
+# ============================================================================
+# PUBLIC FUNCTIONS
+# ============================================================================
 
-class RAPID_BaseRegression(RAPID_BasePipeline):
-    def __init__(self, data: pd.DataFrame, dependent_var: str = None, independent_vars: list = None, formula: str = None, 
-                family: str = None, link:str = None, regression_type: str = "Multi"):
-        self._run_data_validations(data, dependent_var, independent_vars, formula, family, link, regression_type)
-        self.data = data.copy()
-        self.dependent_var = dependent_var
-        self.independent_vars = independent_vars
-        self.formula = formula
+def create_logistic_model(
+    data: pd.DataFrame,
+    dependent_var: str,
+    independent_vars: List[str],
+    formula: Optional[str] = None,
+    link: str = "logit"
+) -> Tuple[sm.GLM, pd.DataFrame, pd.Series]:
+    """
+    Configure a logistic regression model (binomial GLM).
 
-        family_cls = self._family_map[family.lower()]
-        link_obj = self._link_map[link.lower()]()
-        self.family = family_cls(link=link_obj)
+    This function prepares the data and returns a configured GLM
+    object that is NOT yet fitted. The fit() method of the pipeline
+    class will train the model.
 
-        self.regression_type = regression_type
-        self.performance_metrics_df = None
-        self.assumption_metrics_df = None
-        self._preprocess_data()
-    
-    # ------------------------------------------------------------------
-    # DATA PREPROCESSING
-    # ------------------------------------------------------------------
+    Args:
+        data: Input DataFrame in ARC format.
+        dependent_var: Name of the binary outcome variable (0/1).
+        independent_vars: List of predictor variable names.
+        formula: Patsy-style formula string (optional).
+            If provided, overrides dependent_var and independent_vars.
+        link: Link function for the binomial family.
+            Options: "logit", "probit", "cloglog".
 
-    def _preprocess_data(self):
-        self._data_cleaning()
-        self._preprocessing()
+    Returns:
+        Tuple of (model, X, y):
+            - model: Configured statsmodels GLM (not fitted).
+            - X: Predictor matrix (DataFrame).
+            - y: Outcome vector (Series).
 
+    Raises:
+        ValueError: If outcome variable is not binary or columns are missing.
+    """
+    # Validate inputs
+    _validate_inputs(data, dependent_var, independent_vars, formula)
 
-    # ------------------------------------------------------------------
-    # PUBLIC METHODS
-    # ------------------------------------------------------------------
+    # Validate outcome is binary
+    _validate_binary_outcome(data, dependent_var, formula)
 
-    def fit(self, labels: dict = None, cross_val: bool = True, n_splits: int = 5):
-        """
-        Fits the model. 
-        Calculates assumption tests, performance metrics and optionally performs cross validation.
+    # Prepare data
+    if formula:
+        y, X = _prepare_data_from_formula(data, formula)
+    else:
+        y, X = _prepare_data_from_vars(data, dependent_var, independent_vars)
 
-        Args:
-            labels(dict): Maps variable names to human legible names for display.
-            cross_val(bool): Whether or not to perform cross validation.
-            n_splits(int): Number of splits for cross validation (default: 5).
-
-        """
-        if (self.X is None or self.y is None):
-            print("Please run preprocess_data before fitting model.")
-        self._modeling()
-        self._model_evaluation(labels=labels, cv=cross_val, splits=n_splits)
-
-    def summary(self):
-        """
-        Summary to be output by this regression
-        """
-        if self.fitted_model is None:
-            print("self.model does not exist. Fit the model before calling summary.")
-            return
-
-    def report(self):
-        """Displays all metrics and all plots without filters."""
-        self._visualization(assumptions='all', performance='all', cross_validation='all', plots=self._default_plots)
-
-    def validate(self, method: str = "bootstrap", n_iter: int = 100, **kwargs):
-        """Delegates to validation modules (bootstrap, external, subgroup)."""
-        if method == "bootstrap":
-            from isaric.validation.bootstrap import bootstrap_validate
-            return bootstrap_validate(self.fitted_model, self.X, self.y, n_iter=n_iter, **kwargs)
-        elif method == "external":
-            from isaric.validation.external import external_validate
-            return external_validate(self.fitted_model, **kwargs)
-        else:
-            raise ValueError(f"Unknown validation method: '{method}'. Available: 'bootstrap', 'external'.")
-
-    @property
-    def _default_plots(self):
-        """Override in subclasses to set default plot list for report()."""
-        return []
-
-    # ------------------------------------------------------------------
-    # ASSUMPTION TESTING (SHARED)
-    # ------------------------------------------------------------------        
-
-    def _setup_assumption_tester(self):
-        self.assumption_tester = ModelAssumptionTester(model=self.fitted_model, X=self.X, y=self.y, y_pred=self.fitted_model.fittedvalues)
-
-    def _evaluate_vif(self):
-        self.vif_df = self.assumption_tester.test_vif()
-        
-    def _evaluate_influential_outliers(self):
-        """
-        Evaluates influential outliers using Cook's distance.
-        This is shared between linear and logistic regression.
-        """
-        influence = self.fitted_model.get_influence()
-        self.cooks_d = influence.cooks_distance[0]
-
-        threshold = 4 / len(self.cooks_d)
-        self.influential_outliers_threshold = threshold
-
-        self.influential_points = [i for i, val in enumerate(self.cooks_d) if val > threshold]
-
-    # ------------------------------------------------------------------
-    # ASSUMPTION REPORTING (SHARED)
-    # ------------------------------------------------------------------   
-
-    @abstractmethod
-    def _build_assumption_metrics_df(self, vif_threshold: float = 5.0):
-        """
-        Build assumption metrics dataframe.
-        Each regression type implements its own specific assumptions.
-        """
-        pass
-
-    def _report_assumptions(self, vif_threshold: float = 5.0, metrics=None):
-        if self.assumption_metrics_df is None:
-            self._build_assumption_metrics_df(vif_threshold)
-
-        df = self.assumption_metrics_df
-        if metrics != 'all':
-            missing = set(metrics) - set(df['Test']) - {'VIF', 'Influential Outliers'}
-            if missing:
-                print(f"Warning: the following assumption metrics were not found: {missing}")
-            df = df[df['Test'].isin(metrics)]
-
-        print("=" * 80)
-        print("ASSUMPTION TEST RESULTS")
-        print("=" * 80)
-        print(df.to_string(index=False))
-        print("=" * 80)
-
-        if metrics == 'all' or 'VIF' in metrics:
-            self._report_vif_table(vif_threshold)
-
-        if metrics == 'all' or 'Influential Outliers' in metrics:
-            self._report_influential_outliers_details()
-    
-    def _report_vif_table(self, vif_threshold: float = 5.0):
-        if hasattr(self, 'vif_df') and self.vif_df is not None:
-            print("\n")
-            print("=" * 80)
-            print("VARIANCE INFLATION FACTOR (VIF) - MULTICOLLINEARITY CHECK")
-            print("=" * 80)
-            vif_display = self.vif_df.copy()
-            vif_display = vif_display[~vif_display['feature'].str.lower().isin(['intercept', 'const', 'constant'])]
-            vif_display['Interpretation'] = vif_display['VIF'].apply(
-                lambda x: 'High multicollinearity' if x > vif_threshold else 'Acceptable'
-            )
-            print(vif_display.to_string(index=False))
-            print("=" * 80)
-            print(f"Note: VIF > {vif_threshold} indicates potential multicollinearity issues")
-            print("=" * 80)
-    
-    def _report_influential_outliers_details(self):
-        if hasattr(self, 'influential_points') and len(self.influential_points) > 0:
-            print("\n")
-            print("=" * 80)
-            print("INFLUENTIAL OUTLIERS DETAILS")
-            print("=" * 80)
-            print(f"Threshold (4/n): {self.influential_outliers_threshold:.6f}")
-            print(f"Number of influential points: {len(self.influential_points)}")
-            print(f"Influential point indices: {self.influential_points}")
-            print("=" * 80)
-    
-    # ------------------------------------------------------------------
-    # PERFORMANCE METRICS (SHARED)
-    # ------------------------------------------------------------------
-    def _evaluate_aic_bic(self):
-        self.aic = self.fitted_model.aic
-        self.bic = self.fitted_model.bic
-        self.llf = self.fitted_model.llf
-
-    def _evaluate_glm_r2(self):
-        k = int(self.fitted_model.df_model) + 1
-        ll_model = self.fitted_model.llf
-        ll_null = self.fitted_model.llnull
-
-        self.mcfadden_r2 = 1 - (ll_model / ll_null)
-        self.mcfadden_adj_r2 = 1 - ((ll_model - k) / ll_null)
-
-        y_array = np.asarray(self.y).ravel()
-        fitted = np.asarray(self.fitted_model.fittedvalues).ravel()
-        y_mean = y_array.mean()
-        self.efron_r2 = 1 - (np.sum((y_array - fitted) ** 2) / np.sum((y_array - y_mean) ** 2))
-
-    # ------------------------------------------------------------------
-    # PERFORMANCE METRICS (ABSTRACT - DIFFERENT FOR EACH REGRESSION)
-    # ------------------------------------------------------------------
-    
-    @abstractmethod
-    def _build_performance_metrics_df(self):
-        """
-        Build performance metrics dataframe.
-        Each regression type has different metrics.
-        """
-        pass
-    
-    @abstractmethod
-    def _report_performance(self):
-        """
-        Report performance metrics.
-        Each regression type implements its own reporting.
-        """
-        pass
-
-    # ------------------------------------------------------------------
-    # CROSS VALIDATION DATAFRAME (ABSTRACT - DIFFERNET FOR EACH REGRESSION)
-    # ------------------------------------------------------------------
-    @abstractmethod
-    def _build_cv_df(self):
-        pass
-
-    # ------------------------------------------------------------------
-    # PRIVATE METHODS (FOLLOWING THE STANDARD ISARIC PIPELINE STRUCTURE)
-    # ------------------------------------------------------------------
-
-    def _data_cleaning(self):
-        self.data = self.data.dropna()
-    
-    def _preprocessing(self):
-        self.y, self.X, self.XList = RapidPreprocessor.prepare_data(
-        df=self.data,
-        formula=self.formula,
-        target_cols=[self.dependent_var],
-        predictor_cols=self.independent_vars,
-        intercept=True
+    # Configure link function
+    link_map = {
+        "logit": sm.families.links.Logit,
+        "probit": sm.families.links.Probit,
+        "cloglog": sm.families.links.CLogLog,
+    }
+    if link not in link_map:
+        raise ValueError(
+            f"Unknown link: {link}. Use 'logit', 'probit', or 'cloglog'."
         )
-    
-    def _modeling(self):
-        model = sm.GLM(endog=self.y, exog=self.X, family=self.family)
-        self.fitted_model = model.fit()
-        
 
-    def _model_evaluation(self, labels, cv = False, splits = 5):
-        self._setup_result_summary(labels)
-        self._test_performance_metrics()
-        if cv:
-            self._test_cross_validation(splits)
-        self._test_assumptions()
+    # Configure GLM (binomial)
+    model = sm.GLM(
+        endog=y,
+        exog=X,
+        family=sm.families.Binomial(link=link_map[link]())
+    )
 
-    def _validation():
-        pass
+    return model, X, y
 
-    def _visualization():
-        pass
 
-    # ------------------------------------------------------------------
-    # NECESSARY DATA VALIDATIONS BEFORE PREPROCESSING
-    # ------------------------------------------------------------------
-    def _run_data_validations(self, data, dependent_var, independent_vars, formula, family, link, regression_type):
-        self._validate_inputs(data, dependent_var, independent_vars, formula, family, link, regression_type)
-    # ------------------------------------------------------------------
-    # PRIVATE METHODS (RESULT SUMMARY GENERATOR FOR FIT)
-    # ------------------------------------------------------------------
-    def _setup_result_summary(self, labels: dict = None):
-        result = self.fitted_model
-        self.summary_table = result.summary2().tables[1].copy()
-        self._build_result_summary_df(labels)
-        self.summary_df['Variable'] = self.summary_df['Variable'].str.replace('T.', '', regex=False)
-        for col in self.summary_df.columns[1:-1]:
-            self.summary_df[col] = pd.to_numeric(self.summary_df[col], errors='coerce').round(3)
-        self.summary_df['p-value'] = self.summary_df['p-value'].apply(lambda x: f'{float(x):.4f}')
-        # Filter intercept regardless of how it was labelled
-        self.summary_df = self.summary_df[
-            ~self.summary_df['Variable'].str.lower().isin(['intercept', 'const', 'constant'])
-        ]
-        self._rename_cols_by_regression_type()
+def create_glm_model(
+    data: pd.DataFrame,
+    dependent_var: str,
+    independent_vars: List[str],
+    formula: Optional[str] = None,
+    family: str = "gaussian",
+    link: str = "identity"
+) -> Tuple[sm.GLM, pd.DataFrame, pd.Series]:
+    """
+    Configure a Generalized Linear Model (GLM).
 
-    def _map_variable_label(self, df: pd.DataFrame, labels: dict = None) -> pd.DataFrame:
-        if not labels:
-            return df
-        
-        df = df.copy()
-        df['Variable'] = df['Variable'].apply(lambda x: self._parse_variable_name(x, labels))
+    This function prepares the data and returns a configured GLM
+    object that is NOT yet fitted. The fit() method of the pipeline
+    class will train the model.
+
+    Args:
+        data: Input DataFrame in ARC format.
+        dependent_var: Name of the outcome variable.
+        independent_vars: List of predictor variable names.
+        formula: Patsy-style formula string (optional).
+            If provided, overrides dependent_var and independent_vars.
+        family: Distribution family for the GLM.
+            Options: "gaussian", "gamma", "inv_gaussian", "tweedie".
+        link: Link function for the GLM.
+            Options: "identity", "log", "inverse", "sqrt".
+
+    Returns:
+        Tuple of (model, X, y):
+            - model: Configured statsmodels GLM (not fitted).
+            - X: Predictor matrix (DataFrame).
+            - y: Outcome vector (Series).
+
+    Raises:
+        ValueError: If family or link is unknown, or columns are missing.
+    """
+    # Validate inputs
+    _validate_inputs(data, dependent_var, independent_vars, formula)
+
+    # Prepare data
+    if formula:
+        y, X = _prepare_data_from_formula(data, formula)
+    else:
+        y, X = _prepare_data_from_vars(data, dependent_var, independent_vars)
+
+    # Configure family
+    family_map = {
+        "gaussian": sm.families.Gaussian,
+        "gamma": sm.families.Gamma,
+        "inv_gaussian": sm.families.InverseGaussian,
+        "tweedie": sm.families.Tweedie,
+    }
+    if family not in family_map:
+        raise ValueError(
+            f"Unknown family: {family}. "
+            "Use 'gaussian', 'gamma', 'inv_gaussian', or 'tweedie'."
+        )
+
+    # Configure link
+    link_map = {
+        "identity": sm.families.links.Identity,
+        "log": sm.families.links.Log,
+        "inverse": sm.families.links.InversePower,
+        "sqrt": sm.families.links.Sqrt,
+    }
+    if link not in link_map:
+        raise ValueError(
+            f"Unknown link: {link}. "
+            "Use 'identity', 'log', 'inverse', or 'sqrt'."
+        )
+
+    # Configure GLM
+    model = sm.GLM(
+        endog=y,
+        exog=X,
+        family=family_map[family](link=link_map[link]())
+    )
+
+    return model, X, y
+
+
+# ============================================================================
+# PRIVATE HELPERS - DATA PREPARATION
+# ============================================================================
+
+def _prepare_data_from_vars(
+    data: pd.DataFrame,
+    dependent_var: str,
+    independent_vars: List[str]
+) -> Tuple[pd.Series, pd.DataFrame]:
+    """
+    Prepare y and X from variable names.
+
+    Args:
+        data: Input DataFrame.
+        dependent_var: Name of the outcome variable.
+        independent_vars: List of predictor variable names.
+
+    Returns:
+        Tuple of (y, X).
+
+    Raises:
+        ValueError: If columns are not found.
+    """
+    for col in [dependent_var] + independent_vars:
+        if col not in data.columns:
+            raise ValueError(f"Column '{col}' not found in DataFrame.")
+
+    y = data[dependent_var]
+    X = data[independent_vars]
+    X = sm.add_constant(X)
+
+    return y, X
+
+
+def _prepare_data_from_formula(
+    data: pd.DataFrame,
+    formula: str
+) -> Tuple[pd.Series, pd.DataFrame]:
+    """
+    Prepare y and X from a Patsy-style formula.
+
+    Args:
+        data: Input DataFrame.
+        formula: Patsy-style formula string (e.g., "outcome ~ age + sex").
+
+    Returns:
+        Tuple of (y, X).
+    """
+    import patsy
+
+    y, X = patsy.dmatrices(formula, data, return_type='dataframe')
+    y = y.iloc[:, 0]
+
+    return y, X
+
+
+# ============================================================================
+# PRIVATE HELPERS - RESULT DATAFRAME
+# ============================================================================
+
+def _build_result_df(
+    fitted_model: sm.GLM,
+    X: pd.DataFrame,
+    y: pd.Series,
+    labels: Optional[Dict[str, str]] = None,
+    is_logistic: bool = False
+) -> pd.DataFrame:
+    """
+    Build a formatted results DataFrame from the fitted model.
+
+    For logistic regression, returns Odds Ratios with confidence
+    intervals. For GLM, returns coefficients (or exponentiated
+    coefficients if using a log link).
+
+    Args:
+        fitted_model: Fitted statsmodels GLM.
+        X: Predictor matrix.
+        y: Outcome vector.
+        labels: Dictionary mapping variable names to display labels.
+        is_logistic: If True, exponentiates coefficients to Odds Ratios.
+
+    Returns:
+        DataFrame with columns: Variable, Effect, LowerCI, UpperCI, p-value.
+    """
+    summary_table = fitted_model.summary2().tables[1]
+
+    # Determine p-value column
+    p_value_col = 'P>|z|' if 'P>|z|' in summary_table.columns else 'P>|t|'
+
+    # Build result DataFrame
+    result_df = summary_table[['Coef.', '[0.025', '0.975]', p_value_col]].reset_index()
+    result_df = result_df.rename(columns={
+        'index': 'Variable',
+        'Coef.': 'Coefficient',
+        '[0.025': 'LowerCI',
+        '0.975]': 'UpperCI',
+        p_value_col: 'p-value'
+    })
+
+    # Exponentiate for logistic or log-link
+    if is_logistic:
+        result_df[['Coefficient', 'LowerCI', 'UpperCI']] = np.exp(
+            result_df[['Coefficient', 'LowerCI', 'UpperCI']]
+        )
+        result_df = result_df.rename(columns={'Coefficient': 'OddsRatio'})
+    else:
+        # Check if log link (for Gamma, Poisson, etc.)
+        if isinstance(fitted_model.family.link, sm.families.links.Log):
+            result_df[['Coefficient', 'LowerCI', 'UpperCI']] = np.exp(
+                result_df[['Coefficient', 'LowerCI', 'UpperCI']]
+            )
+            result_df = result_df.rename(columns={'Coefficient': 'MeanRatio'})
+
+    # Apply labels if provided
+    if labels:
+        result_df['Variable'] = result_df['Variable'].apply(
+            lambda x: _parse_variable_name(x, labels)
+        )
+
+    # Filter intercept
+    result_df = result_df[
+        ~result_df['Variable'].str.lower().isin(['intercept', 'const', 'constant'])
+    ]
+
+    return result_df
+
+
+def _map_variable_label(
+    df: pd.DataFrame,
+    labels: Optional[Dict[str, str]] = None
+) -> pd.DataFrame:
+    """
+    Apply display labels to variable names in the DataFrame.
+
+    Args:
+        df: DataFrame with 'Variable' column.
+        labels: Dictionary mapping raw names to display labels.
+
+    Returns:
+        DataFrame with labels applied.
+    """
+    if not labels:
         return df
 
-    def _parse_variable_name(self, var_name, labels: dict):
-        if var_name == 'Intercept':
-            return labels.get('Intercept', 'Intercept')
-        elif '[' in var_name:
-            base_var = var_name.split('[')[0]
-            level = var_name.split('[')[1].split(']')[0]
-            base_var_name = base_var.replace('C(', '').replace(')', '').strip()
-            label = labels.get(base_var_name, base_var_name)
-            return f'{label} ({level})'
-        else:
-            var_name_clean = var_name.replace('C(', '').replace(')', '').strip()
-            return labels.get(var_name_clean, var_name_clean)
+    df = df.copy()
+    df['Variable'] = df['Variable'].apply(
+        lambda x: _parse_variable_name(x, labels)
+    )
+    return df
 
-    @abstractmethod
-    def _build_result_summary_df(self):
-        """Builds the summary dataframe per linear or logistic regression."""
-        pass
 
-    @abstractmethod
-    def _rename_cols_by_regression_type(self):
+def _parse_variable_name(
+    var_name: str,
+    labels: Dict[str, str]
+) -> str:
+    """
+    Parse a variable name and apply display labels.
+
+    Handles variable names from Patsy formulas that may include
+    interactions or categorical levels.
+
+    Examples:
+        "Intercept" → "Intercept"
+        "C(sex)[T.Male]" → "Sex (Male)"
+        "age" → "Age (years)"
+
+    Args:
+        var_name: Raw variable name.
+        labels: Dictionary mapping base names to display labels.
+
+    Returns:
+        Formatted variable name.
+    """
+    if var_name == 'Intercept':
+        return labels.get('Intercept', 'Intercept')
+    elif '[' in var_name:
+        # Categorical variable with level: C(sex)[T.Male]
+        base_var = var_name.split('[')[0].replace('C(', '').replace(')', '').strip()
+        level = var_name.split('[')[1].split(']')[0]
+        base_label = labels.get(base_var, base_var)
+        return f'{base_label} ({level})'
+    else:
+        # Simple variable name
+        var_name_clean = var_name.replace('C(', '').replace(')', '').strip()
+        return labels.get(var_name_clean, var_name_clean)
+
+
+# ============================================================================
+# PRIVATE HELPERS - VALIDATION
+# ============================================================================
+
+def _validate_inputs(
+    data: pd.DataFrame,
+    dependent_var: str,
+    independent_vars: List[str],
+    formula: Optional[str] = None
+) -> None:
+    """
+    Validate user input parameters.
+
+    Args:
+        data: Input DataFrame.
+        dependent_var: Name of the outcome variable.
+        independent_vars: List of predictor variable names.
+        formula: Patsy-style formula string (optional).
+
+    Raises:
+        ValueError: If any input is invalid.
+    """
+    if data is None:
+        raise ValueError("data cannot be None")
+
+    if data.empty:
+        raise ValueError("data cannot be empty")
+
+    if formula is None:
+        if not dependent_var:
+            raise ValueError(
+                "dependent_var cannot be None or empty if formula is not provided."
+            )
+
+        if not independent_vars:
+            raise ValueError(
+                "independent_vars cannot be None or empty if formula is not provided."
+            )
+
+    if dependent_var and dependent_var not in data.columns:
+        raise ValueError(
+            f"Outcome variable '{dependent_var}' not found in data columns."
+        )
+
+    if independent_vars:
+        missing_vars = [p for p in independent_vars if p not in data.columns]
+        if missing_vars:
+            raise ValueError(
+                f"Predictor(s) not found in data columns: {missing_vars}"
+            )
+
+
+def _validate_binary_outcome(
+    data: pd.DataFrame,
+    dependent_var: str,
+    formula: Optional[str] = None
+) -> None:
+    """
+    Validate that the outcome variable is binary and coded as 0/1.
+
+    Args:
+        data: Input DataFrame.
+        dependent_var: Name of the outcome variable.
+        formula: Patsy-style formula string (optional).
+
+    Raises:
+        ValueError: If outcome is not binary or not coded as 0/1.
+    """
+    if dependent_var:
+        outcome = data[dependent_var].dropna()
+    elif formula:
+        outcome_name = formula.split('~')[0].strip()
+        outcome = data[outcome_name].dropna()
+    else:
+        return
+
+    unique_values = outcome.unique()
+
+    if len(unique_values) != 2:
+        raise ValueError(
+            f"Logistic regression requires a binary outcome variable. "
+            f"Found {len(unique_values)} unique values: {unique_values}"
+        )
+
+    if not set(unique_values).issubset({0, 1}):
+        raise ValueError(
+            f"Outcome variable must be coded as 0 and 1. "
+            f"Found values: {sorted(unique_values)}"
+        )
+
+
+# ============================================================================
+# SUBCLASSES (INHERIT FROM RAPID)
+# ============================================================================
+
+from isaric.rapid import RAPID
+
+
+class LogisticRegression(RAPID):
+    """
+    Concrete pipeline for Logistic Regression.
+
+    Implements create() (abstract from RAPID). Inherits concrete methods:
+    fit(), summary(), save(), validation(), report(), decide().
+    """
+
+    def __init__(
+        self,
+        model: sm.GLM,
+        X: pd.DataFrame,
+        y: pd.Series,
+        dependent_var: str,
+        independent_vars: List[str],
+        labels: Optional[Dict[str, str]] = None,
+        **kwargs
+    ):
         """
-        Renames the result summary dataframe columns from fit per regression type (linear or logistic, 
-        as well as univariate or multivariate).
+        Initialize LogisticRegression with configured model and data.
+
+        Args:
+            model: Configured statsmodels GLM (from create_logistic_model).
+            X: Predictor matrix.
+            y: Outcome vector.
+            dependent_var: Outcome variable name.
+            independent_vars: Predictor variable names.
+            labels: Dictionary for variable display labels.
         """
-        pass
+        self._model = model
+        self.X = X
+        self.y = y
+        self.dependent_var = dependent_var
+        self.independent_vars = independent_vars
+        self.labels = labels
+        self.model_type = "logistic"
+        self.fitted_model = None
+        self.result_df = None
+        self.metrics = None
+        self.plots_map = {}
 
-    # ------------------------------------------------------------------
-    # PRIVATE METHODS (MODEL EVALUATION)
-    # ------------------------------------------------------------------
-    def _test_performance_metrics(self):
-        self._evaluate_glm_r2()
-        self._evaluate_aic_bic()
+        # Define plots_map with available plots
+        self._setup_plots_map()
 
-    def _test_assumptions(self):
-        pass
+        super().__init__()
 
-    def _test_cross_validation(self):
-        pass
+    def _setup_plots_map(self):
+        """Configure available plots for Logistic Regression."""
+        from isaric.visualization.forestplots import odds_ratio_plot
+        from isaric.visualization.heatmaps import confusion_matrix_heatmap
 
-    # ------------------------------------------------------------------
-    # PRIVATE METHODS (USER INPUT VALIDATION)
-    # ------------------------------------------------------------------
+        self.plots_map = {
+            "forest_plot": self._forest_plot,
+            "confusion_matrix": self._confusion_matrix,
+        }
 
-    def _validate_inputs(self, data, dependent_var, independent_vars, formula, family, link, regression_type):
-            # Validate inputs
-        if data is None:
-            raise ValueError("data cannot be None")
-        
-        if data.empty:
-            raise ValueError("data cannot be empty")
-        
-        if family is None or family not in self._family_map.keys():
-            raise ValueError(f"family cannot be empty and must be: {self._family_map.keys()}")
-        
-        if link is None or link not in self._link_map.keys():
-            raise ValueError(f"link cannot be empty and must be: {self._link_map.keys()}")
-        
-        if (dependent_var is None or dependent_var == "") and formula == None:
-            raise ValueError("dependent_var cannot be None or empty if a formula is not provided.")
-        
-        if (independent_vars is None or len(independent_vars) == 0) and formula == None:
-            raise ValueError("independent_vars cannot be None or empty if a formula is not provided.")
-        
-        if regression_type is None:
-            raise ValueError("regression_type cannot be None")
-        
-        # Check if outcome exists in data
-        if (dependent_var):
-            if dependent_var not in data.columns:
-                raise ValueError(f"Outcome variable '{dependent_var}' not found in data columns")
-        
-        # Check if independent_vars exist in data
-        if (independent_vars):
-            missing_independent_vars = [p for p in independent_vars if p not in data.columns]
-            if missing_independent_vars:
-                raise ValueError(f"Predictor(s) not found in data columns: {missing_independent_vars}")
-        
-    # ------------------------------------------------------------------
-    # DICTIONARY MAPPINGS FOR SM FAMILY AND LINK
-    # ------------------------------------------------------------------
-    @property
-    def _family_map(self):
-        pass
-    @property
-    def _link_map(self):
-        pass
+    @classmethod
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "logistic",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        formula: Optional[str] = None,
+        link: str = "logit",
+        labels: Optional[Dict[str, str]] = None,
+        **params
+    ) -> "LogisticRegression":
+        """
+        Configure and instantiate the Logistic Regression pipeline.
 
-# ------------------------------------------------------------------
-# STANDALONE FUNCTION (backwards compatibility)
-# ------------------------------------------------------------------
-def fit_linear_regression(df, target):
-    """Fits a basic sklearn LinearRegression. For full GLM support use RAPID_GLM."""
-    from sklearn.linear_model import LinearRegression
-    X = df.drop(columns=[target])
-    y = df[target]
-    model = LinearRegression()
-    model.fit(X, y)
-    return model
+        Args:
+            data: Input DataFrame in ARC format.
+            model: Model type identifier (must be "logistic").
+            dependent_var: Binary outcome variable (0/1).
+            independent_vars: Predictor variable names.
+            formula: Patsy-style formula (optional).
+            link: Link function ("logit", "probit", "cloglog").
+            labels: Dictionary for variable display labels.
+
+        Returns:
+            LogisticRegression instance ready for training.
+        """
+        model_config, X, y = create_logistic_model(
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            formula=formula,
+            link=link
+        )
+
+        return cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            labels=labels,
+            **params
+        )
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _forest_plot(self):
+        """Generate forest plot for Odds Ratios."""
+        from isaric.visualization.forestplots import odds_ratio_plot
+        fig = odds_ratio_plot(
+            self.result_df,
+            effect_col='OddsRatio',
+            lower_col='LowerCI',
+            upper_col='UpperCI',
+            title="Forest Plot - Odds Ratios (Logistic Regression)"
+        )
+        return fig
+
+    def _confusion_matrix(self):
+        """Generate confusion matrix heatmap."""
+        from isaric.visualization.heatmaps import confusion_matrix_heatmap
+        from sklearn.metrics import confusion_matrix as cm
+
+        y_prob = self.fitted_model.fittedvalues
+        y_pred = (y_prob >= 0.5).astype(int)
+        cm_array = cm(self.y, y_pred)
+
+        fig = confusion_matrix_heatmap(
+            cm_array,
+            class_names=['Negative', 'Positive'],
+            title="Confusion Matrix - Logistic Regression"
+        )
+        return fig
+
+
+class GLM(RAPID):
+    """
+    Concrete pipeline for Generalized Linear Model (GLM).
+
+    Implements create() (abstract from RAPID). Inherits concrete methods:
+    fit(), summary(), save(), validation(), report(), decide().
+    """
+
+    def __init__(
+        self,
+        model: sm.GLM,
+        X: pd.DataFrame,
+        y: pd.Series,
+        dependent_var: str,
+        independent_vars: List[str],
+        family: str = "gaussian",
+        link: str = "identity",
+        labels: Optional[Dict[str, str]] = None,
+        **kwargs
+    ):
+        """
+        Initialize GLM with configured model and data.
+
+        Args:
+            model: Configured statsmodels GLM (from create_glm_model).
+            X: Predictor matrix.
+            y: Outcome vector.
+            dependent_var: Outcome variable name.
+            independent_vars: Predictor variable names.
+            family: Distribution family.
+            link: Link function.
+            labels: Dictionary for variable display labels.
+        """
+        self._model = model
+        self.X = X
+        self.y = y
+        self.dependent_var = dependent_var
+        self.independent_vars = independent_vars
+        self.family = family
+        self.link = link
+        self.labels = labels
+        self.model_type = "glm"
+        self.fitted_model = None
+        self.result_df = None
+        self.metrics = None
+        self.plots_map = {}
+
+        self._setup_plots_map()
+
+        super().__init__()
+
+    def _setup_plots_map(self):
+        """Configure available plots for GLM."""
+        self.plots_map = {
+            "forest_plot": self._forest_plot,
+        }
+
+    @classmethod
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "glm",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        formula: Optional[str] = None,
+        family: str = "gaussian",
+        link: str = "identity",
+        labels: Optional[Dict[str, str]] = None,
+        **params
+    ) -> "GLM":
+        """
+        Configure and instantiate the GLM pipeline.
+
+        Args:
+            data: Input DataFrame in ARC format.
+            model: Model type identifier (must be "glm").
+            dependent_var: Outcome variable.
+            independent_vars: Predictor variable names.
+            formula: Patsy-style formula (optional).
+            family: Distribution family.
+            link: Link function.
+            labels: Dictionary for variable display labels.
+
+        Returns:
+            GLM instance ready for training.
+        """
+        model_config, X, y = create_glm_model(
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            formula=formula,
+            family=family,
+            link=link
+        )
+
+        return cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            family=family,
+            link=link,
+            labels=labels,
+            **params
+        )
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _forest_plot(self):
+        """Generate forest plot for coefficients."""
+        from isaric.visualization.forestplots import coefficient_plot
+
+        fig = coefficient_plot(
+            self.result_df,
+            effect_col='Coefficient',
+            lower_col='LowerCI',
+            upper_col='UpperCI',
+            title="Forest Plot - Coefficients (GLM)"
+        )
+        return fig

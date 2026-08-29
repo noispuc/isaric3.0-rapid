@@ -1,142 +1,354 @@
-# isaric.py — ISARIC 3.0 RAPID API
+"""
+ISARIC RAPID: Reusable Analytical Pipelines for Infectious Diseases.
 
-# Importação dos submódulos
-from isaric.datacleaning import (
-    duplicatehandling, 
-    harmonisingunits, 
-    valuesmissing, 
-    zerovariance
+This package implements the RAPID methodology for clinical research
+on infectious diseases. It provides a unified interface for data
+cleaning, preprocessing, modeling, evaluation, validation, and
+visualization.
+
+Quick Start:
+    import isaric as isa
+
+    # Data Preparation
+    df_clean = isa.Clean(remove_zero_variance=True).execute(df)
+
+    # Analytics
+    model = isa.RAPID.create(data=df, model="logistic", ...)
+    model.fit()
+    model.summary()
+
+Modules:
+    - datacleaning: Step 1 - Data Cleaning
+    - preprocessing: Step 2 - Data Preprocessing
+    - modeling: Step 3 - Modelling
+    - modelevaluation: Step 4 - Model Evaluation
+    - validation: Step 5 - Validation
+    - visualization: Step 6 - Visualization
+"""
+
+__version__ = "0.1.0"
+
+# ============================================================================
+# CORE CLASSES
+# ============================================================================
+
+from isaric.rapid import RAPID
+from isaric.parser import (
+    validate_arc_format,
+    parse_to_arc_format,
+    prepare_data_for_rapid
 )
 
-from isaric.preprocessing import (
-    collinearity, 
-    datasplitting, 
-    featureselection, 
-    imputation, 
-    normalization, 
-    onehotencoding, 
-    scaling, 
-    temporalencoding
+# ============================================================================
+# DATA CLEANING (Step 1)
+# ============================================================================
+
+from isaric.datacleaning.clean import Clean
+from isaric.datacleaning.duplicates import (
+    exact_match_removal,
+    key_based_deduplication,
+    parse_duplicate_strategy
+)
+from isaric.datacleaning.harmonise_units import (
+    linear_conversion,
+    lookup_tables,
+    convert_temperature_celsius_to_fahrenheit,
+    convert_temperature_fahrenheit_to_celsius,
+    convert_weight_kg_to_lbs,
+    convert_weight_lbs_to_kg,
+    parse_harmonise_strategy
+)
+from isaric.datacleaning.remove_zero_variance import (
+    frequency_ratio_analysis,
+    unique_value_count,
+    get_zero_variance_features,
+    get_near_zero_variance_features,
+    parse_remove_variance_strategy
+)
+from isaric.datacleaning.handle_missing import (
+    drop_rows,
+    drop_columns,
+    impute_mean,
+    impute_median,
+    impute_mode,
+    parse_missing_strategy
 )
 
-from isaric.modeling import (
-    clustering,
-    regression,
-    survival,
-    treebased
+# ============================================================================
+# DATA PREPROCESSING (Step 2)
+# ============================================================================
+
+from isaric.preprocessing.preprocess import Preprocess
+from isaric.preprocessing.datasplitting import (
+    simple_random_split,
+    stratified_split,
+    temporal_split,
+    parse_split_strategy
+)
+from isaric.preprocessing.imputation import (
+    mice_imputation,
+    parse_imputation_strategy
+)
+from isaric.preprocessing.collinearity import (
+    vif_analysis,
+    get_vif_table,
+    pearson_correlation,
+    get_correlation_pairs,
+    parse_collinearity_strategy
+)
+from isaric.preprocessing.normalization import (
+    standardize,
+    minmax_scale,
+    parse_normalization_strategy
+)
+from isaric.preprocessing.encoding import (
+    onehot_encode,
+    label_encode,
+    target_encode,
+    parse_encoding_strategy
+)
+from isaric.preprocessing.scaling import (
+    log_transform,
+    boxcox_transform,
+    parse_scaling_strategy
+)
+from isaric.preprocessing.featureselection import (
+    variance_threshold,
+    lasso_selection,
+    rfe_selection,
+    filter_selection,
+    parse_selection_strategy
+)
+from isaric.preprocessing.temporalencoding import (
+    duration_encode,
+    cyclical_encode,
+    parse_temporal_strategy
 )
 
-from isaric.modelevaluation import (
-    calibration, 
-    crossvalidation, 
-    metrics, 
-    traintest
+# ============================================================================
+# MODELING (Step 3) - SUBCLASSES
+# ============================================================================
+
+from isaric.modeling.regression import LogisticRegression, GLM
+from isaric.modeling.survival import SurvivalCox, KaplanMeier
+from isaric.modeling.clustering import LCA, KMeans
+from isaric.modeling.descriptive import Descriptive
+from isaric.modeling.treebased import (
+    DecisionTree,
+    RandomForest,
+    XGBoost,
+    LightGBM,
+    CatBoost
+)
+from isaric.modeling.predictive import (
+    Lasso,
+    Ridge,
+    ElasticNet,
+    SVM,
+    LogisticL2
+)
+from isaric.modeling.assumptions import (
+    test_durbin_watson,
+    test_shapiro_wilk,
+    test_vif,
+    test_cooks_distance,
+    test_epv,
+    test_proportional_hazards,
+    likelihood_ratio_test
 )
 
-from isaric.validation import (
-    bootstrap, 
-    external, 
-    netprofit, 
-    sensitivity, 
-    subgroup
+# ============================================================================
+# MODEL EVALUATION (Step 4)
+# ============================================================================
+
+from isaric.modelevaluation.metrics import (
+    compute_classification_metrics,
+    compute_regression_metrics,
+    compute_information_criteria,
+    compute_pseudo_r2,
+    compute_survival_metrics,
+    compute_calibration_metrics,
+    compute_clustering_metrics,
+    select_classification_threshold
+)
+from isaric.modelevaluation.crossvalidation import (
+    kfold_cross_validation,
+    repeated_kfold_cross_validation,
+    stratified_kfold_cross_validation,
+    out_of_fold_predictions,
+    build_repeated_stratified_kfold
+)
+from isaric.modelevaluation.calibration import (
+    calibration_curve,
+    binned_calibration,
+    compute_brier_score,
+    predicted_vs_observed,
+    survival_calibration,
+    residuals_vs_fitted,
+    qq_plot
+)
+from isaric.modelevaluation.traintest import (
+    holdout_validation,
+    stratified_holdout,
+    temporal_holdout,
+    temporal_train_test_split
 )
 
-from isaric.visualization import (
-    forestplots
+# ============================================================================
+# VALIDATION (Step 5)
+# ============================================================================
+
+from isaric.validation.external import (
+    temporal_validation,
+    geographic_validation,
+    recalibration
+)
+from isaric.validation.bootstrap import (
+    non_parametric_bootstrap,
+    confidence_interval,
+    bootstrap_metrics,
+    bootstrap_validate
+)
+from isaric.validation.sensitivity import (
+    alternative_missing_handling,
+    outlier_variation,
+    outcome_variation
+)
+from isaric.validation.subgroup import (
+    stratified_metrics,
+    stratified_regression,
+    interaction_test
+)
+from isaric.validation.netprofit import (
+    decision_curve_analysis,
+    net_benefit_curve,
+    treat_all_none,
+    clinical_utility_curve
 )
 
-# Fachadas por etapa
-class DataCleaning:
-    def duplicatehandling(self, df, method="iqr"):
-        return duplicatehandling.remove_duplicates(df)
+# ============================================================================
+# VISUALIZATION (Step 6)
+# ============================================================================
 
-    def harmonise_units(self, df):
-        return harmonisingunits.harmonise_units(df)
+from isaric.visualization.barplots import (
+    simple_bar_plot,
+    grouped_bar_plot,
+    stacked_bar_plot
+)
+from isaric.visualization.lineplots import (
+    time_series_plot,
+    multi_line_plot,
+    line_with_ci
+)
+from isaric.visualization.upsetplots import (
+    upset_plot,
+    set_size_plot,
+    intersection_size_plot
+)
+from isaric.visualization.survivalcurves import (
+    kaplan_meier_curve,
+    compare_survival_curves,
+    baseline_survival_curve
+)
+from isaric.visualization.heatmaps import (
+    correlation_heatmap,
+    confusion_matrix_heatmap,
+    lca_profile_heatmap
+)
+from isaric.visualization.forestplots import (
+    odds_ratio_plot,
+    hazard_ratio_plot,
+    coefficient_plot
+)
+from isaric.visualization.sankey import (
+    patient_pathway,
+    cohort_flow
+)
 
-    def handle_missing_values(self, df, strategy="mean"):
-        return valuesmissing.remove_duplicates(df, strategy)
 
-    def remove_zero_variance(self, df):
-        return zerovariance.remove_zero_variance_features(df)
+# ============================================================================
+# PUBLIC API
+# ============================================================================
 
-class Preprocessing:
-    def split_data(self, df, test_size=0.2, random_state=42):
-        return datasplitting.split_data(df, test_size, random_state)
+__all__ = [
+    # Version
+    "__version__",
 
-    def impute_missing(self, df, strategy="mean"):
-        return imputation.impute_missing(df, strategy)
+    # Core
+    "RAPID",
+    "validate_arc_format",
+    "parse_to_arc_format",
+    "prepare_data_for_rapid",
 
-    def detect_collinearity(self, df, threshold=0.9):
-        return collinearity.detect_collinearity(df, threshold)
+    # Data Cleaning
+    "Clean",
+    "exact_match_removal",
+    "key_based_deduplication",
+    "linear_conversion",
+    "lookup_tables",
+    "frequency_ratio_analysis",
+    "unique_value_count",
+    "drop_rows",
+    "drop_columns",
+    "impute_mean",
+    "impute_median",
+    "impute_mode",
 
-    def normalize(self, df):
-        return normalization.noralize(df)
+    # Data Preprocessing
+    "Preprocess",
+    "mice_imputation",
+    "vif_analysis",
+    "standardize",
+    "minmax_scale",
+    "onehot_encode",
+    "log_transform",
+    "boxcox_transform",
+    "variance_threshold",
+    "duration_encode",
+    "cyclical_encode",
 
-    def encode_categoricals(self, df):
-        return onehotencoding.encode_categoricals(df)
+    # Modeling - Subclasses
+    "LogisticRegression",
+    "GLM",
+    "SurvivalCox",
+    "KaplanMeier",
+    "LCA",
+    "KMeans",
+    "Descriptive",
+    "DecisionTree",
+    "RandomForest",
+    "XGBoost",
+    "LightGBM",
+    "CatBoost",
+    "Lasso",
+    "Ridge",
+    "ElasticNet",
+    "SVM",
+    "LogisticL2",
 
-    def standardize(self, df):
-        return scaling.standardize(df)
+    # Model Evaluation
+    "compute_classification_metrics",
+    "compute_regression_metrics",
+    "compute_survival_metrics",
+    "kfold_cross_validation",
+    "compute_brier_score",
+    "holdout_validation",
 
-    def select_features(self, df, target):
-        return featureselection.select_features_lasso((df, target))
+    # Validation
+    "temporal_validation",
+    "bootstrap_metrics",
+    "alternative_missing_handling",
+    "stratified_metrics",
+    "decision_curve_analysis",
 
-    def encode_temporal(self, df):
-        return temporalencoding.encode_temporal(df)
-
-class Modeling:
-    def generate_summary_statistics(self, df):
-        return df.describe()
-
-    def fit_linear_regression(self, df, target):
-        return regression.fit_linear_regression(df, target)
-
-    def fit_random_forest(self, df, target):
-        return treebased.fit_random_forest(df, target)
-
-    def fit_cox_model(self, df, duration_col, event_col):
-        return survival.fit_cox_model(df, duration_col, event_col)
-
-    def apply_kmeans(self, df, n_clusters=3):
-        return clustering.apply_kmeans(df, n_clusters)
-
-class ModelEvaluation:
-    def train_test_split_evaluation(self, df, target):
-        return traintest.train_test_split_evaluation(df, target)
-
-    def perform_cross_validation(self, model, X, y, cv=5):
-        return crossvalidation.perform_cross_validation(model, X, y, cv)
-
-    def compute_classification_metrics(self, y_true, y_pred):
-        return metrics.compute_classification_metrics(y_true, y_pred)
-
-    def compute_calibration_curve(self, y_true, y_prob):
-        return calibration.compute_calibration_curve(y_true, y_prob)
-
-class Validation:
-    def validate_with_external_dataset(self, model, external_df):
-        return external.validate_with_external_dataset(model, external_df)
-
-    def bootstrap_validation(self, model, df, target, n_iterations=1000):
-        return bootstrap.bootstrap_validation(model, df, target, n_iterations)
-
-    def sensitivity_analysis(self, df, variable):
-        return sensitivity.sensitivity_analysis(df, variable)
-
-    def subgroup_analysis(self, df, subgroup_col):
-        return subgroup.subgroup_analysis(df, subgroup_col)
-
-    def calculate_net_profit(self, df, cost_col, revenue_col):
-        return netprofit.calculate_net_profit(df, cost_col, revenue_col)
-
-class Visualization:
-    def plot_forest(self, df, effect_col, ci_lower_col, ci_upper_col):
-        return forestplots.plot_forest(df, effect_col, ci_lower_col, ci_upper_col)
-
-# Exposição pública da API
-datacleaning = DataCleaning()
-preprocessing = Preprocessing()
-modeling = Modeling()
-modelevaluation = ModelEvaluation()
-validation = Validation()
-visualization = Visualization()
+    # Visualization
+    "simple_bar_plot",
+    "time_series_plot",
+    "upset_plot",
+    "kaplan_meier_curve",
+    "correlation_heatmap",
+    "confusion_matrix_heatmap",
+    "odds_ratio_plot",
+    "hazard_ratio_plot",
+    "patient_pathway",
+]
