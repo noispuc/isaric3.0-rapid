@@ -84,7 +84,9 @@ class Preprocess:
             Options:
                 - None (skip)
                 - "standardize"
+                - "standardize(columns=['age', 'bmi'])"
                 - "minmax"
+                - "minmax(columns=['age', 'bmi'])"
         encoding (str): Encoding strategy.
             Options:
                 - None (skip)
@@ -281,6 +283,12 @@ class Preprocess:
         """
         Apply normalization based on configured strategy.
 
+        Strategy formats:
+            - "standardize" → standardizes all numeric columns
+            - "standardize(columns=['age', 'bmi'])" → standardizes only listed columns
+            - "minmax" → min-max scales all numeric columns
+            - "minmax(columns=['age', 'bmi'])" → min-max scales only listed columns
+
         Args:
             data: Input DataFrame.
 
@@ -290,13 +298,13 @@ class Preprocess:
         Raises:
             ValueError: If strategy is unknown.
         """
-        method = parse_normalization_strategy(self.normalization)
+        method, columns = parse_normalization_strategy(self.normalization)
 
         if method == "standardize":
-            return standardize(data)
+            return standardize(data, columns=columns)
 
         elif method == "minmax":
-            return minmax_scale(data)
+            return minmax_scale(data, columns=columns)
 
         else:
             raise ValueError(f"Unknown normalization method: {method}")
