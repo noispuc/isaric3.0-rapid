@@ -583,14 +583,13 @@ class LogisticRegression(RAPID):
     def _confusion_matrix(self):
         """Generate confusion matrix heatmap."""
         from isaric.visualization.heatmaps import confusion_matrix_heatmap
-        from sklearn.metrics import confusion_matrix as cm
 
         y_prob = self.fitted_model.fittedvalues
         y_pred = (y_prob >= 0.5).astype(int)
-        cm_array = cm(self.y, y_pred)
 
         fig = confusion_matrix_heatmap(
-            cm_array,
+            y_true=self.y,
+            y_pred=y_pred,
             class_names=['Negative', 'Positive'],
             title="Confusion Matrix - Logistic Regression"
         )
