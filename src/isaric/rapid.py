@@ -96,7 +96,35 @@ class RAPID(ABC):
     # ======================================================================
 
     @classmethod
-    def create(cls, data, model, **params):
+    def create(
+        cls,
+        data: DataFrame,
+        model: str,
+        **params
+    ) -> "RAPID":
+        """
+        Configure and instantiate the analytical pipeline.
+
+        This method receives data and model configuration, validates
+        the model type, and returns a configured pipeline instance
+        ready for training.
+
+        Args:
+            data: Input DataFrame in ARC format.
+            model: Model type identifier.
+                Options: "logistic", "survival_cox", "survival_km", "glm",
+                        "lca", "decision_tree", "random_forest", "xgboost",
+                        "lightgbm", "catboost", "lasso", "ridge",
+                        "elastic_net", "svm", "logistic_l2", "kmeans",
+                        "descriptive".
+            **params: Model-specific parameters.
+
+        Returns:
+            RAPID instance configured and ready for training.
+
+        Raises:
+            ValueError: If model type is unknown or required parameters missing.
+        """
         # Imports lazy - evitam circular import
         from isaric.modeling.regression import LogisticRegression, GLM
         from isaric.modeling.survival import SurvivalCox, KaplanMeier
@@ -171,17 +199,60 @@ class RAPID(ABC):
         # Step 3: Modelling - Treina o modelo
         self.fitted_model = self._model.fit()
 
+        # Constrói result_df baseado no model_type
+        if self.model_type in ["logistic", "glm"]:
+            from isaric.modeling.regression import _build_result_df as build_df
+            self.result_df = build_df(
+                fitted_model=self.fitted_model,
+                X=self.X,
+                y=self.y,
+                labels=getattr(self, 'labels', None),
+                is_logistic=(self.model_type == "logistic")
+            )
+        elif self.model_type in ["survival_cox", "survival_km"]:
+            from isaric.modeling.survival import _build_result_df as build_df
+            self.result_df = build_df(
+                fitted_model=self.fitted_model,
+                labels=getattr(self, 'labels', None)
+            )
+        elif self.model_type in ["decision_tree", "random_forest", "xgboost", 
+                                "lightgbm", "catboost"]:
+            from isaric.modeling.treebased import _build_result_df as build_df
+            self.result_df = build_df(
+                model=self.fitted_model,
+                X=self.X
+            )
+        elif self.model_type in ["lasso", "ridge", "elastic_net", "svm", "logistic_l2"]:
+            from isaric.modeling.predictive import _build_result_df as build_df
+            self.result_df = build_df(
+                model=self.fitted_model,
+                X=self.X
+            )
+        elif self.model_type == "descriptive":
+            from isaric.modeling.descriptive import _build_result_df as build_df
+            self.result_df = build_df(
+                data=getattr(self, 'data', self.X),
+                variables=getattr(self, 'variables', self.X.columns.tolist())
+            )
+        elif self.model_type in ["lca", "kmeans"]:
+            from isaric.modeling.clustering import _build_result_df as build_df
+            self.result_df = build_df(
+                model=self.fitted_model,
+                X=self.X,
+                feature_names=getattr(self, 'feature_names', self.X.columns.tolist())
+            )
+        else:
+            import pandas as pd
+            self.result_df = pd.DataFrame()
+
         # Step 4: Model Evaluation - Calcula métricas
         from isaric.modelevaluation.metrics import compute_classification_metrics
 
         # Determina como obter predições
         if hasattr(self.fitted_model, 'predict_proba'):
-            # Modelos sklearn (RandomForest, XGBoost, etc.)
             y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
             y_pred = (y_prob >= 0.5).astype(int)
         else:
-            # Modelos statsmodels (GLM, LogisticRegression)
-            # predict() retorna probabilidades para GLM binomial
             y_prob = self.fitted_model.predict(self.X)
             y_pred = (y_prob >= 0.5).astype(int)
 
@@ -198,7 +269,6 @@ class RAPID(ABC):
             )
             
             if repetitions > 1:
-                # Usa repeated k-fold
                 cv_results = repeated_kfold_cross_validation(
                     self._model, self.X, self.y,
                     n_splits=k_folds,
@@ -206,7 +276,6 @@ class RAPID(ABC):
                     scoring='roc_auc'
                 )
             else:
-                # Usa k-fold simples
                 cv_results = kfold_cross_validation(
                     self._model, self.X, self.y,
                     n_splits=k_folds,
