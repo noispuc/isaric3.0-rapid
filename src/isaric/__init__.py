@@ -46,8 +46,7 @@ from isaric.parser import (
 from isaric.datacleaning.clean import Clean
 from isaric.datacleaning.duplicates import (
     exact_match_removal,
-    key_based_deduplication,
-    parse_duplicate_strategy
+    key_based_deduplication
 )
 from isaric.datacleaning.harmonise_units import (
     linear_conversion,
@@ -55,23 +54,20 @@ from isaric.datacleaning.harmonise_units import (
     convert_temperature_celsius_to_fahrenheit,
     convert_temperature_fahrenheit_to_celsius,
     convert_weight_kg_to_lbs,
-    convert_weight_lbs_to_kg,
-    parse_harmonise_strategy
+    convert_weight_lbs_to_kg
 )
 from isaric.datacleaning.remove_zero_variance import (
     frequency_ratio_analysis,
     unique_value_count,
     get_zero_variance_features,
-    get_near_zero_variance_features,
-    parse_remove_variance_strategy
+    get_near_zero_variance_features
 )
 from isaric.datacleaning.handle_missing import (
     drop_rows,
     drop_columns,
     impute_mean,
     impute_median,
-    impute_mode,
-    parse_missing_strategy
+    impute_mode
 )
 
 # ============================================================================
@@ -82,47 +78,40 @@ from isaric.preprocessing.preprocess import Preprocess
 from isaric.preprocessing.datasplitting import (
     simple_random_split,
     stratified_split,
-    temporal_split,
-    parse_split_strategy
+    temporal_split
 )
 from isaric.preprocessing.imputation import (
-    mice_imputation,
-    parse_imputation_strategy
+    mice_imputation
 )
 from isaric.preprocessing.collinearity import (
     vif_analysis,
     get_vif_table,
     pearson_correlation,
-    get_correlation_pairs,
-    parse_collinearity_strategy
+    get_correlation_pairs
 )
 from isaric.preprocessing.normalization import (
     standardize,
-    minmax_scale,
-    parse_normalization_strategy
+    minmax_scale
 )
 from isaric.preprocessing.encoding import (
     onehot_encode,
     label_encode,
-    target_encode,
-    parse_encoding_strategy
+    target_encode
 )
 from isaric.preprocessing.scaling import (
     log_transform,
-    boxcox_transform,
-    parse_scaling_strategy
+    boxcox_transform
+
 )
 from isaric.preprocessing.featureselection import (
     variance_threshold,
     lasso_selection,
     rfe_selection,
-    filter_selection,
-    parse_selection_strategy
+    filter_selection
 )
 from isaric.preprocessing.temporalencoding import (
     duration_encode,
-    cyclical_encode,
-    parse_temporal_strategy
+    cyclical_encode
 )
 
 # ============================================================================
@@ -147,7 +136,7 @@ from isaric.modeling.predictive import (
     SVM,
     LogisticL2
 )
-from isaric.modeling.assumptions import (
+from isaric.modelevaluation.assumptions import (
     test_durbin_watson,
     test_shapiro_wilk,
     test_vif,
