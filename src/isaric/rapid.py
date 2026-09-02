@@ -96,36 +96,43 @@ class RAPID(ABC):
     # ======================================================================
 
     @classmethod
-    @abstractmethod
-    def create(
-        cls,
-        data: DataFrame,
-        model: str,
-        **params
-    ) -> "RAPID":
-        """
-        Configure and instantiate the analytical pipeline.
+    def create(cls, data, model, **params):
+        # Imports lazy - evitam circular import
+        from isaric.modeling.regression import LogisticRegression, GLM
+        from isaric.modeling.survival import SurvivalCox, KaplanMeier
+        from isaric.modeling.clustering import LCA, KMeans
+        from isaric.modeling.descriptive import Descriptive
+        from isaric.modeling.treebased import DecisionTree, RandomForest, XGBoost, LightGBM, CatBoost
+        from isaric.modeling.predictive import Lasso, Ridge, ElasticNet, SVM, LogisticL2
 
-        This method receives data and model configuration, validates
-        the model type, and returns a configured pipeline instance
-        ready for training.
+        # Mapeia string → classe
+        registry = {
+            "logistic": LogisticRegression,
+            "glm": GLM,
+            "survival_cox": SurvivalCox,
+            "survival_km": KaplanMeier,
+            "lca": LCA,
+            "kmeans": KMeans,
+            "descriptive": Descriptive,
+            "decision_tree": DecisionTree,
+            "random_forest": RandomForest,
+            "xgboost": XGBoost,
+            "lightgbm": LightGBM,
+            "catboost": CatBoost,
+            "lasso": Lasso,
+            "ridge": Ridge,
+            "elastic_net": ElasticNet,
+            "svm": SVM,
+            "logistic_l2": LogisticL2,
+        }
 
-        Args:
-            data: Input DataFrame in ARC format.
-            model: Model type identifier.
-                Options: "logistic", "survival_cox", "survival_km", "glm",
-                         "lca", "decision_tree", "random_forest", "xgboost",
-                         "lightgbm", "catboost", "lasso", "ridge",
-                         "elastic_net", "svm", "logistic_l2".
-            **params: Model-specific parameters.
+        # Valida
+        if model not in registry:
+            raise ValueError(f"Unknown model: '{model}'")
 
-        Returns:
-            RAPID instance configured and ready for training.
-
-        Raises:
-            ValueError: If model type is unknown or required parameters missing.
-        """
-        pass
+        # Delega para a subclasse
+        pipeline_cls = registry[model]
+        return pipeline_cls.create(data=data, model=model, **params)
 
     # ======================================================================
     # CONCRETE METHODS (IMPLEMENTED - INHERITED BY SUBCLASSES)
