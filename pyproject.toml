@@ -8,33 +8,33 @@ version = "0.1.0"
 description = "Modular package for implementing the RAPID methodology: reproducible analytics for predictive modeling, inference, and data preprocessing in clinical research"
 dependencies = [
     # Data manipulation
-    "pandas==2.3.3",
-    "numpy==2.3.5",
-    "openpyxl==3.1.5",
-    "formulaic==1.2.1",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "openpyxl>=3.0",
+    "formulaic>=1.0",
 
     # Modeling and machine learning
-    "scikit-learn==1.5.2",
-    "lifelines==0.30.0",
-    "statsmodels==0.14.5",
-    "stepmix==2.0.0",
+    "scikit-learn>=1.5",
+    "lifelines>=0.29",
+    "statsmodels>=0.14",
+    "stepmix>=2.0",
 
     # Tree-based models
-    "xgboost==2.1.1",
-    "lightgbm==4.5.0",
-    "catboost==1.2.10",
+    "xgboost>=2.0",
+    "lightgbm>=4.0",
+    "catboost>=1.2.10",
 
     # Imbalanced learning
-    "imbalanced-learn==0.12.3",
+    "imbalanced-learn>=0.12",
 
     # Visualization
-    "matplotlib==3.10.7",
-    "seaborn==0.13.2",
-    "upsetplot==0.9.0",
-    "plotly==5.16.0",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "upsetplot>=0.9",
+    "plotly>=5.18",
 
     # Model interpretability
-    "shap==0.46.0",
+    "shap>=0.44",
 ]
 
 authors = [
@@ -44,11 +44,11 @@ license = { text = "MIT" }
 
 [project.optional-dependencies]
 dev = [
-    "nbformat==5.10.4",
-    "setuptools==80.9.0",
-    "build==1.3.0",
-    "mkdocs==1.6.1",
-    "mkdocs-material==9.7.0",
+    "nbformat>=5.10",
+    "setuptools>=80.0",
+    "build>=1.3",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.7",
 ]
 
 [tool.setuptools.packages.find]
