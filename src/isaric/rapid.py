@@ -148,26 +148,6 @@ class RAPID(ABC):
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
-
-        This method implements Steps 3 (Modelling) and 4 (Model Evaluation)
-        of the RAPID methodology.
-
-        Subclasses MUST have:
-        - self._model (configured model from create)
-        - self.X, self.y (data matrices)
-
-        Args:
-            metrics: List of performance metrics (None = defaults).
-            cross_validation: Enable k-fold cross-validation.
-            k_folds: Number of folds.
-            repetitions: Number of repetitions for repeated k-fold.
-            calibration: Enable calibration curve generation.
-
-        Returns:
-            self for method chaining.
-
-        Raises:
-            ValueError: If parameters are invalid or state is incorrect.
         """
         self._check_state(self._STATE_CREATED, "fit")
 
@@ -177,13 +157,21 @@ class RAPID(ABC):
         # Step 4: Model Evaluation - Calcula métricas
         from isaric.modelevaluation.metrics import compute_classification_metrics
 
+        # Determina como obter predições
         if hasattr(self.fitted_model, 'predict_proba'):
+            # Modelos sklearn (RandomForest, XGBoost, etc.)
             y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
             y_pred = (y_prob >= 0.5).astype(int)
         else:
-            y_pred = self.fitted_model.predict(self.X)
+            # Modelos statsmodels (GLM, LogisticRegression)
+            # predict() retorna probabilidades para GLM binomial
+            y_prob = self.fitted_model.predict(self.X)
+            y_pred = (y_prob >= 0.5).astype(int)
 
-        self.metrics = compute_classification_metrics(self.y, y_pred)
+        # Calcula métricas passando y_prob também
+        self.metrics = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
 
         # Cross-validation
         if cross_validation:
@@ -198,9 +186,7 @@ class RAPID(ABC):
         # Calibration
         if calibration:
             from isaric.modelevaluation.calibration import compute_brier_score
-            if hasattr(self.fitted_model, 'predict_proba'):
-                y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-                self.brier_score = compute_brier_score(self.y, y_prob)
+            self.brier_score = compute_brier_score(self.y, y_prob)
 
         self._transition_to(self._STATE_FITTED)
         return self
