@@ -13,6 +13,7 @@ from isaric.modeling.predictive_classifier import (
     RAPID_SVM,
     RAPID_XGBoost,
 )
+from isaric.modeling.batch_trainer import RAPID_BatchTrainer
 from isaric.modeling.pipeline_factory import RAPID_PipelineFactory
 from isaric.modeling.persistence import (
     RAPID_Decide,
@@ -833,3 +834,136 @@ def test_calibration_included_in_default_plots_for_every_model():
     """Calibração vale para os cinco algoritmos, não só os baseados em árvore."""
     for cls in ALL_MODELS:
         assert "calibration" in _tiny_model(cls)._default_plots
+
+
+# ----------------------------------------------------------------------
+# Treinador em lote (Fase 3 / Req 1, respeitando o FR013)
+# ----------------------------------------------------------------------
+
+_BATCH_PARAMS = {
+    "logistic_l2": {"C_grid": [1.0]},
+    "decision_tree": {"max_depth_grid": [3], "min_samples_split_grid": [2]},
+    "random_forest": {"n_estimators_grid": [10], "max_depth_grid": [3]},
+    "xgboost": {"n_estimators_grid": [10], "max_depth_grid": [2],
+                "learning_rate_grid": [0.3]},
+}
+
+
+def _batch(models=("logistic_l2", "random_forest"), **overrides):
+    return RAPID_BatchTrainer(
+        models=list(models),
+        model_params={k: v for k, v in _BATCH_PARAMS.items() if k in models},
+        **{**_base_kwargs(), **overrides},
+    )
+
+
+def test_batch_trains_every_requested_algorithm():
+    batch = _batch().fit(verbose=False)
+
+    assert set(batch.models_) == {"logistic_l2", "random_forest"}
+    assert all(m.is_fitted for m in batch.models_.values())
+    assert batch.is_fitted
+
+
+def test_batch_comparison_has_one_row_per_algorithm():
+    batch = _batch().fit(verbose=False)
+
+    assert len(batch.comparison_) == 2
+    assert set(batch.comparison_["model"]) == {"logistic_l2", "random_forest"}
+    for metric in ("auc_roc", "auc_pr", "f1"):
+        assert metric in batch.comparison_.columns
+
+
+def test_batch_never_elects_a_winner():
+    """FR013: a comparação entre tipos de modelo não pode ser automática."""
+    batch = _batch().fit(verbose=False)
+
+    assert not hasattr(batch, "best_model_")
+    assert not hasattr(batch, "best_")
+    # A seleção exige um nome informado pelo pesquisador.
+    with pytest.raises(TypeError):
+        batch.select()
+
+
+def test_batch_select_returns_the_named_pipeline():
+    batch = _batch().fit(verbose=False)
+
+    chosen = batch.select("random_forest")
+
+    assert isinstance(chosen, RAPID_RandomForest)
+    assert chosen.is_fitted
+
+
+def test_batch_select_rejects_unknown_name():
+    batch = _batch().fit(verbose=False)
+
+    with pytest.raises(ValueError):
+        batch.select("nao_treinado")
+
+
+def test_batch_rejects_unregistered_algorithm():
+    with pytest.raises(ValueError, match="factory"):
+        RAPID_BatchTrainer(models=["nao_existe"], **_base_kwargs())
+
+
+def test_batch_methods_blocked_before_fit():
+    batch = _batch()
+
+    with pytest.raises(RAPIDStateError):
+        batch.summary()
+    with pytest.raises(RAPIDStateError):
+        batch.select("logistic_l2")
+
+
+def test_batch_survives_one_failing_algorithm():
+    """Um estimador que não treina não pode derrubar o lote inteiro."""
+    batch = RAPID_BatchTrainer(
+        models=["logistic_l2", "svm"],
+        model_params={
+            "logistic_l2": {"C_grid": [1.0]},
+            "svm": {"kernel_grid": ["kernel_invalido"]},
+        },
+        **_base_kwargs(),
+    )
+
+    with pytest.warns(RuntimeWarning, match="falharam"):
+        batch.fit(verbose=False)
+
+    assert "logistic_l2" in batch.models_
+    assert "svm" in batch.failures_
+    assert len(batch.comparison_) == 1
+
+
+def test_batch_raises_when_every_algorithm_fails():
+    batch = RAPID_BatchTrainer(
+        models=["svm"],
+        model_params={"svm": {"kernel_grid": ["kernel_invalido"]}},
+        **_base_kwargs(),
+    )
+
+    with pytest.raises(RuntimeError, match="Nenhum algoritmo"):
+        batch.fit(verbose=False)
+
+
+def test_batch_report_writes_comparison_csv(tmp_path):
+    batch = _batch(models=("logistic_l2",)).fit(verbose=False)
+
+    produced = batch.report(output_dir=tmp_path)
+    comparison = pd.read_csv(produced["comparison"])
+
+    assert Path(produced["comparison"]).exists()
+    assert list(comparison["model"]) == ["logistic_l2"]
+    assert "logistic_l2" in produced["reports"]
+
+
+def test_batch_chosen_model_supports_the_full_lifecycle(tmp_path):
+    """O pipeline devolvido por select() é um objeto completo, não um resumo."""
+    batch = _batch(models=("logistic_l2",)).fit(verbose=False)
+    chosen = batch.select("logistic_l2")
+
+    chosen.validation(bootstrap=True, n_iterations=5)
+    chosen.decide(justification="escolhido a partir da tabela comparativa")
+    path = chosen.save(directory=tmp_path)
+
+    assert chosen.is_decided and chosen.is_validated
+    assert Path(path).exists()
