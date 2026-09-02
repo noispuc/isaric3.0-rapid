@@ -134,9 +134,6 @@ class RAPID(ABC):
         pipeline_cls = registry[model]
         return pipeline_cls.create(data=data, model=model, **params)
 
-    # ======================================================================
-    # CONCRETE METHODS (IMPLEMENTED - INHERITED BY SUBCLASSES)
-    # ======================================================================
 
     def fit(
         self,
@@ -148,6 +145,26 @@ class RAPID(ABC):
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
+
+        This method implements Steps 3 (Modelling) and 4 (Model Evaluation)
+        of the RAPID methodology.
+
+        Subclasses MUST have:
+        - self._model (configured model from create)
+        - self.X, self.y (data matrices)
+
+        Args:
+            metrics: List of performance metrics (None = defaults).
+            cross_validation: Enable k-fold cross-validation.
+            k_folds: Number of folds.
+            repetitions: Number of repetitions for repeated k-fold.
+            calibration: Enable calibration curve generation.
+
+        Returns:
+            self for method chaining.
+
+        Raises:
+            ValueError: If parameters are invalid or state is incorrect.
         """
         self._check_state(self._STATE_CREATED, "fit")
 
@@ -175,12 +192,27 @@ class RAPID(ABC):
 
         # Cross-validation
         if cross_validation:
-            from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-            cv_results = kfold_cross_validation(
-                self._model, self.X, self.y,
-                n_splits=k_folds,
-                scoring='roc_auc'
+            from isaric.modelevaluation.crossvalidation import (
+                kfold_cross_validation,
+                repeated_kfold_cross_validation
             )
+            
+            if repetitions > 1:
+                # Usa repeated k-fold
+                cv_results = repeated_kfold_cross_validation(
+                    self._model, self.X, self.y,
+                    n_splits=k_folds,
+                    n_repeats=repetitions,
+                    scoring='roc_auc'
+                )
+            else:
+                # Usa k-fold simples
+                cv_results = kfold_cross_validation(
+                    self._model, self.X, self.y,
+                    n_splits=k_folds,
+                    scoring='roc_auc'
+                )
+            
             self.cv_metrics = cv_results
 
         # Calibration
