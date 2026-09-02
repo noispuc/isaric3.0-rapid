@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "isaric"
 version = "0.1.0"
 description = "Modular package for implementing the RAPID methodology: reproducible analytics for predictive modeling, inference, and data preprocessing in clinical research"
+# NFR002 (HUB-BR-005-01): o pacote deve suportar Python 3.10 a 3.12.
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "nbformat == 5.10.4",
     "pandas==2.3.3",
@@ -19,20 +21,33 @@ dependencies = [
     "upsetplot==0.9.0",
     "plotly==5.16.0",
     "pyarrow==25.0.0",
+    # Necessárias ao pipeline preditivo (RAPID_XGBoost, SHAP, resampling).
+    # Pendente confirmar com o time se permanecem como dependências core ou
+    # viram um extra opcional, frente ao NFR007 do contrato do pacote.
     "xgboost==3.3.0",
     "shap==0.52.0",
     "imbalanced-learn==0.14.2",
-    "setuptools==80.9.0",
-    "build==1.3.0",
-    "mkdocs==1.6.1",
-    "mkdocs-material==9.7.0",
-    "pytest==9.1.1"
 ]
 
 authors = [
     { name = "ISARIC HUB SA" }
 ]
 license = { text = "MIT" }
+
+# Ferramentas de desenvolvimento e documentação: não são necessárias para
+# usar o pacote e, por isso, saem das dependências de runtime (NFR007 e
+# padrão de código de D3 — "unused dependencies should be removed").
+# Instalar com: pip install -e ".[dev]" ou ".[docs]"
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "build==1.3.0",
+    "setuptools==80.9.0",
+]
+docs = [
+    "mkdocs==1.6.1",
+    "mkdocs-material==9.7.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
