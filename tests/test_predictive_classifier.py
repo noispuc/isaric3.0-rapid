@@ -419,7 +419,7 @@ def test_report_path_uses_aggregated_shap(cls, tmp_path, monkeypatch):
     })
     model.fit()
 
-    assert model._default_plots == ["shap_summary", "shap_beeswarm"]
+    assert model._default_plots == ["calibration", "shap_summary", "shap_beeswarm"]
     path = model._shap_beeswarm_plot()
 
     assert "aggregated" in path
@@ -708,8 +708,9 @@ def test_report_creates_versioned_json_and_plots(tmp_path):
     assert payload["state"]["is_decided"] is True
     assert payload["decision"]["justification"] == "modelo escolhido para o relatório"
     assert "validation" in payload and "bootstrap" in payload["validation"]
-    assert len(produced["plots"]) == 2
+    assert len(produced["plots"]) == 3  # calibração + os dois SHAP
     assert all(Path(p).exists() for p in produced["plots"])
+    assert "calibration_curve" in payload
 
 
 def test_report_json_includes_aggregated_shap_without_plots(tmp_path):
@@ -776,3 +777,59 @@ def test_summary_accepts_table_format():
 
     model.summary(table_format="short")
     model.summary(table_format="full")
+
+
+# ----------------------------------------------------------------------
+# Curva de calibração (N9, contrato §7.6)
+# ----------------------------------------------------------------------
+
+def test_fit_computes_calibration_curve():
+    """O contrato coloca a calibração dentro de Fit, junto com as métricas."""
+    model = _tiny_model(RAPID_LogisticL2)
+    model.fit()
+
+    assert model.calibration_curve_ is not None
+    assert {"predicted", "observed"} <= set(model.calibration_curve_.columns)
+    assert len(model.calibration_curve_) > 1
+
+
+def test_calibration_curve_is_aggregated_not_per_patient():
+    model = _tiny_model(RAPID_LogisticL2)
+    model.fit()
+
+    assert len(model.calibration_curve_) < len(model.X_test)
+
+
+def test_calibration_bins_are_configurable():
+    model = _tiny_model(RAPID_LogisticL2, calibration_bins=4)
+    model.fit()
+
+    assert model.calibration_bins == 4
+    assert len(model.calibration_curve_) <= 4
+
+
+def test_calibration_survives_serialization(tmp_path):
+    model = _tiny_model(RAPID_LogisticL2)
+    model.fit()
+    model.decide()
+
+    loaded, _ = load_model(model.save(directory=tmp_path))
+
+    assert loaded.calibration_curve_ is not None
+
+
+def test_calibration_plot_is_saved_as_png(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    model = _tiny_model(RAPID_LogisticL2)
+    model.fit()
+
+    path = model._calibration_plot()
+
+    assert path.endswith(".png")
+    assert (tmp_path / path).exists()
+
+
+def test_calibration_included_in_default_plots_for_every_model():
+    """Calibração vale para os cinco algoritmos, não só os baseados em árvore."""
+    for cls in ALL_MODELS:
+        assert "calibration" in _tiny_model(cls)._default_plots

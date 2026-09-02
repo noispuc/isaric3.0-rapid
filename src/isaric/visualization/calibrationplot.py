@@ -8,7 +8,54 @@ class CalibrationPlot:
     """
     Calibration plots for assessing agreement between predicted and observed outcomes.
     Works for: survival models, logistic regression, risk prediction models, etc.
+
+    The Plotly methods are interactive and meant for on-screen inspection.
+    `save_png` renders the same aggregated curve with matplotlib, for report
+    artifacts: Plotly static export would require `kaleido`, an extra
+    dependency the package does not declare (NFR007).
     """
+
+    @staticmethod
+    def save_png(
+        calibration_df: pd.DataFrame,
+        title: str = 'Calibration Plot',
+        output_path: str = 'calibration_plot.png',
+    ) -> str:
+        """
+        Save a calibration curve as a PNG, from an already aggregated table.
+
+        Args:
+            calibration_df: DataFrame with 'predicted' and 'observed' columns,
+                one row per bin — as returned by
+                `modelevaluation.calibration.compute_calibration_curve`.
+            title: Plot title.
+            output_path: Destination path for the PNG artifact.
+
+        Returns:
+            str: Path to the saved file.
+        """
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.plot([0, 1], [0, 1], linestyle='--', color='0.5', linewidth=1,
+                label='Calibração perfeita')
+        ax.plot(calibration_df['predicted'], calibration_df['observed'],
+                marker='o', markersize=5, linewidth=2, color='#1f77b4',
+                label='Modelo')
+
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_aspect('equal')
+        ax.set_xlabel('Probabilidade predita')
+        ax.set_ylabel('Frequência observada')
+        ax.set_title(title)
+        ax.grid(alpha=0.2)
+        ax.legend(loc='upper left', frameon=False)
+
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=150)
+        plt.close(fig)
+        return output_path
 
     @staticmethod
     def plot(

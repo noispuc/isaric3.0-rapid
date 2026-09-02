@@ -103,6 +103,9 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
             reportado. Bins menores são descartados, para que a saída seja
             de fato agregada e não informação a nível de paciente
             (NFR008; RAPID Methodology §2.2).
+        calibration_bins (int): Bins da curva de calibração.
+        calibration_strategy (str): 'quantile' ou 'uniform' para o binning
+            da curva de calibração.
     """
 
     def __init__(
@@ -128,6 +131,8 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
         scoring: str = "roc_auc",
         shap_n_bins: int = 10,
         shap_min_bin_size: int = 10,
+        calibration_bins: int = 10,
+        calibration_strategy: str = "quantile",
     ):
         self._init_states()
         self._run_data_validations(data, dependent_var, independent_vars, year_column)
@@ -152,6 +157,8 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
         self.scoring = scoring
         self.shap_n_bins = shap_n_bins
         self.shap_min_bin_size = shap_min_bin_size
+        self.calibration_bins = calibration_bins
+        self.calibration_strategy = calibration_strategy
 
         self.dropped_columns_ = []
         self.fitted_pipeline_ = None
@@ -162,6 +169,7 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
         self.collinearity_report_ = None
         self.shap_values_ = None
         self.shap_aggregate_ = None
+        self.calibration_curve_ = None
         self.validation_results_ = None
         self.decision_ = None
         self.reported_metrics = None
@@ -276,6 +284,12 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
                 # Quando a supressão por tamanho de bin não deixa nenhum grupo
                 # reportável, o plot SHAP é omitido — e registrado como omitido.
                 # Proteger a privacidade não pode derrubar o relatório inteiro.
+                if plot == "calibration" and self.calibration_curve_ is None:
+                    produced["skipped"].append(
+                        "calibration: curva indisponível — bloco de teste com "
+                        "uma única classe ou bins insuficientes."
+                    )
+                    continue
                 if plot == "shap_beeswarm" and not has_shap:
                     produced["skipped"].append(
                         "shap_beeswarm: nenhum bin atingiu shap_min_bin_size="
@@ -449,7 +463,7 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
 
     @property
     def _default_plots(self):
-        return []
+        return ["calibration"]
 
     # ------------------------------------------------------------------
     # PRIVATE METHODS (FOLLOWING THE STANDARD ISARIC PIPELINE STRUCTURE)
@@ -540,7 +554,36 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
             self.y_test, y_pred_test, y_proba_test
         )
         self._build_performance_metrics_df()
+        self._calibration_curve(y_proba_test)
         self._test_assumptions()
+
+    def _calibration_curve(self, y_proba_test=None):
+        """
+        Curva de calibração no bloco de teste (contrato §7.6: `Fit` gera a
+        calibração junto com as métricas).
+
+        Concorda ou não a probabilidade predita com a frequência observada?
+        Uma boa discriminação não implica boa calibração — um modelo pode
+        ordenar bem os pacientes e ainda assim errar sistematicamente o nível
+        de risco, o que importa quando a saída é usada para decisão clínica.
+
+        A tabela é agregada por bin (média predita e frequência observada),
+        sem informação a nível de paciente.
+        """
+        from isaric.modelevaluation.calibration import compute_calibration_curve
+
+        if y_proba_test is None:
+            y_proba_test = self.fitted_pipeline_.predict_proba(self.X_test)[:, 1]
+
+        try:
+            self.calibration_curve_ = compute_calibration_curve(
+                self.y_test, y_proba_test,
+                n_bins=self.calibration_bins, strategy=self.calibration_strategy,
+            )
+        except ValueError:
+            # Bloco de teste com uma única classe, ou bins insuficientes.
+            self.calibration_curve_ = None
+        return self.calibration_curve_
 
     def _test_assumptions(self):
         numeric_X_train = self.X_train[self.independent_vars].select_dtypes(include=[np.number])
@@ -562,6 +605,8 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
                        table_format: str = "full"):
         if performance is not None:
             self._report_performance(table_format=table_format)
+        if performance is not None and table_format != "short":
+            self._report_calibration()
         if collinearity is not None and table_format != "short":
             self._report_collinearity()
         if self.validation_results_:
@@ -569,10 +614,38 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
         if self.decision_:
             self._report_decision()
         if plots:
+            if "calibration" in plots:
+                self._calibration_plot()
             if "shap_summary" in plots:
                 self._shap_summary_plot()
             if "shap_beeswarm" in plots:
                 self._shap_beeswarm_plot()
+
+    def _calibration_plot(self):
+        """Salva a curva de calibração como artefato PNG."""
+        from isaric.visualization.calibrationplot import CalibrationPlot
+
+        if self.calibration_curve_ is None:
+            raise ValueError(
+                "Curva de calibração indisponível: bloco de teste com uma única "
+                "classe ou bins insuficientes. Ajuste calibration_bins."
+            )
+        return CalibrationPlot.save_png(
+            self.calibration_curve_,
+            title=f"Curva de Calibração — {type(self).__name__}",
+            output_path=f"calibration_{type(self).__name__}.png",
+        )
+
+    def _report_calibration(self):
+        print("=" * 80)
+        print("CALIBRATION")
+        print("=" * 80)
+        if self.calibration_curve_ is None:
+            print("Curva indisponível (bloco de teste com uma única classe "
+                  "ou bins insuficientes).")
+        else:
+            print(self.calibration_curve_.to_string(index=False))
+        print("=" * 80)
 
     def _report_validation(self):
         print("=" * 80)
@@ -654,7 +727,7 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
     #: persistidos: métricas por indicador, SHAP por faixa de valor,
     #: colinearidade por feature e resultados de validação.
     _AGGREGATE_ATTRS = (
-        "performance_metrics_df", "shap_aggregate_",
+        "performance_metrics_df", "shap_aggregate_", "calibration_curve_",
         "collinearity_report_", "validation_results_",
     )
 
@@ -711,6 +784,9 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
             "decision": self.decision_,
         }
 
+        if self.calibration_curve_ is not None and not self.calibration_curve_.empty:
+            payload["calibration_curve"] = self.calibration_curve_.to_dict(orient="records")
+
         if self.shap_aggregate_ is not None and not self.shap_aggregate_.empty:
             payload["shap_aggregate"] = self.shap_aggregate_.to_dict(orient="records")
 
@@ -732,6 +808,8 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
         previous = os.getcwd()
         os.chdir(output_dir)
         try:
+            if plot == "calibration":
+                return str(Path(output_dir) / Path(self._calibration_plot()).name)
             if plot == "shap_summary":
                 return str(Path(output_dir) / Path(self._shap_summary_plot()).name)
             if plot == "shap_beeswarm":
@@ -1035,7 +1113,7 @@ class RAPID_RandomForest(TreeSHAPMixin, RAPID_MLBaseClassifier):
 
     @property
     def _default_plots(self):
-        return ["shap_summary", "shap_beeswarm"]
+        return ["calibration", "shap_summary", "shap_beeswarm"]
 
 
 class RAPID_SVM(RAPID_MLBaseClassifier):
@@ -1100,4 +1178,4 @@ class RAPID_XGBoost(TreeSHAPMixin, RAPID_MLBaseClassifier):
 
     @property
     def _default_plots(self):
-        return ["shap_summary", "shap_beeswarm"]
+        return ["calibration", "shap_summary", "shap_beeswarm"]
