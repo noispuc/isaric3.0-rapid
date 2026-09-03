@@ -31,7 +31,7 @@ dependencies = [
     "matplotlib>=3.8",
     "seaborn>=0.13",
     "upsetplot>=0.9",
-    "plotly>=5.18",
+    "plotly>=6.1.1",
     "kaleido>=0.2.1",
 
     # Model interpretability

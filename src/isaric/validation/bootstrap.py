@@ -133,11 +133,18 @@ def bootstrap_metrics(
         # Prediz
         y_pred = model.predict(X_boot)
         
-        # Se y_pred é contínuo (probabilidades) e y é binário, converte
-        if len(np.unique(y_boot)) == 2 and len(np.unique(np.round(y_pred))) == 2:
-            y_pred = (y_pred >= 0.5).astype(int)
+        # Detecta se o metric_func aceita probabilidades (ex: roc_auc_score)
+        metric_name = getattr(metric_func, '__name__', '')
         
-        value = metric_func(y_boot, y_pred)
+        if metric_name == 'roc_auc_score':
+            # Passa probabilidades diretamente
+            value = metric_func(y_boot, y_pred)
+        else:
+            # Converte para classes binárias (threshold 0.5)
+            if len(np.unique(y_boot)) == 2:
+                y_pred = (y_pred >= 0.5).astype(int)
+            value = metric_func(y_boot, y_pred)
+        
         bootstrap_values.append(value)
 
     values = np.array(bootstrap_values)
