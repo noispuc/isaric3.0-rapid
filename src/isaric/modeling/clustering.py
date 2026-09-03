@@ -275,34 +275,100 @@ class LCA(RAPID):
             **params
         )
 
-    def _profile_heatmap(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        """Train the LCA model."""
+        return self._model.fit(self.X)
+
+    def _build_result_df(self):
+        """Build class profiles DataFrame."""
+        return _build_result_df(
+            model=self.fitted_model,
+            X=self.X,
+            feature_names=self.measurement_vars
+        )
+
+    def _calculate_metrics(self, metrics=None):
+        """Calculate clustering metrics."""
+        from isaric.modelevaluation.metrics import compute_clustering_metrics
+        return compute_clustering_metrics(
+            self.fitted_model,
+            self.X,
+            self.y
+        )
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        """Not applicable for LCA."""
+        return None
+
+    def _calibration_curve(self):
+        """Not applicable for LCA."""
+        return None
+
+    def _check_assumptions(self):
+        """Not applicable for LCA."""
+        return None
+
+    def _train_test_split(self, test_size=0.2):
+        """Not applicable for LCA."""
+        return None
+
+    def _validate_external(self, external_data):
+        """Not applicable for LCA."""
+        return None
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        """Bootstrap validation for class profiles."""
+        return None
+
+    def _validate_sensitivity(self):
+        """Not applicable for LCA."""
+        return None
+
+    def _validate_subgroups(self, subgroups):
+        """Not applicable for LCA."""
+        return None
+
+    def _validate_net_benefit(self):
+        """Not applicable for LCA."""
+        return None
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _profile_heatmap(self, backend="plotly"):
         """Generate LCA class profiles heatmap."""
         from isaric.visualization.heatmaps import lca_profile_heatmap
 
-        fig = lca_profile_heatmap(
+        return lca_profile_heatmap(
             self.result_df,
             n_components=self.n_components,
-            title="LCA Class Profiles"
+            title="LCA Class Profiles",
+            backend=backend
         )
-        return fig
 
-    def _cluster_distribution(self):
+    def _cluster_distribution(self, backend="plotly"):
         """Generate cluster distribution bar plot."""
         from isaric.visualization.barplots import simple_bar_plot
 
-        cluster_counts = pd.Series(self.fitted_model.predict(self.X)).value_counts()
+        cluster_labels = self.fitted_model.predict(self.X)
+        cluster_counts = pd.Series(cluster_labels).value_counts()
         cluster_df = pd.DataFrame({
             'Class': [f'Class_{i+1}' for i in range(len(cluster_counts))],
             'Count': cluster_counts.values
         })
 
-        fig = simple_bar_plot(
+        return simple_bar_plot(
             cluster_df,
             x_col='Class',
             y_col='Count',
-            title="Latent Class Distribution"
+            title="Latent Class Distribution",
+            backend=backend
         )
-        return fig
 
 
 class KMeans(RAPID):
@@ -389,7 +455,74 @@ class KMeans(RAPID):
             **params
         )
 
-    def _cluster_distribution(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        """Train the K-Means model."""
+        return self._model.fit(self.X)
+
+    def _build_result_df(self):
+        """Build cluster centers DataFrame."""
+        centers = self.fitted_model.cluster_centers_
+        result_df = pd.DataFrame(
+            centers,
+            columns=self.predictors
+        )
+        result_df.index = [f'Cluster_{i}' for i in range(len(centers))]
+        return result_df
+
+    def _calculate_metrics(self, metrics=None):
+        """Calculate clustering metrics."""
+        from isaric.modelevaluation.metrics import compute_clustering_metrics
+        return compute_clustering_metrics(
+            self.fitted_model,
+            self.X,
+            None
+        )
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        """Not applicable for KMeans."""
+        return None
+
+    def _calibration_curve(self):
+        """Not applicable for KMeans."""
+        return None
+
+    def _check_assumptions(self):
+        """Not applicable for KMeans."""
+        return None
+
+    def _train_test_split(self, test_size=0.2):
+        """Not applicable for KMeans."""
+        return None
+
+    def _validate_external(self, external_data):
+        """Not applicable for KMeans."""
+        return None
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        """Not applicable for KMeans."""
+        return None
+
+    def _validate_sensitivity(self):
+        """Not applicable for KMeans."""
+        return None
+
+    def _validate_subgroups(self, subgroups):
+        """Not applicable for KMeans."""
+        return None
+
+    def _validate_net_benefit(self):
+        """Not applicable for KMeans."""
+        return None
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _cluster_distribution(self, backend="plotly"):
         """Generate cluster distribution bar plot."""
         from isaric.visualization.barplots import simple_bar_plot
 
@@ -399,10 +532,10 @@ class KMeans(RAPID):
             'Count': cluster_counts.values
         })
 
-        fig = simple_bar_plot(
+        return simple_bar_plot(
             cluster_df,
             x_col='Cluster',
             y_col='Count',
-            title="K-Means Cluster Distribution"
+            title="K-Means Cluster Distribution",
+            backend=backend
         )
-        return fig

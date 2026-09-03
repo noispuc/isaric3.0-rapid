@@ -246,9 +246,10 @@ class DecisionTree(RAPID):
         super().__init__()
 
     def _setup_plots_map(self):
-        from isaric.visualization.heatmaps import confusion_matrix_heatmap
         self.plots_map = {
             "confusion_matrix": self._confusion_matrix,
+            "feature_importance": self._feature_importance,
+            "calibration_curve": self._calibration_plot,
         }
 
     @classmethod
@@ -259,18 +260,118 @@ class DecisionTree(RAPID):
         )
         return cls(model_config, X, y, dependent_var, independent_vars, **params)
 
-    def _confusion_matrix(self):
-        from isaric.visualization.heatmaps import confusion_matrix_heatmap
-        from sklearn.metrics import confusion_matrix as cm
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
 
-        y_pred = self.fitted_model.predict(self.X)
-        cm_array = cm(self.y, y_pred)
+    def _train_model(self):
+        return self._model.fit(self.X, self.y)
 
-        return confusion_matrix_heatmap(
-            cm_array,
-            class_names=['Negative', 'Positive'],
-            title="Confusion Matrix - Decision Tree"
+    def _build_result_df(self):
+        return _build_result_df(self.fitted_model, self.X)
+
+    def _calculate_metrics(self, metrics=None):
+        from isaric.modelevaluation.metrics import compute_classification_metrics
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_pred = (y_prob >= 0.5).astype(int)
+        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        from isaric.modelevaluation.crossvalidation import kfold_cross_validation
+        return kfold_cross_validation(
+            self._model, self.X, self.y,
+            n_splits=k_folds,
+            scoring='roc_auc'
         )
+
+    def _calibration_curve(self):
+        from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return {
+            'brier_score': compute_brier_score(self.y, y_prob),
+            'calibration_curve': calibration_curve(self.y, y_prob),
+            'calibration_table': binned_calibration(self.y, y_prob)
+        }
+
+    def _check_assumptions(self):
+        from isaric.modelevaluation.assumptions import test_epv
+        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+
+    def _train_test_split(self, test_size=0.2):
+        from isaric.modelevaluation.traintest import stratified_holdout
+        data = pd.concat([self.X, self.y], axis=1)
+        return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
+
+    def _validate_external(self, external_data):
+        from isaric.validation.external import temporal_validation
+        return temporal_validation(self.fitted_model, external_data,
+                                   dependent_var=self.dependent_var,
+                                   independent_vars=self.independent_vars)
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import roc_auc_score
+        return bootstrap_metrics(self.fitted_model, self.X, self.y,
+                                 n_iterations=n_iterations,
+                                 metric_func=roc_auc_score)
+
+    def _validate_sensitivity(self):
+        from isaric.validation.sensitivity import alternative_missing_handling
+        data = pd.concat([self.X, self.y], axis=1)
+        return alternative_missing_handling(data, self.dependent_var, self.independent_vars)
+
+    def _validate_subgroups(self, subgroups):
+        from isaric.validation.subgroup import stratified_metrics
+        return stratified_metrics(self.fitted_model, self.X, self.y, subgroups)
+
+    def _validate_net_benefit(self):
+        from isaric.validation.netprofit import decision_curve_analysis
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return decision_curve_analysis(self.y, y_prob)
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _confusion_matrix(self, backend="plotly"):
+        from isaric.visualization.heatmaps import confusion_matrix_heatmap
+        y_pred = self.fitted_model.predict(self.X)
+        return confusion_matrix_heatmap(
+            y_true=self.y,
+            y_pred=y_pred,
+            class_names=['Negative', 'Positive'],
+            title="Confusion Matrix - Decision Tree",
+            backend=backend
+        )
+
+    def _feature_importance(self, backend="plotly"):
+        from isaric.visualization.barplots import simple_bar_plot
+        importance_df = _build_result_df(self.fitted_model, self.X)
+        return simple_bar_plot(
+            importance_df,
+            x_col='Feature',
+            y_col='Importance',
+            title="Feature Importance - Decision Tree",
+            backend=backend
+        )
+
+    def _calibration_plot(self, backend="plotly"):
+        from isaric.visualization.lineplots import line_with_ci
+        from isaric.modelevaluation.calibration import calibration_curve
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        calib = calibration_curve(self.y, y_prob)
+        data = pd.DataFrame({
+            'predicted': calib['mean_predicted'],
+            'observed': calib['fraction_positive'],
+            'ci_lower': calib['fraction_positive'] * 0.9,
+            'ci_upper': calib['fraction_positive'] * 1.1,
+        })
+        return line_with_ci(data=data, x_col='predicted', y_col='observed',
+                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
+                           title="Calibration Curve - Decision Tree",
+                           xaxis_title="Predicted Probability",
+                           yaxis_title="Observed Proportion",
+                           backend=backend)
 
 
 class RandomForest(RAPID):
@@ -294,6 +395,7 @@ class RandomForest(RAPID):
         self.plots_map = {
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
+            "calibration_curve": self._calibration_plot,
         }
 
     @classmethod
@@ -304,30 +406,111 @@ class RandomForest(RAPID):
         )
         return cls(model_config, X, y, dependent_var, independent_vars, **params)
 
-    def _confusion_matrix(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        return self._model.fit(self.X, self.y)
+
+    def _build_result_df(self):
+        return _build_result_df(self.fitted_model, self.X)
+
+    def _calculate_metrics(self, metrics=None):
+        from isaric.modelevaluation.metrics import compute_classification_metrics
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_pred = (y_prob >= 0.5).astype(int)
+        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        from isaric.modelevaluation.crossvalidation import kfold_cross_validation
+        return kfold_cross_validation(self._model, self.X, self.y,
+                                      n_splits=k_folds, scoring='roc_auc')
+
+    def _calibration_curve(self):
+        from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return {
+            'brier_score': compute_brier_score(self.y, y_prob),
+            'calibration_curve': calibration_curve(self.y, y_prob),
+            'calibration_table': binned_calibration(self.y, y_prob)
+        }
+
+    def _check_assumptions(self):
+        from isaric.modelevaluation.assumptions import test_epv
+        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+
+    def _train_test_split(self, test_size=0.2):
+        from isaric.modelevaluation.traintest import stratified_holdout
+        data = pd.concat([self.X, self.y], axis=1)
+        return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
+
+    def _validate_external(self, external_data):
+        from isaric.validation.external import temporal_validation
+        return temporal_validation(self.fitted_model, external_data,
+                                   dependent_var=self.dependent_var,
+                                   independent_vars=self.independent_vars)
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import roc_auc_score
+        return bootstrap_metrics(self.fitted_model, self.X, self.y,
+                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+
+    def _validate_sensitivity(self):
+        from isaric.validation.sensitivity import alternative_missing_handling
+        data = pd.concat([self.X, self.y], axis=1)
+        return alternative_missing_handling(data, self.dependent_var, self.independent_vars)
+
+    def _validate_subgroups(self, subgroups):
+        from isaric.validation.subgroup import stratified_metrics
+        return stratified_metrics(self.fitted_model, self.X, self.y, subgroups)
+
+    def _validate_net_benefit(self):
+        from isaric.validation.netprofit import decision_curve_analysis
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return decision_curve_analysis(self.y, y_prob)
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _confusion_matrix(self, backend="plotly"):
         from isaric.visualization.heatmaps import confusion_matrix_heatmap
-        from sklearn.metrics import confusion_matrix as cm
-
         y_pred = self.fitted_model.predict(self.X)
-        cm_array = cm(self.y, y_pred)
-
         return confusion_matrix_heatmap(
-            cm_array,
+            y_true=self.y, y_pred=y_pred,
             class_names=['Negative', 'Positive'],
-            title="Confusion Matrix - Random Forest"
+            title="Confusion Matrix - Random Forest",
+            backend=backend
         )
 
-    def _feature_importance(self):
+    def _feature_importance(self, backend="plotly"):
         from isaric.visualization.barplots import simple_bar_plot
-
         importance_df = _build_result_df(self.fitted_model, self.X)
-
         return simple_bar_plot(
-            importance_df,
-            x_col='Feature',
-            y_col='Importance',
-            title="Feature Importance - Random Forest"
+            importance_df, x_col='Feature', y_col='Importance',
+            title="Feature Importance - Random Forest",
+            backend=backend
         )
+
+    def _calibration_plot(self, backend="plotly"):
+        from isaric.visualization.lineplots import line_with_ci
+        from isaric.modelevaluation.calibration import calibration_curve
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        calib = calibration_curve(self.y, y_prob)
+        data = pd.DataFrame({
+            'predicted': calib['mean_predicted'],
+            'observed': calib['fraction_positive'],
+            'ci_lower': calib['fraction_positive'] * 0.9,
+            'ci_upper': calib['fraction_positive'] * 1.1,
+        })
+        return line_with_ci(data=data, x_col='predicted', y_col='observed',
+                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
+                           title="Calibration Curve - Random Forest",
+                           xaxis_title="Predicted Probability",
+                           yaxis_title="Observed Proportion",
+                           backend=backend)
 
 
 class XGBoost(RAPID):
@@ -351,6 +534,7 @@ class XGBoost(RAPID):
         self.plots_map = {
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
+            "calibration_curve": self._calibration_plot,
         }
 
     @classmethod
@@ -361,30 +545,111 @@ class XGBoost(RAPID):
         )
         return cls(model_config, X, y, dependent_var, independent_vars, **params)
 
-    def _confusion_matrix(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        return self._model.fit(self.X, self.y)
+
+    def _build_result_df(self):
+        return _build_result_df(self.fitted_model, self.X)
+
+    def _calculate_metrics(self, metrics=None):
+        from isaric.modelevaluation.metrics import compute_classification_metrics
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_pred = (y_prob >= 0.5).astype(int)
+        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        from isaric.modelevaluation.crossvalidation import kfold_cross_validation
+        return kfold_cross_validation(self._model, self.X, self.y,
+                                      n_splits=k_folds, scoring='roc_auc')
+
+    def _calibration_curve(self):
+        from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return {
+            'brier_score': compute_brier_score(self.y, y_prob),
+            'calibration_curve': calibration_curve(self.y, y_prob),
+            'calibration_table': binned_calibration(self.y, y_prob)
+        }
+
+    def _check_assumptions(self):
+        from isaric.modelevaluation.assumptions import test_epv
+        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+
+    def _train_test_split(self, test_size=0.2):
+        from isaric.modelevaluation.traintest import stratified_holdout
+        data = pd.concat([self.X, self.y], axis=1)
+        return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
+
+    def _validate_external(self, external_data):
+        from isaric.validation.external import temporal_validation
+        return temporal_validation(self.fitted_model, external_data,
+                                   dependent_var=self.dependent_var,
+                                   independent_vars=self.independent_vars)
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import roc_auc_score
+        return bootstrap_metrics(self.fitted_model, self.X, self.y,
+                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+
+    def _validate_sensitivity(self):
+        from isaric.validation.sensitivity import alternative_missing_handling
+        data = pd.concat([self.X, self.y], axis=1)
+        return alternative_missing_handling(data, self.dependent_var, self.independent_vars)
+
+    def _validate_subgroups(self, subgroups):
+        from isaric.validation.subgroup import stratified_metrics
+        return stratified_metrics(self.fitted_model, self.X, self.y, subgroups)
+
+    def _validate_net_benefit(self):
+        from isaric.validation.netprofit import decision_curve_analysis
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return decision_curve_analysis(self.y, y_prob)
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _confusion_matrix(self, backend="plotly"):
         from isaric.visualization.heatmaps import confusion_matrix_heatmap
-        from sklearn.metrics import confusion_matrix as cm
-
         y_pred = self.fitted_model.predict(self.X)
-        cm_array = cm(self.y, y_pred)
-
         return confusion_matrix_heatmap(
-            cm_array,
+            y_true=self.y, y_pred=y_pred,
             class_names=['Negative', 'Positive'],
-            title="Confusion Matrix - XGBoost"
+            title="Confusion Matrix - XGBoost",
+            backend=backend
         )
 
-    def _feature_importance(self):
+    def _feature_importance(self, backend="plotly"):
         from isaric.visualization.barplots import simple_bar_plot
-
         importance_df = _build_result_df(self.fitted_model, self.X)
-
         return simple_bar_plot(
-            importance_df,
-            x_col='Feature',
-            y_col='Importance',
-            title="Feature Importance - XGBoost"
+            importance_df, x_col='Feature', y_col='Importance',
+            title="Feature Importance - XGBoost",
+            backend=backend
         )
+
+    def _calibration_plot(self, backend="plotly"):
+        from isaric.visualization.lineplots import line_with_ci
+        from isaric.modelevaluation.calibration import calibration_curve
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        calib = calibration_curve(self.y, y_prob)
+        data = pd.DataFrame({
+            'predicted': calib['mean_predicted'],
+            'observed': calib['fraction_positive'],
+            'ci_lower': calib['fraction_positive'] * 0.9,
+            'ci_upper': calib['fraction_positive'] * 1.1,
+        })
+        return line_with_ci(data=data, x_col='predicted', y_col='observed',
+                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
+                           title="Calibration Curve - XGBoost",
+                           xaxis_title="Predicted Probability",
+                           yaxis_title="Observed Proportion",
+                           backend=backend)
 
 
 class LightGBM(RAPID):
@@ -408,6 +673,7 @@ class LightGBM(RAPID):
         self.plots_map = {
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
+            "calibration_curve": self._calibration_plot,
         }
 
     @classmethod
@@ -418,30 +684,111 @@ class LightGBM(RAPID):
         )
         return cls(model_config, X, y, dependent_var, independent_vars, **params)
 
-    def _confusion_matrix(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        return self._model.fit(self.X, self.y)
+
+    def _build_result_df(self):
+        return _build_result_df(self.fitted_model, self.X)
+
+    def _calculate_metrics(self, metrics=None):
+        from isaric.modelevaluation.metrics import compute_classification_metrics
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_pred = (y_prob >= 0.5).astype(int)
+        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        from isaric.modelevaluation.crossvalidation import kfold_cross_validation
+        return kfold_cross_validation(self._model, self.X, self.y,
+                                      n_splits=k_folds, scoring='roc_auc')
+
+    def _calibration_curve(self):
+        from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return {
+            'brier_score': compute_brier_score(self.y, y_prob),
+            'calibration_curve': calibration_curve(self.y, y_prob),
+            'calibration_table': binned_calibration(self.y, y_prob)
+        }
+
+    def _check_assumptions(self):
+        from isaric.modelevaluation.assumptions import test_epv
+        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+
+    def _train_test_split(self, test_size=0.2):
+        from isaric.modelevaluation.traintest import stratified_holdout
+        data = pd.concat([self.X, self.y], axis=1)
+        return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
+
+    def _validate_external(self, external_data):
+        from isaric.validation.external import temporal_validation
+        return temporal_validation(self.fitted_model, external_data,
+                                   dependent_var=self.dependent_var,
+                                   independent_vars=self.independent_vars)
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import roc_auc_score
+        return bootstrap_metrics(self.fitted_model, self.X, self.y,
+                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+
+    def _validate_sensitivity(self):
+        from isaric.validation.sensitivity import alternative_missing_handling
+        data = pd.concat([self.X, self.y], axis=1)
+        return alternative_missing_handling(data, self.dependent_var, self.independent_vars)
+
+    def _validate_subgroups(self, subgroups):
+        from isaric.validation.subgroup import stratified_metrics
+        return stratified_metrics(self.fitted_model, self.X, self.y, subgroups)
+
+    def _validate_net_benefit(self):
+        from isaric.validation.netprofit import decision_curve_analysis
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return decision_curve_analysis(self.y, y_prob)
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _confusion_matrix(self, backend="plotly"):
         from isaric.visualization.heatmaps import confusion_matrix_heatmap
-        from sklearn.metrics import confusion_matrix as cm
-
         y_pred = self.fitted_model.predict(self.X)
-        cm_array = cm(self.y, y_pred)
-
         return confusion_matrix_heatmap(
-            cm_array,
+            y_true=self.y, y_pred=y_pred,
             class_names=['Negative', 'Positive'],
-            title="Confusion Matrix - LightGBM"
+            title="Confusion Matrix - LightGBM",
+            backend=backend
         )
 
-    def _feature_importance(self):
+    def _feature_importance(self, backend="plotly"):
         from isaric.visualization.barplots import simple_bar_plot
-
         importance_df = _build_result_df(self.fitted_model, self.X)
-
         return simple_bar_plot(
-            importance_df,
-            x_col='Feature',
-            y_col='Importance',
-            title="Feature Importance - LightGBM"
+            importance_df, x_col='Feature', y_col='Importance',
+            title="Feature Importance - LightGBM",
+            backend=backend
         )
+
+    def _calibration_plot(self, backend="plotly"):
+        from isaric.visualization.lineplots import line_with_ci
+        from isaric.modelevaluation.calibration import calibration_curve
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        calib = calibration_curve(self.y, y_prob)
+        data = pd.DataFrame({
+            'predicted': calib['mean_predicted'],
+            'observed': calib['fraction_positive'],
+            'ci_lower': calib['fraction_positive'] * 0.9,
+            'ci_upper': calib['fraction_positive'] * 1.1,
+        })
+        return line_with_ci(data=data, x_col='predicted', y_col='observed',
+                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
+                           title="Calibration Curve - LightGBM",
+                           xaxis_title="Predicted Probability",
+                           yaxis_title="Observed Proportion",
+                           backend=backend)
 
 
 class CatBoost(RAPID):
@@ -465,6 +812,7 @@ class CatBoost(RAPID):
         self.plots_map = {
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
+            "calibration_curve": self._calibration_plot,
         }
 
     @classmethod
@@ -475,27 +823,108 @@ class CatBoost(RAPID):
         )
         return cls(model_config, X, y, dependent_var, independent_vars, **params)
 
-    def _confusion_matrix(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        return self._model.fit(self.X, self.y)
+
+    def _build_result_df(self):
+        return _build_result_df(self.fitted_model, self.X)
+
+    def _calculate_metrics(self, metrics=None):
+        from isaric.modelevaluation.metrics import compute_classification_metrics
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_pred = (y_prob >= 0.5).astype(int)
+        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        from isaric.modelevaluation.crossvalidation import kfold_cross_validation
+        return kfold_cross_validation(self._model, self.X, self.y,
+                                      n_splits=k_folds, scoring='roc_auc')
+
+    def _calibration_curve(self):
+        from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return {
+            'brier_score': compute_brier_score(self.y, y_prob),
+            'calibration_curve': calibration_curve(self.y, y_prob),
+            'calibration_table': binned_calibration(self.y, y_prob)
+        }
+
+    def _check_assumptions(self):
+        from isaric.modelevaluation.assumptions import test_epv
+        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+
+    def _train_test_split(self, test_size=0.2):
+        from isaric.modelevaluation.traintest import stratified_holdout
+        data = pd.concat([self.X, self.y], axis=1)
+        return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
+
+    def _validate_external(self, external_data):
+        from isaric.validation.external import temporal_validation
+        return temporal_validation(self.fitted_model, external_data,
+                                   dependent_var=self.dependent_var,
+                                   independent_vars=self.independent_vars)
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import roc_auc_score
+        return bootstrap_metrics(self.fitted_model, self.X, self.y,
+                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+
+    def _validate_sensitivity(self):
+        from isaric.validation.sensitivity import alternative_missing_handling
+        data = pd.concat([self.X, self.y], axis=1)
+        return alternative_missing_handling(data, self.dependent_var, self.independent_vars)
+
+    def _validate_subgroups(self, subgroups):
+        from isaric.validation.subgroup import stratified_metrics
+        return stratified_metrics(self.fitted_model, self.X, self.y, subgroups)
+
+    def _validate_net_benefit(self):
+        from isaric.validation.netprofit import decision_curve_analysis
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        return decision_curve_analysis(self.y, y_prob)
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _confusion_matrix(self, backend="plotly"):
         from isaric.visualization.heatmaps import confusion_matrix_heatmap
-        from sklearn.metrics import confusion_matrix as cm
-
         y_pred = self.fitted_model.predict(self.X)
-        cm_array = cm(self.y, y_pred)
-
         return confusion_matrix_heatmap(
-            cm_array,
+            y_true=self.y, y_pred=y_pred,
             class_names=['Negative', 'Positive'],
-            title="Confusion Matrix - CatBoost"
+            title="Confusion Matrix - CatBoost",
+            backend=backend
         )
 
-    def _feature_importance(self):
+    def _feature_importance(self, backend="plotly"):
         from isaric.visualization.barplots import simple_bar_plot
-
         importance_df = _build_result_df(self.fitted_model, self.X)
-
         return simple_bar_plot(
-            importance_df,
-            x_col='Feature',
-            y_col='Importance',
-            title="Feature Importance - CatBoost"
+            importance_df, x_col='Feature', y_col='Importance',
+            title="Feature Importance - CatBoost",
+            backend=backend
         )
+
+    def _calibration_plot(self, backend="plotly"):
+        from isaric.visualization.lineplots import line_with_ci
+        from isaric.modelevaluation.calibration import calibration_curve
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        calib = calibration_curve(self.y, y_prob)
+        data = pd.DataFrame({
+            'predicted': calib['mean_predicted'],
+            'observed': calib['fraction_positive'],
+            'ci_lower': calib['fraction_positive'] * 0.9,
+            'ci_upper': calib['fraction_positive'] * 1.1,
+        })
+        return line_with_ci(data=data, x_col='predicted', y_col='observed',
+                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
+                           title="Calibration Curve - CatBoost",
+                           xaxis_title="Predicted Probability",
+                           yaxis_title="Observed Proportion",
+                           backend=backend)

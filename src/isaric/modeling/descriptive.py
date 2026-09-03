@@ -227,6 +227,7 @@ class Descriptive(RAPID):
         """Configure available plots for Descriptive."""
         self.plots_map = {
             "bar_plot": self._bar_plot,
+            "correlation_heatmap": self._correlation_heatmap,
         }
 
     @classmethod
@@ -260,7 +261,79 @@ class Descriptive(RAPID):
             **params
         )
 
-    def _bar_plot(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        """Not applicable for descriptive."""
+        return None
+
+    def _build_result_df(self):
+        """Build descriptive statistics DataFrame."""
+        return _build_result_df(
+            data=self.X,
+            variables=self.variables
+        )
+
+    def _calculate_metrics(self, metrics=None):
+        """Calculate basic descriptive metrics."""
+        metrics = {}
+        for col in self.variables:
+            if _is_categorical(self.X[col]):
+                metrics[col] = {
+                    'n_unique': int(self.X[col].nunique()),
+                    'most_common': str(self.X[col].mode()[0]) if not self.X[col].mode().empty else None,
+                }
+            else:
+                metrics[col] = {
+                    'mean': float(self.X[col].mean()),
+                    'std': float(self.X[col].std()),
+                    'median': float(self.X[col].median()),
+                }
+        return metrics
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        """Not applicable for descriptive."""
+        return None
+
+    def _calibration_curve(self):
+        """Not applicable for descriptive."""
+        return None
+
+    def _check_assumptions(self):
+        """Not applicable for descriptive."""
+        return None
+
+    def _train_test_split(self, test_size=0.2):
+        """Not applicable for descriptive."""
+        return None
+
+    def _validate_external(self, external_data):
+        """Not applicable for descriptive."""
+        return None
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        """Bootstrap validation for descriptive statistics."""
+        return None
+
+    def _validate_sensitivity(self):
+        """Not applicable for descriptive."""
+        return None
+
+    def _validate_subgroups(self, subgroups):
+        """Not applicable for descriptive."""
+        return None
+
+    def _validate_net_benefit(self):
+        """Not applicable for descriptive."""
+        return None
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _bar_plot(self, backend="plotly"):
         """Generate bar plot for first categorical variable."""
         from isaric.visualization.barplots import simple_bar_plot
 
@@ -273,10 +346,28 @@ class Descriptive(RAPID):
         value_counts = self.X[first_cat].value_counts().reset_index()
         value_counts.columns = [first_cat, 'Count']
 
-        fig = simple_bar_plot(
+        return simple_bar_plot(
             value_counts,
             x_col=first_cat,
             y_col='Count',
-            title=f"Distribution of {first_cat}"
+            title=f"Distribution of {first_cat}",
+            backend=backend
         )
-        return fig
+
+    def _correlation_heatmap(self, backend="plotly"):
+        """Generate correlation heatmap for numeric variables."""
+        from isaric.visualization.heatmaps import correlation_heatmap
+
+        numeric_vars = [
+            v for v in self.variables
+            if pd.api.types.is_numeric_dtype(self.X[v])
+        ]
+
+        if len(numeric_vars) < 2:
+            return None
+
+        return correlation_heatmap(
+            self.X[numeric_vars],
+            title="Correlation Heatmap - Descriptive",
+            backend=backend
+        )

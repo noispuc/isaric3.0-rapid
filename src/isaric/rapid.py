@@ -485,6 +485,9 @@ class RAPID(ABC):
         """
         self._check_state(self._STATE_SUMMARIZED, "report")
 
+        # Imports necessários
+        import matplotlib.pyplot as plt
+
         # Valida formatos aceitos
         if format is None:
             format = ["pdf", "png", "csv"]
@@ -502,30 +505,49 @@ class RAPID(ABC):
             self.result_df.to_csv("results.csv", index=False)
             print("✅ CSV gerado: results.csv")
 
-        # Gera PNG
+        # Gera PNG (via Matplotlib)
         if "png" in format:
             for plot_name, plot_func in self.plots_map.items():
-                fig = plot_func()
-                fig.write_image(f"{plot_name}.png")
+                fig = plot_func(backend="matplotlib")
+                fig.savefig(f"{plot_name}.png", dpi=300, bbox_inches='tight')
+                plt.close(fig)
                 print(f"✅ PNG gerado: {plot_name}.png")
 
-        # Gera PDF consolidado (usando Kaleido)
+        # Gera PDF consolidado (via Matplotlib)
         if "pdf" in format:
             from datetime import datetime
-            import plotly.io as pio
+            from matplotlib.backends.backend_pdf import PdfPages
             
             pdf_filename = f"{self.model_type}-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
             
-            # Primeira figura inclui metadados
-            if self.plots_map:
-                # Salva cada figura como PDF individual e depois combina
-                # Por enquanto, gera um PDF por figura
+            with PdfPages(pdf_filename) as pdf:
+                # Página 1: Metadados
+                fig_meta, ax_meta = plt.subplots(figsize=(10, 6))
+                ax_meta.axis('off')
+                
+                metadata_text = (
+                    f"Model: {self.model_type}\n"
+                    f"Created: {datetime.now().isoformat()}\n"
+                    f"RAPID Version: 0.1.0\n\n"
+                    f"Key Metrics:\n"
+                )
+                if self.metrics:
+                    for key, value in self.metrics.items():
+                        if key != 'confusion_matrix':
+                            metadata_text += f"  {key}: {value}\n"
+                
+                ax_meta.text(0.1, 0.9, metadata_text, fontsize=12, va='top', fontfamily='monospace')
+                pdf.savefig(fig_meta, bbox_inches='tight')
+                plt.close(fig_meta)
+                
+                # Páginas seguintes: Plots
                 for plot_name, plot_func in self.plots_map.items():
-                    fig = plot_func()
-                    fig.write_image(f"{plot_name}.pdf")
-                    print(f"✅ PDF gerado: {plot_name}.pdf")
-            else:
-                print("⚠️ Nenhum plot disponível para gerar PDF.")
+                    fig = plot_func(backend="matplotlib")
+                    pdf.savefig(fig, bbox_inches='tight')
+                    plt.close(fig)
+                    print(f"✅ Plot adicionado ao PDF: {plot_name}")
+            
+            print(f"✅ PDF consolidado: {pdf_filename}")
 
         self._transition_to(self._STATE_REPORTED)
 

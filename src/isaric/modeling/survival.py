@@ -108,16 +108,6 @@ def _prepare_model_data(
 ) -> pd.DataFrame:
     """
     Prepare model data for CoxPHFitter.
-
-    Args:
-        data: Input DataFrame.
-        duration_var: Time-to-event column.
-        event_var: Event indicator column.
-        independent_vars: Predictor variable names.
-        formula: Patsy-style formula (optional).
-
-    Returns:
-        DataFrame with duration, event, and predictor columns.
     """
     if formula:
         required_cols = [duration_var, event_var]
@@ -141,13 +131,6 @@ def _build_result_df(
 ) -> pd.DataFrame:
     """
     Build Hazard Ratios DataFrame from fitted Cox model.
-
-    Args:
-        fitted_model: Fitted CoxPHFitter.
-        labels: Dictionary for variable display labels.
-
-    Returns:
-        DataFrame with HazardRatio, LowerCI, UpperCI, p-value.
     """
     summary = fitted_model.summary.copy()
 
@@ -193,14 +176,6 @@ class SurvivalCox(RAPID):
     ):
         """
         Initialize SurvivalCox with configured model and data.
-
-        Args:
-            model: Configured CoxPHFitter (from create_survival_model).
-            model_data: DataFrame for training.
-            duration_var: Time-to-event column.
-            event_var: Event indicator column.
-            independent_vars: Predictor variable names.
-            labels: Dictionary for variable display labels.
         """
         self._model = model
         self.model_data = model_data
@@ -242,19 +217,6 @@ class SurvivalCox(RAPID):
     ) -> "SurvivalCox":
         """
         Configure and instantiate the SurvivalCox pipeline.
-
-        Args:
-            data: Input DataFrame in ARC format.
-            model: Model type identifier (must be "survival_cox").
-            duration_var: Time-to-event column.
-            event_var: Event indicator column.
-            independent_vars: Predictor variable names.
-            formula: Patsy-style formula (optional).
-            penalizer: L2 regularization strength.
-            labels: Dictionary for variable display labels.
-
-        Returns:
-            SurvivalCox instance ready for training.
         """
         model_config, model_data = create_survival_model(
             data=data,
@@ -275,28 +237,145 @@ class SurvivalCox(RAPID):
             **params
         )
 
-    def _forest_plot(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        """Train the Cox PH model."""
+        return self._model.fit(
+            self.model_data,
+            duration_col=self.duration_var,
+            event_col=self.event_var
+        )
+
+    def _build_result_df(self):
+        """Build Hazard Ratios DataFrame."""
+        return _build_result_df(
+            fitted_model=self.fitted_model,
+            labels=self.labels
+        )
+
+    def _calculate_metrics(self, metrics=None):
+        """Calculate survival metrics."""
+        from isaric.modelevaluation.metrics import compute_survival_metrics
+        return compute_survival_metrics(
+            self.fitted_model,
+            self.model_data,
+            duration_var=self.duration_var,
+            event_var=self.event_var
+        )
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        """Cross-validation for Cox model."""
+        from isaric.modelevaluation.crossvalidation import kfold_cross_validation
+        return kfold_cross_validation(
+            self._model, self.X, self.y,
+            n_splits=k_folds,
+            scoring='roc_auc'
+        )
+
+    def _calibration_curve(self):
+        """Survival calibration."""
+        from isaric.modelevaluation.calibration import survival_calibration
+        return survival_calibration(
+            self.fitted_model,
+            self.model_data,
+            duration_var=self.duration_var,
+            event_var=self.event_var,
+            target_time=30
+        )
+
+    def _check_assumptions(self):
+        """Check Proportional Hazards assumption."""
+        from isaric.modelevaluation.assumptions import test_proportional_hazards
+        return {
+            'proportional_hazards': test_proportional_hazards(
+                self.fitted_model,
+                self.model_data
+            )
+        }
+
+    def _train_test_split(self, test_size=0.2):
+        """Split data chronologically."""
+        from isaric.modelevaluation.traintest import temporal_holdout
+        return temporal_holdout(
+            self.model_data,
+            date_col=self.duration_var,
+            test_size=test_size
+        )
+
+    def _validate_external(self, external_data):
+        """Validate on external dataset."""
+        from isaric.validation.external import temporal_validation
+        return temporal_validation(
+            self.fitted_model,
+            external_data,
+            dependent_var=self.event_var,
+            independent_vars=self.independent_vars
+        )
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        """Bootstrap validation."""
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import roc_auc_score
+        return bootstrap_metrics(
+            self.fitted_model,
+            self.X,
+            self.y,
+            n_iterations=n_iterations,
+            metric_func=roc_auc_score
+        )
+
+    def _validate_sensitivity(self):
+        """Sensitivity analysis."""
+        from isaric.validation.sensitivity import alternative_missing_handling
+        return alternative_missing_handling(
+            self.model_data,
+            self.event_var,
+            self.independent_vars
+        )
+
+    def _validate_subgroups(self, subgroups):
+        """Subgroup analysis."""
+        from isaric.validation.subgroup import stratified_metrics
+        return stratified_metrics(
+            self.fitted_model,
+            self.X,
+            self.y,
+            subgroups
+        )
+
+    def _validate_net_benefit(self):
+        """Not applicable for survival."""
+        return None
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _forest_plot(self, backend="plotly"):
         """Generate forest plot for Hazard Ratios."""
         from isaric.visualization.forestplots import hazard_ratio_plot
 
-        fig = hazard_ratio_plot(
+        return hazard_ratio_plot(
             self.result_df,
             effect_col='HazardRatio',
             lower_col='LowerCI',
             upper_col='UpperCI',
-            title="Forest Plot - Hazard Ratios (Cox PH)"
+            title="Forest Plot - Hazard Ratios (Cox PH)",
+            backend=backend
         )
-        return fig
 
-    def _survival_curve(self):
+    def _survival_curve(self, backend="plotly"):
         """Generate baseline survival curve."""
         from isaric.visualization.survivalcurves import baseline_survival_curve
 
-        fig = baseline_survival_curve(
+        return baseline_survival_curve(
             self.fitted_model,
-            title="Baseline Survival Curve (Cox Model)"
+            title="Baseline Survival Curve (Cox Model)",
+            backend=backend
         )
-        return fig
 
 
 class KaplanMeier(RAPID):
@@ -317,12 +396,6 @@ class KaplanMeier(RAPID):
     ):
         """
         Initialize KaplanMeier with configured model and data.
-
-        Args:
-            model: Configured KaplanMeierFitter.
-            model_data: DataFrame with duration and event columns.
-            duration_var: Time-to-event column.
-            event_var: Event indicator column.
         """
         self._model = model
         self.model_data = model_data
@@ -357,15 +430,6 @@ class KaplanMeier(RAPID):
     ) -> "KaplanMeier":
         """
         Configure and instantiate the KaplanMeier pipeline.
-
-        Args:
-            data: Input DataFrame in ARC format.
-            model: Model type identifier (must be "survival_km").
-            duration_var: Time-to-event column.
-            event_var: Event indicator column.
-
-        Returns:
-            KaplanMeier instance ready for training.
         """
         model_config, model_data = create_kaplan_meier_model(
             data=data,
@@ -381,14 +445,92 @@ class KaplanMeier(RAPID):
             **params
         )
 
-    def _survival_curve(self):
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        """Train the Kaplan-Meier model."""
+        return self._model.fit(
+            self.model_data[self.duration_var],
+            event_observed=self.model_data[self.event_var]
+        )
+
+    def _build_result_df(self):
+        """Build results DataFrame."""
+        return pd.DataFrame({
+            'Variable': ['Median_Survival', 'N_Events', 'N_Censored'],
+            'Value': [
+                self.fitted_model.median_survival_time_,
+                self.fitted_model.event_table['observed'].sum(),
+                self.fitted_model.event_table['censored'].sum()
+            ]
+        })
+
+    def _calculate_metrics(self, metrics=None):
+        """Calculate survival metrics."""
+        return {
+            'median_survival': self.fitted_model.median_survival_time_,
+            'n_events': int(self.fitted_model.event_table['observed'].sum()),
+            'n_censored': int(self.fitted_model.event_table['censored'].sum()),
+        }
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        """Not applicable for Kaplan-Meier."""
+        return None
+
+    def _calibration_curve(self):
+        """Not applicable for Kaplan-Meier."""
+        return None
+
+    def _check_assumptions(self):
+        """Not applicable for Kaplan-Meier."""
+        return None
+
+    def _train_test_split(self, test_size=0.2):
+        """Not applicable for Kaplan-Meier."""
+        return None
+
+    def _validate_external(self, external_data):
+        """Not applicable for Kaplan-Meier."""
+        return None
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        """Bootstrap validation for median survival."""
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import mean_squared_error
+        return bootstrap_metrics(
+            self.fitted_model,
+            self.X,
+            self.y,
+            n_iterations=n_iterations,
+            metric_func=mean_squared_error
+        )
+
+    def _validate_sensitivity(self):
+        """Not applicable for Kaplan-Meier."""
+        return None
+
+    def _validate_subgroups(self, subgroups):
+        """Not applicable for Kaplan-Meier."""
+        return None
+
+    def _validate_net_benefit(self):
+        """Not applicable for Kaplan-Meier."""
+        return None
+
+    # ======================================================================
+    # PLOT METHODS (CALLED BY plots_map)
+    # ======================================================================
+
+    def _survival_curve(self, backend="plotly"):
         """Generate Kaplan-Meier survival curve."""
         from isaric.visualization.survivalcurves import kaplan_meier_curve
 
-        fig = kaplan_meier_curve(
+        return kaplan_meier_curve(
             self.model_data,
             duration_var=self.duration_var,
             event_var=self.event_var,
-            title="Kaplan-Meier Survival Curve"
+            title="Kaplan-Meier Survival Curve",
+            backend=backend
         )
-        return fig

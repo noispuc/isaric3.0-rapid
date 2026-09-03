@@ -26,7 +26,7 @@ Modules:
     - visualization: Step 6 - Visualization
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # ============================================================================
 # CORE CLASSES

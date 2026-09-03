@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "isaric"
-version = "0.1.0"
+version = "0.2.0"
 description = "Modular package for implementing the RAPID methodology: reproducible analytics for predictive modeling, inference, and data preprocessing in clinical research"
 dependencies = [
     # Data manipulation
@@ -32,7 +32,6 @@ dependencies = [
     "seaborn>=0.13",
     "upsetplot>=0.9",
     "plotly>=6.1.1",
-    "kaleido>=0.2.1",
 
     # Model interpretability
     "shap>=0.44",

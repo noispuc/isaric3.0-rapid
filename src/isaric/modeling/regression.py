@@ -15,7 +15,7 @@ Subclasses (Pipelines):
 
 Helper Functions:
 - _prepare_data_from_vars: Prepare y/X from variable names.
-- _prepare_data_from_formula: Prepare y/X from formula.
+- _prepare_data_from_formula: Prepare y/X from formula (uses formulaic).
 - _build_result_df: Build formatted results DataFrame.
 - _map_variable_label: Apply display labels to variable names.
 - _parse_variable_name: Parse variable names with interactions/categories.
@@ -217,18 +217,18 @@ def _prepare_data_from_formula(
     formula: str
 ) -> Tuple[pd.Series, pd.DataFrame]:
     """
-    Prepare y and X from a Patsy-style formula.
+    Prepare y and X from a formula string.
 
     Args:
         data: Input DataFrame.
-        formula: Patsy-style formula string (e.g., "outcome ~ age + sex").
+        formula: Formula string (e.g., "outcome ~ age + sex").
 
     Returns:
         Tuple of (y, X).
     """
-    import patsy
+    from formulaic import model_matrix
 
-    y, X = patsy.dmatrices(formula, data, return_type='dataframe')
+    y, X = model_matrix(formula, data)
     y = y.iloc[:, 0]
 
     return y, X
@@ -759,7 +759,7 @@ class LogisticRegression(RAPID):
         """Decision curve analysis."""
         from isaric.validation.netprofit import decision_curve_analysis
         
-        y_prob = self.fitted_model.predict(self.X)
+        y_prob = self.fitted_model.predict(self.X)  # ← usar predict, não predict_proba
         return decision_curve_analysis(self.y, y_prob)
 
 
