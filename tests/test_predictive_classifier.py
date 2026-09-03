@@ -967,3 +967,79 @@ def test_batch_chosen_model_supports_the_full_lifecycle(tmp_path):
 
     assert chosen.is_decided and chosen.is_validated
     assert Path(path).exists()
+
+
+# ----------------------------------------------------------------------
+# Análise por subgrupo — quinta técnica do contrato §7.9
+# ----------------------------------------------------------------------
+
+def _make_df_with_stratifier(n=400, seed=3):
+    """Dataset com uma coluna de estratificação que NÃO é preditora."""
+    df = _make_df(n=n, seed=seed)
+    rng = np.random.default_rng(seed + 1)
+    df["sexo"] = rng.integers(0, 2, len(df))
+    return df
+
+
+def _stratified_model(**overrides):
+    return RAPID_LogisticL2(**{
+        **_base_kwargs(_make_df_with_stratifier()),
+        "C_grid": [1.0], "subgroup_columns": ["sexo"], **overrides,
+    })
+
+
+def test_subgroup_works_for_non_predictor_column():
+    """O caso principal: estratificar por sexo, centro ou faixa etária —
+    colunas que normalmente não entram no modelo."""
+    model = _stratified_model()
+    model.fit()
+
+    results = model.validation(subgroups={"sexo": [0, 1]})
+
+    assert set(results["subgroup"]["sexo"]) == {0, 1}
+    assert all(0.0 <= v <= 1.0 for v in results["subgroup"]["sexo"].values())
+
+
+def test_subgroup_filters_by_requested_categories():
+    model = _stratified_model()
+    model.fit()
+
+    results = model.validation(subgroups={"sexo": [1]})
+
+    assert list(results["subgroup"]["sexo"]) == [1]
+
+
+def test_subgroup_without_categories_uses_all_present():
+    model = _stratified_model()
+    model.fit()
+
+    results = model.validation(subgroups={"sexo": None})
+
+    assert set(results["subgroup"]["sexo"]) == {0, 1}
+
+
+def test_subgroup_column_must_be_declared_upfront():
+    """Sem declarar, a limpeza descarta a coluna — o erro precisa dizer isso."""
+    model = RAPID_LogisticL2(**{
+        **_base_kwargs(_make_df_with_stratifier()), "C_grid": [1.0],
+    })
+    model.fit()
+
+    with pytest.raises(ValueError, match="subgroup_columns"):
+        model.validation(subgroups={"sexo": [0, 1]})
+
+
+def test_subgroup_raises_when_no_row_matches_categories():
+    model = _stratified_model()
+    model.fit()
+
+    with pytest.raises(ValueError, match="Nenhum registro"):
+        model.validation(subgroups={"sexo": [99]})
+
+
+def test_subgroup_columns_are_not_used_as_predictors():
+    model = _stratified_model()
+    model.fit()
+
+    assert "sexo" not in model.X_train.columns
+    assert "sexo" in model.data.columns

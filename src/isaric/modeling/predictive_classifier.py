@@ -106,6 +106,10 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
         calibration_bins (int): Bins da curva de calibração.
         calibration_strategy (str): 'quantile' ou 'uniform' para o binning
             da curva de calibração.
+        subgroup_columns (list, optional): Colunas preservadas apenas para a
+            análise por subgrupo em `validation()` — ex.: sexo, faixa etária,
+            centro. Não entram no modelo; precisam ser declaradas aqui porque
+            a limpeza descarta tudo que não é preditor, alvo ou ano.
     """
 
     def __init__(
@@ -133,6 +137,7 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
         shap_min_bin_size: int = 10,
         calibration_bins: int = 10,
         calibration_strategy: str = "quantile",
+        subgroup_columns: list = None,
     ):
         self._init_states()
         self._run_data_validations(data, dependent_var, independent_vars, year_column)
@@ -159,6 +164,7 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
         self.shap_min_bin_size = shap_min_bin_size
         self.calibration_bins = calibration_bins
         self.calibration_strategy = calibration_strategy
+        self.subgroup_columns = list(subgroup_columns) if subgroup_columns else []
 
         self.dropped_columns_ = []
         self.fitted_pipeline_ = None
@@ -368,16 +374,7 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
             )
 
         if subgroups:
-            from isaric.validation.subgroup import subgroup_analysis
-            results["subgroup"] = {}
-            for column in subgroups:
-                frame = self.X_test.copy()
-                frame[self.dependent_var] = self.y_test
-                frame[column] = self.data.loc[frame.index, column]
-                results["subgroup"][column] = subgroup_analysis(
-                    self.fitted_pipeline_, frame.drop(columns=[column]).assign(**{column: frame[column]}),
-                    self.dependent_var, column,
-                )
+            results["subgroup"] = self._subgroup_analysis(subgroups)
 
         if net_benefit:
             from isaric.validation.netprofit import decision_curve_analysis
@@ -386,6 +383,48 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
 
         self.validation_results_ = results
         self._mark_validated()
+        return results
+
+    def _subgroup_analysis(self, subgroups: dict) -> dict:
+        """
+        Performance por subgrupo no bloco de teste (contrato §7.9).
+
+        Args:
+            subgroups (dict): {coluna: [categorias]}. Uma lista vazia ou None
+                usa todas as categorias presentes no bloco de teste.
+
+        A coluna precisa ter sido declarada em `subgroup_columns` no
+        construtor: a limpeza descarta tudo que não é preditor, alvo ou ano,
+        então uma coluna de estratificação que não seja preditora não
+        sobreviveria até aqui.
+        """
+        from isaric.validation.subgroup import subgroup_analysis
+
+        results = {}
+        for column, categories in subgroups.items():
+            if column not in self.data.columns:
+                raise ValueError(
+                    f"Coluna de subgrupo '{column}' não está disponível. Declare-a "
+                    f"em subgroup_columns ao criar o pipeline — a limpeza mantém "
+                    f"apenas preditores, alvo e ano. Disponíveis: "
+                    f"{sorted(set(self.data.columns) - {self.dependent_var})}."
+                )
+
+            frame = self.X_test.copy()
+            frame[self.dependent_var] = self.y_test
+            frame[column] = self.data.loc[frame.index, column]
+
+            if categories:
+                frame = frame[frame[column].isin(list(categories))]
+                if frame.empty:
+                    raise ValueError(
+                        f"Nenhum registro do bloco de teste tem '{column}' em "
+                        f"{list(categories)}."
+                    )
+
+            results[column] = subgroup_analysis(
+                self.fitted_pipeline_, frame, self.dependent_var, column
+            )
         return results
 
     def validate(self, method: str = "bootstrap", n_iterations: int = 1000, **kwargs):
@@ -824,6 +863,7 @@ class RAPID_MLBaseClassifier(RAPID_StateMixin, RAPID_BasePipeline):
 
     def _required_columns(self):
         cols = list(self.independent_vars) + [self.dependent_var, self.year_column]
+        cols.extend(self.subgroup_columns)
         if self.date_column:
             cols.append(self.date_column)
         if self.epiweek_column:
