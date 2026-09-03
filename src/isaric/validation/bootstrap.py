@@ -130,7 +130,13 @@ def bootstrap_metrics(
         X_boot = X.iloc[indices] if isinstance(X, pd.DataFrame) else X[indices]
         y_boot = y.iloc[indices] if isinstance(y, pd.Series) else y[indices]
 
+        # Prediz
         y_pred = model.predict(X_boot)
+        
+        # Se y_pred é contínuo (probabilidades) e y é binário, converte
+        if len(np.unique(y_boot)) == 2 and len(np.unique(np.round(y_pred))) == 2:
+            y_pred = (y_pred >= 0.5).astype(int)
+        
         value = metric_func(y_boot, y_pred)
         bootstrap_values.append(value)
 
@@ -143,7 +149,6 @@ def bootstrap_metrics(
         'ci_lower': ci_lower,
         'ci_upper': ci_upper
     }
-
 
 def bootstrap_validate(
     fitted_model,

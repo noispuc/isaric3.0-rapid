@@ -352,6 +352,7 @@ class RAPID(ABC):
 
         import json
         import pickle
+        import zipfile
         from datetime import datetime
 
         filename = f"{self.model_type}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.rapid"
@@ -365,14 +366,12 @@ class RAPID(ABC):
             "key_metrics": self.metrics
         }
 
-        with open(filename, 'wb') as f:
-            # Grava metadata como JSON
-            json_bytes = json.dumps(metadata).encode('utf-8')
-            f.write(json_bytes)
-            f.write(b'\n')  # separador
+        with zipfile.ZipFile(filename, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Grava metadata.json
+            zf.writestr('metadata.json', json.dumps(metadata, indent=2))
             
-            # Grava modelo como pickle
-            pickle.dump(self.fitted_model, f)
+            # Grava model.pkl
+            zf.writestr('model.pkl', pickle.dumps(self.fitted_model))
 
         self.saved_filename = filename
         return self
