@@ -32,6 +32,7 @@ dependencies = [
     "seaborn>=0.13",
     "upsetplot>=0.9",
     "plotly>=5.18",
+    "kaleido>=0.2.1",
 
     # Model interpretability
     "shap>=0.44",

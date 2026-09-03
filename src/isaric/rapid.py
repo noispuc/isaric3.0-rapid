@@ -60,6 +60,7 @@ class RAPID(ABC):
     def __init__(self):
         """Initialize with the initial state."""
         self._state = self._STATE_CREATED
+        self._libraries_used = {}
 
     # ======================================================================
     # STATE CONTROL (INHERITED BY SUBCLASSES)
@@ -90,6 +91,26 @@ class RAPID(ABC):
             new_state: The new state to transition to.
         """
         self._state = new_state
+
+
+    # ======================================================================
+    # REGISTER LIBRARIES (INHERITED BY SUBCLASSES)
+    # ======================================================================
+
+    def _register_library(self, library_name: str) -> None:
+        """
+        Register a library used during the pipeline execution.
+        
+        Args:
+            library_name: Name of the library (e.g., "statsmodels", "scikit-learn").
+        """
+        import importlib.metadata
+        
+        try:
+            version = importlib.metadata.version(library_name)
+            self._libraries_used[library_name] = version
+        except importlib.metadata.PackageNotFoundError:
+            self._libraries_used[library_name] = "not_installed"    
 
     # ======================================================================
     # ABSTRACT CONTRACT
@@ -156,11 +177,37 @@ class RAPID(ABC):
 
         # Valida
         if model not in registry:
-            raise ValueError(f"Unknown model: '{model}'")
+            available_models = ", ".join(sorted(registry.keys()))
+            raise ValueError(
+                f"Unknown model: '{model}'. "
+                f"Available models: {available_models}"
+            )
 
         # Delega para a subclasse
         pipeline_cls = registry[model]
-        return pipeline_cls.create(data=data, model=model, **params)
+        instance = pipeline_cls.create(data=data, model=model, **params)
+
+        # Registra bibliotecas usadas baseado no modelo
+        instance._register_library("pandas")
+        instance._register_library("numpy")
+
+        if model in ["logistic", "glm"]:
+            instance._register_library("statsmodels")
+        elif model in ["survival_cox", "survival_km"]:
+            instance._register_library("lifelines")
+        elif model in ["lca"]:
+            instance._register_library("stepmix")
+        elif model in ["kmeans", "decision_tree", "random_forest", "lasso", 
+                    "ridge", "elastic_net", "svm", "logistic_l2"]:
+            instance._register_library("scikit-learn")
+        elif model == "xgboost":
+            instance._register_library("xgboost")
+        elif model == "lightgbm":
+            instance._register_library("lightgbm")
+        elif model == "catboost":
+            instance._register_library("catboost")
+
+        return instance
 
 
     def fit(
@@ -169,7 +216,10 @@ class RAPID(ABC):
         cross_validation: bool = False,
         k_folds: int = 5,
         repetitions: int = 1,
-        calibration: bool = False
+        calibration: bool = False,
+        assumptions: bool = False,
+        train_test: bool = False,
+        test_size: float = 0.2
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
@@ -183,10 +233,18 @@ class RAPID(ABC):
 
         Args:
             metrics: List of performance metrics (None = defaults).
+                Accepted Values:
+                    - Classification: ["auc", "accuracy", "precision", "recall", "f1", "log_loss", "brier_score"]
+                    - Regression: ["mse", "rmse", "mae", "r2", "adjusted_r2"]
+                    - Survival: ["c_index"]
+                    - Information: ["aic", "bic", "entropy"]
             cross_validation: Enable k-fold cross-validation.
             k_folds: Number of folds.
             repetitions: Number of repetitions for repeated k-fold.
             calibration: Enable calibration curve generation.
+            assumptions: Enable assumption checking.
+            train_test: Enable train/test split validation.
+            test_size: Proportion for test set (default 0.2).
 
         Returns:
             self for method chaining.
@@ -197,97 +255,29 @@ class RAPID(ABC):
         self._check_state(self._STATE_CREATED, "fit")
 
         # Step 3: Modelling - Treina o modelo
-        self.fitted_model = self._model.fit()
+        self.fitted_model = self._train_model()
 
-        # Constrói result_df baseado no model_type
-        if self.model_type in ["logistic", "glm"]:
-            from isaric.modeling.regression import _build_result_df as build_df
-            self.result_df = build_df(
-                fitted_model=self.fitted_model,
-                X=self.X,
-                y=self.y,
-                labels=getattr(self, 'labels', None),
-                is_logistic=(self.model_type == "logistic")
-            )
-        elif self.model_type in ["survival_cox", "survival_km"]:
-            from isaric.modeling.survival import _build_result_df as build_df
-            self.result_df = build_df(
-                fitted_model=self.fitted_model,
-                labels=getattr(self, 'labels', None)
-            )
-        elif self.model_type in ["decision_tree", "random_forest", "xgboost", 
-                                "lightgbm", "catboost"]:
-            from isaric.modeling.treebased import _build_result_df as build_df
-            self.result_df = build_df(
-                model=self.fitted_model,
-                X=self.X
-            )
-        elif self.model_type in ["lasso", "ridge", "elastic_net", "svm", "logistic_l2"]:
-            from isaric.modeling.predictive import _build_result_df as build_df
-            self.result_df = build_df(
-                model=self.fitted_model,
-                X=self.X
-            )
-        elif self.model_type == "descriptive":
-            from isaric.modeling.descriptive import _build_result_df as build_df
-            self.result_df = build_df(
-                data=getattr(self, 'data', self.X),
-                variables=getattr(self, 'variables', self.X.columns.tolist())
-            )
-        elif self.model_type in ["lca", "kmeans"]:
-            from isaric.modeling.clustering import _build_result_df as build_df
-            self.result_df = build_df(
-                model=self.fitted_model,
-                X=self.X,
-                feature_names=getattr(self, 'feature_names', self.X.columns.tolist())
-            )
-        else:
-            import pandas as pd
-            self.result_df = pd.DataFrame()
+        # Build result_df
+        self.result_df = self._build_result_df()
 
         # Step 4: Model Evaluation - Calcula métricas
-        from isaric.modelevaluation.metrics import compute_classification_metrics
-
-        # Determina como obter predições
-        if hasattr(self.fitted_model, 'predict_proba'):
-            y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-            y_pred = (y_prob >= 0.5).astype(int)
-        else:
-            y_prob = self.fitted_model.predict(self.X)
-            y_pred = (y_prob >= 0.5).astype(int)
-
-        # Calcula métricas passando y_prob também
-        self.metrics = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
-        )
+        self.metrics = self._calculate_metrics(metrics)
 
         # Cross-validation
         if cross_validation:
-            from isaric.modelevaluation.crossvalidation import (
-                kfold_cross_validation,
-                repeated_kfold_cross_validation
-            )
-            
-            if repetitions > 1:
-                cv_results = repeated_kfold_cross_validation(
-                    self._model, self.X, self.y,
-                    n_splits=k_folds,
-                    n_repeats=repetitions,
-                    scoring='roc_auc'
-                )
-            else:
-                cv_results = kfold_cross_validation(
-                    self._model, self.X, self.y,
-                    n_splits=k_folds,
-                    scoring='roc_auc'
-                )
-            
-            self.cv_metrics = cv_results
+            self.cv_metrics = self._cross_validate(k_folds, repetitions)
 
         # Calibration
         if calibration:
-            from isaric.modelevaluation.calibration import compute_brier_score
-            self.brier_score = compute_brier_score(self.y, y_prob)
+            self.calibration = self._calibration_curve()
+
+        # Assumptions
+        if assumptions:
+            self.assumptions = self._check_assumptions()
+
+        # Train/Test
+        if train_test:
+            self.train_test = self._train_test_split(test_size)
 
         self._transition_to(self._STATE_FITTED)
         return self
@@ -330,11 +320,12 @@ class RAPID(ABC):
                 f"Received: {table_format}"
             )
 
-        # 2. Gera plots
+        # 2. Gera e exibe plots
         if plots:
             for plot in plots:
                 if plot in self.plots_map:
-                    self.plots_map[plot]()
+                    fig = self.plots_map[plot]()
+                    fig.show()  # ← Adicionar esta linha
                 else:
                     raise ValueError(f"Unknown plot: {plot}")
 
@@ -366,14 +357,21 @@ class RAPID(ABC):
         filename = f"{self.model_type}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.rapid"
 
         metadata = {
+            "model_name": self.model_type,
             "model_type": self.model_type,
             "created_at": datetime.now().isoformat(),
             "rapid_version": "0.1.0",
+            "library_versions": self._libraries_used,
             "key_metrics": self.metrics
         }
 
         with open(filename, 'wb') as f:
-            json.dump(metadata, f)
+            # Grava metadata como JSON
+            json_bytes = json.dumps(metadata).encode('utf-8')
+            f.write(json_bytes)
+            f.write(b'\n')  # separador
+            
+            # Grava modelo como pickle
             pickle.dump(self.fitted_model, f)
 
         self.saved_filename = filename
@@ -469,8 +467,16 @@ class RAPID(ABC):
         - self.plots_map (dict: plot_name → plot_function)
 
         Args:
-            format: List of output formats ("pdf", "png", "csv").
-                If None, all formats are generated.
+            format: List of output formats.
+                Accepted Values:
+                    - None (generates all formats: pdf, png, csv)
+                    - ["pdf"]
+                    - ["png"]
+                    - ["csv"]
+                    - ["pdf", "png"]
+                    - ["pdf", "csv"]
+                    - ["png", "csv"]
+                    - ["pdf", "png", "csv"]
 
         Returns:
             None (generates files to disk).
@@ -480,27 +486,47 @@ class RAPID(ABC):
         """
         self._check_state(self._STATE_SUMMARIZED, "report")
 
+        # Valida formatos aceitos
         if format is None:
             format = ["pdf", "png", "csv"]
-
+        
+        valid_formats = ["pdf", "png", "csv"]
         for fmt in format:
-            if fmt not in ("pdf", "png", "csv"):
-                raise ValueError(f"Invalid format: {fmt}")
+            if fmt not in valid_formats:
+                raise ValueError(
+                    f"Invalid format: {fmt}. "
+                    f"Accepted values: None, {valid_formats}"
+                )
 
         # Gera CSV
         if "csv" in format:
             self.result_df.to_csv("results.csv", index=False)
+            print("✅ CSV gerado: results.csv")
 
         # Gera PNG
         if "png" in format:
             for plot_name, plot_func in self.plots_map.items():
                 fig = plot_func()
                 fig.write_image(f"{plot_name}.png")
+                print(f"✅ PNG gerado: {plot_name}.png")
 
-        # Gera PDF
+        # Gera PDF consolidado (usando Kaleido)
         if "pdf" in format:
-            # Lógica de geração de PDF
-            pass
+            from datetime import datetime
+            import plotly.io as pio
+            
+            pdf_filename = f"{self.model_type}-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+            
+            # Primeira figura inclui metadados
+            if self.plots_map:
+                # Salva cada figura como PDF individual e depois combina
+                # Por enquanto, gera um PDF por figura
+                for plot_name, plot_func in self.plots_map.items():
+                    fig = plot_func()
+                    fig.write_image(f"{plot_name}.pdf")
+                    print(f"✅ PDF gerado: {plot_name}.pdf")
+            else:
+                print("⚠️ Nenhum plot disponível para gerar PDF.")
 
         self._transition_to(self._STATE_REPORTED)
 

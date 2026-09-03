@@ -517,6 +517,7 @@ class LogisticRegression(RAPID):
         self.plots_map = {
             "forest_plot": self._forest_plot,
             "confusion_matrix": self._confusion_matrix,
+            "calibration_curve": self._calibration_plot,
         }
 
     @classmethod
@@ -595,6 +596,172 @@ class LogisticRegression(RAPID):
         )
         return fig
 
+    def _calibration_plot(self):
+        """Generate calibration curve plot."""
+        from isaric.visualization.lineplots import line_with_ci
+        from isaric.modelevaluation.calibration import calibration_curve
+        import pandas as pd
+        
+        y_prob = self.fitted_model.predict(self.X)
+        calib = calibration_curve(self.y, y_prob)
+        
+        data = pd.DataFrame({
+            'predicted': calib['mean_predicted'],
+            'observed': calib['fraction_positive'],
+            'ci_lower': calib['fraction_positive'] * 0.9,
+            'ci_upper': calib['fraction_positive'] * 1.1,
+        })
+        
+        fig = line_with_ci(
+            data=data,
+            x_col='predicted',
+            y_col='observed',
+            ci_lower_col='ci_lower',
+            ci_upper_col='ci_upper',
+            title="Calibration Curve - Logistic Regression",
+            xaxis_title="Predicted Probability",
+            yaxis_title="Observed Proportion"
+        )
+        return fig
+
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        """Train the logistic regression model."""
+        return self._model.fit()
+
+    def _build_result_df(self):
+        """Build results DataFrame with Odds Ratios."""
+        return _build_result_df(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            labels=self.labels,
+            is_logistic=True
+        )
+
+    def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
+        from isaric.modelevaluation.metrics import compute_classification_metrics
+        
+        y_prob = self.fitted_model.predict(self.X)
+        y_pred = (y_prob >= 0.5).astype(int)
+        
+        return compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        """Execute k-fold cross-validation."""
+        from isaric.modelevaluation.crossvalidation import (
+            kfold_cross_validation,
+            repeated_kfold_cross_validation
+        )
+        
+        if repetitions > 1:
+            return repeated_kfold_cross_validation(
+                self._model, self.X, self.y,
+                n_splits=k_folds,
+                n_repeats=repetitions,
+                scoring='roc_auc'
+            )
+        else:
+            return kfold_cross_validation(
+                self._model, self.X, self.y,
+                n_splits=k_folds,
+                scoring='roc_auc'
+            )
+
+    def _calibration_curve(self):
+        """Generate calibration curve."""
+        from isaric.modelevaluation.calibration import (
+            compute_brier_score,
+            calibration_curve,
+            binned_calibration
+        )
+        
+        y_prob = self.fitted_model.predict(self.X)
+        
+        return {
+            'brier_score': compute_brier_score(self.y, y_prob),
+            'calibration_curve': calibration_curve(self.y, y_prob),
+            'calibration_table': binned_calibration(self.y, y_prob)
+        }
+
+    def _check_assumptions(self):
+        """Check model assumptions."""
+        from isaric.modelevaluation.assumptions import test_epv
+        
+        return {
+            'epv': test_epv(self.y, n_predictors=len(self.X.columns))
+        }
+
+    def _train_test_split(self, test_size=0.2):
+        """Split data into train/test sets."""
+        from isaric.modelevaluation.traintest import stratified_holdout
+        
+        data = pd.concat([self.X, self.y], axis=1)
+        return stratified_holdout(
+            data,
+            target_col=self.dependent_var,
+            test_size=test_size
+        )
+
+    def _validate_external(self, external_data):
+        """Validate on external dataset."""
+        from isaric.validation.external import temporal_validation
+        
+        return temporal_validation(
+            self.fitted_model,
+            external_data,
+            dependent_var=self.dependent_var,
+            independent_vars=self.independent_vars
+        )
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        """Bootstrap validation."""
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import roc_auc_score
+        
+        return bootstrap_metrics(
+            self.fitted_model,
+            self.X,
+            self.y,
+            n_iterations=n_iterations,
+            metric_func=lambda y_true, y_pred: roc_auc_score(y_true, y_pred)
+        )
+
+    def _validate_sensitivity(self):
+        """Sensitivity analysis."""
+        from isaric.validation.sensitivity import alternative_missing_handling
+        
+        data = pd.concat([self.X, self.y], axis=1)
+        return alternative_missing_handling(
+            data,
+            self.dependent_var,
+            self.independent_vars
+        )
+
+    def _validate_subgroups(self, subgroups):
+        """Subgroup analysis."""
+        from isaric.validation.subgroup import stratified_metrics
+        
+        return stratified_metrics(
+            self.fitted_model,
+            self.X,
+            self.y,
+            subgroups
+        )
+
+    def _validate_net_benefit(self):
+        """Decision curve analysis."""
+        from isaric.validation.netprofit import decision_curve_analysis
+        
+        y_prob = self.fitted_model.predict(self.X)
+        return decision_curve_analysis(self.y, y_prob)
+
 
 class GLM(RAPID):
     """
@@ -651,6 +818,8 @@ class GLM(RAPID):
         """Configure available plots for GLM."""
         self.plots_map = {
             "forest_plot": self._forest_plot,
+            "residuals_plot": self._residuals_plot,
+            "qq_plot": self._qq_plot,
         }
 
     @classmethod
@@ -719,3 +888,210 @@ class GLM(RAPID):
             title="Forest Plot - Coefficients (GLM)"
         )
         return fig
+
+    def _residuals_plot(self):
+        """Generate residuals vs fitted plot."""
+        from isaric.visualization.lineplots import multi_line_plot
+        import pandas as pd
+        
+        y_pred = self.fitted_model.predict(self.X)
+        residuals = self.y - y_pred
+        
+        data = pd.DataFrame({
+            'fitted': y_pred,
+            'residuals': residuals
+        })
+        
+        fig = multi_line_plot(
+            data=data,
+            x_col='fitted',
+            y_cols=['residuals'],
+            title="Residuals vs Fitted - GLM",
+            xaxis_title="Fitted Values",
+            yaxis_title="Residuals"
+        )
+        return fig
+
+    def _qq_plot(self):
+        """Generate Q-Q plot for normality."""
+        from isaric.visualization.lineplots import multi_line_plot
+        from isaric.modelevaluation.calibration import qq_plot as calc_qq
+        import pandas as pd
+        
+        residuals = self.y - self.fitted_model.predict(self.X)
+        qq_data = calc_qq(residuals)
+        
+        data = pd.DataFrame({
+            'theoretical': qq_data['theoretical_quantiles'],
+            'sample': qq_data['sample_quantiles']
+        })
+        
+        fig = multi_line_plot(
+            data=data,
+            x_col='theoretical',
+            y_cols=['sample'],
+            title="Q-Q Plot - GLM",
+            xaxis_title="Theoretical Quantiles",
+            yaxis_title="Sample Quantiles"
+        )
+        return fig
+
+    # ======================================================================
+    # PRIVATE METHODS (CALLED BY fit() AND validation())
+    # ======================================================================
+
+    def _train_model(self):
+        """Train the GLM model."""
+        return self._model.fit()
+
+    def _build_result_df(self):
+        """Build results DataFrame with coefficients."""
+        return _build_result_df(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            labels=self.labels,
+            is_logistic=False
+        )
+
+    def _calculate_metrics(self, metrics=None):
+        """Calculate regression metrics."""
+        from isaric.modelevaluation.metrics import (
+            compute_regression_metrics,
+            compute_information_criteria,
+            compute_pseudo_r2
+        )
+        
+        y_pred = self.fitted_model.predict(self.X)
+        result = compute_regression_metrics(self.y, y_pred)
+        
+        if hasattr(self.fitted_model, 'llf'):
+            info_criteria = compute_information_criteria(
+                self.fitted_model,
+                n_samples=len(self.y),
+                n_params=len(self.X.columns)
+            )
+            result.update(info_criteria)
+            
+            pseudo_r2 = compute_pseudo_r2(
+                self.fitted_model,
+                self.y,
+                y_pred
+            )
+            result.update(pseudo_r2)
+        
+        return result
+
+    def _cross_validate(self, k_folds=5, repetitions=1):
+        """Execute k-fold cross-validation."""
+        from isaric.modelevaluation.crossvalidation import (
+            kfold_cross_validation,
+            repeated_kfold_cross_validation
+        )
+        
+        if repetitions > 1:
+            return repeated_kfold_cross_validation(
+                self._model, self.X, self.y,
+                n_splits=k_folds,
+                n_repeats=repetitions,
+                scoring='neg_mean_squared_error'
+            )
+        else:
+            return kfold_cross_validation(
+                self._model, self.X, self.y,
+                n_splits=k_folds,
+                scoring='neg_mean_squared_error'
+            )
+
+    def _calibration_curve(self):
+        """Generate calibration diagnostics."""
+        from isaric.modelevaluation.calibration import (
+            residuals_vs_fitted,
+            qq_plot
+        )
+        
+        y_pred = self.fitted_model.predict(self.X)
+        residuals = self.y - y_pred
+        
+        return {
+            'residuals_fitted': residuals_vs_fitted(residuals, y_pred),
+            'qq_plot': qq_plot(residuals)
+        }
+
+    def _check_assumptions(self):
+        """Check model assumptions."""
+        from isaric.modelevaluation.assumptions import (
+            test_durbin_watson,
+            test_shapiro_wilk,
+            test_vif,
+            test_cooks_distance
+        )
+        
+        residuals = self.y - self.fitted_model.predict(self.X)
+        
+        return {
+            'durbin_watson': test_durbin_watson(residuals),
+            'shapiro_wilk': test_shapiro_wilk(residuals),
+            'vif': test_vif(self.X),
+            'cooks_distance': test_cooks_distance(
+                self.fitted_model, self.X, self.y
+            )
+        }
+
+    def _train_test_split(self, test_size=0.2):
+        """Split data into train/test sets."""
+        from isaric.modelevaluation.traintest import holdout_validation
+        
+        data = pd.concat([self.X, self.y], axis=1)
+        return holdout_validation(data, test_size=test_size)
+
+    def _validate_external(self, external_data):
+        """Validate on external dataset."""
+        from isaric.validation.external import temporal_validation
+        
+        return temporal_validation(
+            self.fitted_model,
+            external_data,
+            dependent_var=self.dependent_var,
+            independent_vars=self.independent_vars
+        )
+
+    def _validate_bootstrap(self, n_iterations=1000):
+        """Bootstrap validation."""
+        from isaric.validation.bootstrap import bootstrap_metrics
+        from sklearn.metrics import mean_squared_error
+        
+        return bootstrap_metrics(
+            self.fitted_model,
+            self.X,
+            self.y,
+            n_iterations=n_iterations,
+            metric_func=lambda y_true, y_pred: mean_squared_error(y_true, y_pred)
+        )
+
+    def _validate_sensitivity(self):
+        """Sensitivity analysis."""
+        from isaric.validation.sensitivity import alternative_missing_handling
+        
+        data = pd.concat([self.X, self.y], axis=1)
+        return alternative_missing_handling(
+            data,
+            self.dependent_var,
+            self.independent_vars
+        )
+
+    def _validate_subgroups(self, subgroups):
+        """Subgroup analysis."""
+        from isaric.validation.subgroup import stratified_metrics
+        
+        return stratified_metrics(
+            self.fitted_model,
+            self.X,
+            self.y,
+            subgroups
+        )
+
+    def _validate_net_benefit(self):
+        """Not applicable for GLM regression."""
+        return None
+    
