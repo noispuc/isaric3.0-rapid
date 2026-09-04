@@ -569,34 +569,32 @@ class LogisticRegression(RAPID):
     # PLOT METHODS (CALLED BY plots_map)
     # ======================================================================
 
-    def _forest_plot(self):
+    def _forest_plot(self, backend="plotly"):
         """Generate forest plot for Odds Ratios."""
         from isaric.visualization.forestplots import odds_ratio_plot
-        fig = odds_ratio_plot(
+        return odds_ratio_plot(
             self.result_df,
             effect_col='OddsRatio',
             lower_col='LowerCI',
             upper_col='UpperCI',
-            title="Forest Plot - Odds Ratios (Logistic Regression)"
+            title="Forest Plot - Odds Ratios (Logistic Regression)",
+            backend=backend
         )
-        return fig
 
-    def _confusion_matrix(self):
+    def _confusion_matrix(self, backend="plotly"):
         """Generate confusion matrix heatmap."""
         from isaric.visualization.heatmaps import confusion_matrix_heatmap
-
         y_prob = self.fitted_model.fittedvalues
         y_pred = (y_prob >= 0.5).astype(int)
-
-        fig = confusion_matrix_heatmap(
+        return confusion_matrix_heatmap(
             y_true=self.y,
             y_pred=y_pred,
             class_names=['Negative', 'Positive'],
-            title="Confusion Matrix - Logistic Regression"
+            title="Confusion Matrix - Logistic Regression",
+            backend=backend
         )
-        return fig
 
-    def _calibration_plot(self):
+    def _calibration_plot(self, backend="plotly"):
         """Generate calibration curve plot."""
         from isaric.visualization.lineplots import line_with_ci
         from isaric.modelevaluation.calibration import calibration_curve
@@ -612,7 +610,7 @@ class LogisticRegression(RAPID):
             'ci_upper': calib['fraction_positive'] * 1.1,
         })
         
-        fig = line_with_ci(
+        return line_with_ci(
             data=data,
             x_col='predicted',
             y_col='observed',
@@ -620,9 +618,9 @@ class LogisticRegression(RAPID):
             ci_upper_col='ci_upper',
             title="Calibration Curve - Logistic Regression",
             xaxis_title="Predicted Probability",
-            yaxis_title="Observed Proportion"
+            yaxis_title="Observed Proportion",
+            backend=backend
         )
-        return fig
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -730,7 +728,7 @@ class LogisticRegression(RAPID):
             self.X,
             self.y,
             n_iterations=n_iterations,
-            metric_func=lambda y_true, y_pred: roc_auc_score(y_true, y_pred)
+            metric_func=roc_auc_score  # ← sem lambda
         )
 
     def _validate_sensitivity(self):
@@ -876,20 +874,19 @@ class GLM(RAPID):
     # PLOT METHODS (CALLED BY plots_map)
     # ======================================================================
 
-    def _forest_plot(self):
+    def _forest_plot(self, backend="plotly"):
         """Generate forest plot for coefficients."""
         from isaric.visualization.forestplots import coefficient_plot
-
-        fig = coefficient_plot(
+        return coefficient_plot(
             self.result_df,
             effect_col='Coefficient',
             lower_col='LowerCI',
             upper_col='UpperCI',
-            title="Forest Plot - Coefficients (GLM)"
+            title="Forest Plot - Coefficients (GLM)",
+            backend=backend
         )
-        return fig
 
-    def _residuals_plot(self):
+    def _residuals_plot(self, backend="plotly"):
         """Generate residuals vs fitted plot."""
         from isaric.visualization.lineplots import multi_line_plot
         import pandas as pd
@@ -902,17 +899,17 @@ class GLM(RAPID):
             'residuals': residuals
         })
         
-        fig = multi_line_plot(
+        return multi_line_plot(
             data=data,
             x_col='fitted',
             y_cols=['residuals'],
             title="Residuals vs Fitted - GLM",
             xaxis_title="Fitted Values",
-            yaxis_title="Residuals"
+            yaxis_title="Residuals",
+            backend=backend
         )
-        return fig
 
-    def _qq_plot(self):
+    def _qq_plot(self, backend="plotly"):
         """Generate Q-Q plot for normality."""
         from isaric.visualization.lineplots import multi_line_plot
         from isaric.modelevaluation.calibration import qq_plot as calc_qq
@@ -926,15 +923,15 @@ class GLM(RAPID):
             'sample': qq_data['sample_quantiles']
         })
         
-        fig = multi_line_plot(
+        return multi_line_plot(
             data=data,
             x_col='theoretical',
             y_cols=['sample'],
             title="Q-Q Plot - GLM",
             xaxis_title="Theoretical Quantiles",
-            yaxis_title="Sample Quantiles"
+            yaxis_title="Sample Quantiles",
+            backend=backend
         )
-        return fig
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -1059,14 +1056,14 @@ class GLM(RAPID):
     def _validate_bootstrap(self, n_iterations=1000):
         """Bootstrap validation."""
         from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import mean_squared_error
+        from sklearn.metrics import roc_auc_score
         
         return bootstrap_metrics(
             self.fitted_model,
             self.X,
             self.y,
             n_iterations=n_iterations,
-            metric_func=lambda y_true, y_pred: mean_squared_error(y_true, y_pred)
+            metric_func=roc_auc_score  # ← sem lambda
         )
 
     def _validate_sensitivity(self):
