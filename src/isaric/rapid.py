@@ -309,6 +309,9 @@ class RAPID(ABC):
         """
         self._check_state(self._STATE_FITTED, "summary")
 
+        # Guarda os plots solicitados
+        self._displayed_plots = plots if plots else list(self.plots_map.keys())
+
         # 1. Exibe tabela
         if table_format == "full":
             print(self.result_df.to_string())
@@ -414,42 +417,23 @@ class RAPID(ABC):
 
         # External validation
         if external_data is not None:
-            from isaric.validation.external import temporal_validation
-            validation_results['external'] = temporal_validation(
-                self.fitted_model,
-                external_data,
-                dependent_var=self.dependent_var,
-                independent_vars=self.independent_vars
-            )
+            validation_results['external'] = self._validate_external(external_data)
 
         # Bootstrap
         if bootstrap:
-            from isaric.validation.bootstrap import bootstrap_metrics
-            validation_results['bootstrap'] = bootstrap_metrics(
-                self.fitted_model, self.X, self.y,
-                n_iterations=n_iterations
-            )
+            validation_results['bootstrap'] = self._validate_bootstrap(n_iterations)
 
         # Sensitivity
         if sensitivity:
-            from isaric.validation.sensitivity import alternative_missing_handling
-            validation_results['sensitivity'] = alternative_missing_handling(
-                self.data, self.dependent_var, self.independent_vars
-            )
+            validation_results['sensitivity'] = self._validate_sensitivity()
 
         # Subgroups
         if subgroups:
-            from isaric.validation.subgroup import stratified_metrics
-            validation_results['subgroups'] = stratified_metrics(
-                self.fitted_model, self.X, self.y, subgroups
-            )
+            validation_results['subgroups'] = self._validate_subgroups(subgroups)
 
         # Net benefit
         if net_benefit:
-            from isaric.validation.netprofit import decision_curve_analysis
-            validation_results['net_benefit'] = decision_curve_analysis(
-                self.y, self.fitted_model.predict_proba(self.X)[:, 1]
-            )
+            validation_results['net_benefit'] = self._validate_net_benefit()  # ← chama subclasse
 
         return validation_results
 
@@ -487,6 +471,9 @@ class RAPID(ABC):
 
         # Imports necessários
         import matplotlib.pyplot as plt
+
+        # Usa apenas os plots exibidos no summary
+        plots_to_report = getattr(self, '_displayed_plots', list(self.plots_map.keys()))
 
         # Valida formatos aceitos
         if format is None:
