@@ -19,9 +19,9 @@ Techniques:
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
-from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss
 from scipy import stats
+from sklearn.calibration import calibration_curve as sklearn_calibration_curve
 
 
 def calibration_curve(
@@ -53,7 +53,7 @@ def calibration_curve(
             f"strategy must be 'uniform' or 'quantile'. Received: {strategy}"
         )
 
-    fraction_positive, mean_predicted = calibration_curve(
+    fraction_positive, mean_predicted = sklearn_calibration_curve(
         y_true, y_prob, n_bins=n_bins, strategy=strategy
     )
 
