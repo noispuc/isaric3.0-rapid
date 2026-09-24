@@ -31,7 +31,7 @@ Contract Note:
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pandas import DataFrame
 
 
@@ -219,7 +219,10 @@ class RAPID(ABC):
         calibration: bool = False,
         assumptions: bool = False,
         train_test: bool = False,
-        test_size: float = 0.2
+        test_size: float = 0.2,
+        grid_search: bool = False,
+        param_grid: Optional[Dict[str, List[Any]]] = None,
+        selection_metric: str = "auto"
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
@@ -244,7 +247,12 @@ class RAPID(ABC):
             calibration: Enable calibration curve generation.
             assumptions: Enable assumption checking.
             train_test: Enable train/test split validation.
-            test_size: Proportion for test set (default 0.2).
+            test_size: Proportion for test set (default 0.2)
+            grid_search: Enable grid search over hyperparameters.
+            param_grid: Dictionary mapping parameter names to list of values.
+                If None, uses model-specific default.
+            selection_metric: Metric to optimize during grid search.
+                "auto" uses model-specific default.
 
         Returns:
             self for method chaining.
@@ -254,8 +262,12 @@ class RAPID(ABC):
         """
         self._check_state(self._STATE_CREATED, "fit")
 
-        # Step 3: Modelling - Treina o modelo
-        self.fitted_model = self._train_model()
+        # Step 3: Modelling - Treina o modelo (com ou sem grid search)
+        self.fitted_model = self._train_model(
+            grid_search=grid_search,
+            param_grid=param_grid,
+            selection_metric=selection_metric
+        )
 
         # Build result_df
         self.result_df = self._build_result_df()
@@ -323,12 +335,28 @@ class RAPID(ABC):
                 f"Received: {table_format}"
             )
 
-        # 2. Gera e exibe plots
+        # 2. Exibe grid search results (se existir)
+        if hasattr(self, 'grid_results') and self.grid_results is not None:
+            print("\n" + "=" * 80)
+            print("GRID SEARCH RESULTS")
+            print("=" * 80)
+            print(self.grid_results.to_string(index=False))
+            if hasattr(self, 'best_params') and self.best_params:
+                print(f"\nBest parameters: {self.best_params}")
+            print("=" * 80)
+
+        # 3. Gera e exibe plots
         if plots:
             for plot in plots:
                 if plot in self.plots_map:
                     fig = self.plots_map[plot]()
-                    fig.show()  # ← Adicionar esta linha
+                    
+                    # Trata lista de figuras (residuals retornam lista)
+                    if isinstance(fig, list):
+                        for f in fig:
+                            f.show()
+                    else:
+                        fig.show()
                 else:
                     raise ValueError(f"Unknown plot: {plot}")
 

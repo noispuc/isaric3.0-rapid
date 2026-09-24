@@ -89,7 +89,8 @@ def bootstrap_metrics(
     y: pd.Series,
     n_iterations: int = 1000,
     metric_func: Optional[Callable] = None,
-    random_state: int = 42
+    random_state: int = 42,
+    prediction_method: Optional[str] = None
 ) -> Dict[str, np.ndarray]:
     """
     Bootstrap performance metrics for a fitted model.
@@ -97,13 +98,21 @@ def bootstrap_metrics(
     Trains the model on bootstrap samples and evaluates on out-of-bag
     observations, or evaluates the fitted model on bootstrap samples.
 
+    Supports:
+    - sklearn models (predict, predict_proba)
+    - statsmodels models (predict)
+    - lifelines CoxPHFitter (predict_partial_hazard)
+
     Args:
-        model: Fitted model with predict() method.
+        model: Fitted model.
         X: Predictor matrix.
         y: Outcome vector.
         n_iterations: Number of bootstrap samples (default 1000).
         metric_func: Function to compute metric (default: accuracy).
         random_state: Seed for reproducibility.
+        prediction_method: Override detection.
+            Options: "predict", "predict_proba", "predict_partial_hazard".
+            If None, auto-detects based on model type.
 
     Returns:
         Dictionary with 'values' (bootstrap metric values),
@@ -121,6 +130,23 @@ def bootstrap_metrics(
         from sklearn.metrics import accuracy_score
         metric_func = accuracy_score
 
+    # Detecta o método de predição
+    if prediction_method is None:
+        if hasattr(model, 'predict_partial_hazard'):
+            # lifelines CoxPHFitter
+            prediction_method = 'predict_partial_hazard'
+        elif hasattr(model, 'predict_proba'):
+            # sklearn classificadores
+            prediction_method = 'predict_proba'
+        elif hasattr(model, 'predict'):
+            # sklearn regressores, statsmodels
+            prediction_method = 'predict'
+        else:
+            raise ValueError(
+                f"Model of type {type(model).__name__} has no known "
+                f"prediction method. Provide 'prediction_method'."
+            )
+
     rng = np.random.default_rng(random_state)
     n_samples = len(X)
     bootstrap_values = []
@@ -130,21 +156,31 @@ def bootstrap_metrics(
         X_boot = X.iloc[indices] if isinstance(X, pd.DataFrame) else X[indices]
         y_boot = y.iloc[indices] if isinstance(y, pd.Series) else y[indices]
 
-        # Prediz
-        y_pred = model.predict(X_boot)
-        
-        # Detecta se o metric_func aceita probabilidades (ex: roc_auc_score)
+        # Aplica o método de predição detectado
+        if prediction_method == 'predict_partial_hazard':
+            # lifelines CoxPHFitter
+            y_pred = model.predict_partial_hazard(X_boot).values
+        elif prediction_method == 'predict_proba':
+            # sklearn classificadores
+            y_pred = model.predict_proba(X_boot)[:, 1]
+        else:
+            # sklearn regressores, statsmodels
+            y_pred = model.predict(X_boot)
+
+        # Detecta se o metric_func aceita probabilidades
         metric_name = getattr(metric_func, '__name__', '')
-        
-        if metric_name == 'roc_auc_score':
-            # Passa probabilidades diretamente
+
+        if metric_name in ('roc_auc_score', 'concordance_index'):
+            value = metric_func(y_boot, y_pred)
+        elif metric_name == 'concordance_index':
+            # Para C-index: precisa do tempo também
             value = metric_func(y_boot, y_pred)
         else:
             # Converte para classes binárias (threshold 0.5)
             if len(np.unique(y_boot)) == 2:
                 y_pred = (y_pred >= 0.5).astype(int)
             value = metric_func(y_boot, y_pred)
-        
+
         bootstrap_values.append(value)
 
     values = np.array(bootstrap_values)

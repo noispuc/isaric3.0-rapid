@@ -199,6 +199,123 @@ def survival_calibration(
     }
 
 
+def survival_brier_score(
+    fitted_model,
+    model_data: pd.DataFrame,
+    duration_var: str,
+    event_var: str,
+    target_time: float,
+    n_points: int = 100
+) -> Dict[str, np.ndarray]:
+    """
+    Compute IPCW Brier Score for survival models.
+
+    Uses Inverse Probability of Censoring Weighting (IPCW) to estimate
+    the time-dependent Brier Score, which measures the mean squared
+    difference between predicted survival probabilities and observed
+    outcomes.
+
+    Args:
+        fitted_model: Fitted lifelines CoxPHFitter.
+        model_data: DataFrame used for fitting.
+        duration_var: Time-to-event column.
+        event_var: Event indicator column (1=event, 0=censored).
+        target_time: Maximum time point for evaluation.
+        n_points: Number of time points (default 100).
+
+    Returns:
+        Dictionary with 'time_points' and 'brier_scores' arrays.
+    """
+    from lifelines import KaplanMeierFitter
+
+    T = model_data[duration_var]
+    E = model_data[event_var]
+
+    max_data_time = T.max()
+    eval_time = min(target_time, max_data_time)
+
+    # Time points (from first event to eval_time)
+    min_time = T[E == 1].min() if (E == 1).any() else T.min()
+    time_points = np.linspace(min_time, eval_time, n_points)
+
+    # IPCW: Kaplan-Meier of censoring distribution
+    kmf_censoring = KaplanMeierFitter().fit(T, 1 - E)
+    G_T = kmf_censoring.predict(T, interpolate=True)
+
+    brier_scores = []
+    for t in time_points:
+        predicted_probs = fitted_model.predict_survival_function(
+            model_data, times=[t]
+        ).squeeze()
+        G_t = kmf_censoring.predict(t, interpolate=True)
+
+        # Term 1: subjects with event before t
+        is_event_before_t = (T <= t) & (E == 1)
+        term1 = np.sum(
+            ((predicted_probs[is_event_before_t] - 0) ** 2) / G_T[is_event_before_t]
+        )
+
+        # Term 2: subjects without event by t
+        is_after_t = T > t
+        term2 = np.sum(
+            ((predicted_probs[is_after_t] - 1) ** 2) / G_t
+        )
+
+        score = (term1 + term2) / len(model_data)
+        brier_scores.append(score)
+
+    return {
+        'time_points': time_points,
+        'brier_scores': np.array(brier_scores)
+    }
+
+
+def survival_roc(
+    fitted_model,
+    model_data: pd.DataFrame,
+    duration_var: str,
+    event_var: str,
+    target_time: float
+) -> Dict[str, np.ndarray]:
+    """
+    Compute time-dependent ROC for survival models.
+
+    Classifies subjects as "event before target_time" (1) or
+    "no event by target_time" (0), then computes ROC using partial
+    hazard as risk score.
+
+    Args:
+        fitted_model: Fitted lifelines CoxPHFitter.
+        model_data: DataFrame used for fitting.
+        duration_var: Time-to-event column.
+        event_var: Event indicator column (1=event, 0=censored).
+        target_time: Time point for evaluation.
+
+    Returns:
+        Dictionary with 'fpr', 'tpr', 'auc'.
+    """
+    from sklearn.metrics import roc_curve, roc_auc_score
+
+    T = model_data[duration_var]
+    E = model_data[event_var]
+
+    # Risk scores (partial hazard)
+    risk_scores = fitted_model.predict_partial_hazard(model_data).values
+
+    # Mask and true labels
+    mask = ((T <= target_time) & (E == 1)) | (T > target_time)
+    y_true = ((T <= target_time) & (E == 1)).astype(int)
+
+    fpr, tpr, _ = roc_curve(y_true[mask], risk_scores[mask])
+    auc_val = roc_auc_score(y_true[mask], risk_scores[mask])
+
+    return {
+        'fpr': fpr,
+        'tpr': tpr,
+        'auc': float(auc_val)
+    }
+
+
 def residuals_vs_fitted(
     residuals: np.ndarray,
     fitted_values: np.ndarray

@@ -173,7 +173,7 @@ def compute_survival_metrics(
     event_var: str
 ) -> Dict[str, float]:
     """
-    Compute survival model metrics (C-index, AIC, BIC).
+    Compute survival model metrics (C-index, AIC, BIC, LRT).
 
     Args:
         fitted_model: Fitted lifelines CoxPHFitter.
@@ -182,7 +182,7 @@ def compute_survival_metrics(
         event_var: Event indicator column.
 
     Returns:
-        Dictionary with C-index, AIC, BIC.
+        Dictionary with C-index, AIC, BIC, LRT.
     """
     c_index = fitted_model.concordance_index_
     aic = fitted_model.AIC_partial_
@@ -192,11 +192,22 @@ def compute_survival_metrics(
     log_likelihood = fitted_model.log_likelihood_
     bic = -2 * log_likelihood + k * np.log(n)
 
-    return {
+    metrics = {
         'c_index': c_index,
         'aic': aic,
         'bic': bic,
     }
+
+    # Log-Likelihood Ratio Test
+    try:
+        lrt = fitted_model.log_likelihood_ratio_test()
+        metrics['lrt_statistic'] = float(lrt.test_statistic)
+        metrics['lrt_p_value'] = float(lrt.p_value)
+        metrics['lrt_dof'] = int(lrt.degrees_freedom)
+    except Exception:
+        pass
+
+    return metrics
 
 
 def compute_calibration_metrics(

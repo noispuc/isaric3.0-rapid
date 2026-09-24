@@ -254,9 +254,35 @@ class Lasso(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train LASSO model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
 
+            if param_grid is None:
+                param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.C = best_params.get("C", self.C)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
+    
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
@@ -393,8 +419,34 @@ class Ridge(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train Ridge model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.C = best_params.get("C", self.C)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -532,8 +584,35 @@ class ElasticNet(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train Elastic Net model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"C": [0.1, 1.0], "l1_ratio": [0.3, 0.5, 0.7]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.C = best_params.get("C", self.C)
+            self.l1_ratio = best_params.get("l1_ratio", self.l1_ratio)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -670,8 +749,35 @@ class SVM(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train SVM model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"C": [0.1, 1.0, 10.0], "kernel": ["linear", "rbf"]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.C = best_params.get("C", self.C)
+            self.kernel = best_params.get("kernel", self.kernel)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return pd.DataFrame({
@@ -803,8 +909,34 @@ class LogisticL2(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+            """
+            Train Logistic L2 model, optionally with grid search.
+            """
+            if grid_search:
+                from isaric.modelevaluation.gridsearch import run_grid_search
+    
+                if param_grid is None:
+                    param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
+    
+                if selection_metric == "auto":
+                    selection_metric = "neg_mean_squared_error"
+    
+                best_model, best_params, results_df = run_grid_search(
+                    estimator=self._model,
+                    X=self.X,
+                    y=self.y,
+                    param_grid=param_grid,
+                    selection_metric=selection_metric,
+                    cv=5
+                )
+    
+                self._model = best_model
+                self.C = best_params.get("C", self.C)
+                self.grid_results = results_df
+                self.best_params = best_params
+    
+            return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)

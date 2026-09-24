@@ -264,8 +264,35 @@ class DecisionTree(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train Decision Tree model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"max_depth": [3, 5, 10, None], "min_samples_split": [2, 5, 10]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.max_depth = best_params.get("max_depth", self.max_depth)
+            self.min_samples_split = best_params.get("min_samples_split", self.min_samples_split)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -410,8 +437,35 @@ class RandomForest(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train Random Forest model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"n_estimators": [50, 100, 200], "max_depth": [5, 10, None]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.n_estimators = best_params.get("n_estimators", self.n_estimators)
+            self.max_depth = best_params.get("max_depth", self.max_depth)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -549,8 +603,36 @@ class XGBoost(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train XGBoost model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"n_estimators": [50, 100], "learning_rate": [0.05, 0.1], "max_depth": [3, 6]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.n_estimators = best_params.get("n_estimators", self.n_estimators)
+            self.learning_rate = best_params.get("learning_rate", self.learning_rate)
+            self.max_depth = best_params.get("max_depth", self.max_depth)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -688,8 +770,35 @@ class LightGBM(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train LightGBM model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"n_estimators": [50, 100], "num_leaves": [15, 31]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.n_estimators = best_params.get("n_estimators", self.n_estimators)
+            self.num_leaves = best_params.get("num_leaves", self.num_leaves)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -827,8 +936,35 @@ class CatBoost(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        return self._model.fit(self.X, self.y)
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train CatBoost model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"iterations": [50, 100], "depth": [4, 6]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.iterations = best_params.get("iterations", self.iterations)
+            self.depth = best_params.get("depth", self.depth)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)

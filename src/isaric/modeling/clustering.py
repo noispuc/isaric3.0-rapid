@@ -279,8 +279,82 @@ class LCA(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        """Train the LCA model."""
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train LCA model, optionally with class enumeration grid search.
+
+        Specific for LCA (uses StepMix, computes BIC/AIC/CAIC/SABIC/entropy).
+
+        Args:
+            grid_search: Enable class enumeration.
+            param_grid: {"n_components": [2, 3, 4, 5]} or None.
+            selection_metric: "BIC", "AIC", "CAIC", "SABIC", or "auto" (=BIC).
+
+        Returns:
+            Fitted StepMix model.
+        """
+        if grid_search:
+            # Default range
+            if param_grid is None:
+                param_grid = {"n_components": list(range(2, 11))}
+
+            if selection_metric == "auto":
+                selection_metric = "BIC"
+
+            n_samples = self.X.shape[0]
+            n_col = self.X.shape[1]
+            results = []
+            best_score = np.inf
+            best_k = self.n_components
+            best_model = None
+
+            for k in param_grid.get("n_components", [self.n_components]):
+                model = StepMix(
+                    n_components=k,
+                    measurement="bernoulli",
+                    n_init=5,
+                    max_iter=500,
+                    random_state=42,
+                    verbose=0,
+                )
+                model.fit(self.X)
+
+                avg_ll = model.score(self.X)
+                ll = avg_ll * n_samples
+                npar = model.n_parameters
+                bic = -2 * ll + npar * np.log(n_samples)
+                aic = -2 * ll + 2 * npar
+                caic = -2 * ll + npar * (np.log(n_samples) + 1)
+                sabic = -2 * ll + npar * np.log(n_samples * ((n_samples + 2) / 24))
+                entropy = model.entropy(self.X)
+
+                results.append({
+                    'n_components': k,
+                    'LL': ll,
+                    'AIC': aic,
+                    'BIC': bic,
+                    'CAIC': caic,
+                    'SABIC': sabic,
+                    'entropy': entropy,
+                    'converged': model.converged_,
+                })
+
+                metric_value = {
+                    'BIC': bic, 'AIC': aic, 'CAIC': caic, 'SABIC': sabic
+                }.get(selection_metric, bic)
+
+                if metric_value < best_score:
+                    best_score = metric_value
+                    best_k = k
+                    best_model = model
+
+            # Atualiza o modelo
+            self._model = best_model
+            self.n_components = best_k
+            self.grid_results = pd.DataFrame(results)
+            self.best_params = {"n_components": best_k}
+            self.selection_metric = selection_metric
+
         return self._model.fit(self.X)
 
     def _build_result_df(self):
@@ -459,8 +533,33 @@ class KMeans(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
-        """Train the K-Means model."""
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
+        """
+        Train KMeans model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"n_clusters": list(range(2, 11))}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=None,  # unsupervised
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.n_clusters = best_params.get("n_clusters", self.n_clusters)
+            self.grid_results = results_df
+            self.best_params = best_params
+
         return self._model.fit(self.X)
 
     def _build_result_df(self):
