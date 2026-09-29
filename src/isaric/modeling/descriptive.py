@@ -265,7 +265,7 @@ class Descriptive(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
         """Not applicable for descriptive."""
         return None
 

@@ -910,33 +910,33 @@ class LogisticL2(RAPID):
     # ======================================================================
 
     def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
-            """
-            Train Logistic L2 model, optionally with grid search.
-            """
-            if grid_search:
-                from isaric.modelevaluation.gridsearch import run_grid_search
-    
-                if param_grid is None:
-                    param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
-    
-                if selection_metric == "auto":
-                    selection_metric = "neg_mean_squared_error"
-    
-                best_model, best_params, results_df = run_grid_search(
-                    estimator=self._model,
-                    X=self.X,
-                    y=self.y,
-                    param_grid=param_grid,
-                    selection_metric=selection_metric,
-                    cv=5
-                )
-    
-                self._model = best_model
-                self.C = best_params.get("C", self.C)
-                self.grid_results = results_df
-                self.best_params = best_params
-    
-            return self._model.fit(self.X)
+        """
+        Train Logistic L2 model, optionally with grid search.
+        """
+        if grid_search:
+            from isaric.modelevaluation.gridsearch import run_grid_search
+
+            if param_grid is None:
+                param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
+
+            if selection_metric == "auto":
+                selection_metric = "neg_mean_squared_error"
+
+            best_model, best_params, results_df = run_grid_search(
+                estimator=self._model,
+                X=self.X,
+                y=self.y,
+                param_grid=param_grid,
+                selection_metric=selection_metric,
+                cv=5
+            )
+
+            self._model = best_model
+            self.C = best_params.get("C", self.C)
+            self.grid_results = results_df
+            self.best_params = best_params
+
+        return self._model.fit(self.X)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)

@@ -311,7 +311,7 @@ class SurvivalCox(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
         """Train the Cox PH model."""
         if self.formula is not None:
             # Formula-based fit (lifelines lida com categóricos)
@@ -741,7 +741,7 @@ class KaplanMeier(RAPID):
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self):
+    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
         """Train the Kaplan-Meier model."""
         return self._model.fit(
             self.model_data[self.duration_var],
