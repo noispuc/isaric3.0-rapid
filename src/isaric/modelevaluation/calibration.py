@@ -90,9 +90,11 @@ def binned_calibration(
             f"strategy must be 'uniform' or 'quantile'. Received: {strategy}"
         )
 
-    fraction_positive, mean_predicted = calibration_curve(
+    result = calibration_curve(
         y_true, y_prob, n_bins=n_bins, strategy=strategy
     )
+    fraction_positive = result['fraction_positive']
+    mean_predicted = result['mean_predicted']
 
     # Count observations per bin
     bin_edges = np.linspace(0, 1, n_bins + 1)

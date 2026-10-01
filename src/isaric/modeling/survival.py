@@ -81,7 +81,7 @@ def create_survival_model(
 
     # Constrói formula se não fornecida
     if formula is None and independent_vars:
-        formula = f"{duration_var} ~ {' + '.join(independent_vars)}"
+        formula = ' + '.join(independent_vars)
 
     # Extrai unidade de tempo
     time_unit = "Time"
@@ -317,6 +317,7 @@ class SurvivalCox(RAPID):
             # Formula-based fit (lifelines lida com categóricos)
             return self._model.fit(
                 self.model_data,
+                duration_col=self.duration_var,
                 formula=self.formula,
                 event_col=self.event_var
             )
