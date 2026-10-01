@@ -229,6 +229,7 @@ class LCA(RAPID):
         self.plots_map = {
             "profile_heatmap": self._profile_heatmap,
             "cluster_distribution": self._cluster_distribution,
+            "radar_plot": self._radar_plot,
         }
 
     @classmethod
@@ -441,6 +442,17 @@ class LCA(RAPID):
             x_col='Class',
             y_col='Count',
             title="Latent Class Distribution",
+            backend=backend
+        )
+
+    def _radar_plot(self, backend="plotly"):
+        """Generate LCA radar plot."""
+        from isaric.visualization.heatmaps import lca_radar_plot
+
+        return lca_radar_plot(
+            self.result_df,
+            n_components=self.n_components,
+            title="LCA Class Profiles (Radar)",
             backend=backend
         )
 

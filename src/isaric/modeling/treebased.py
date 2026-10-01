@@ -275,12 +275,12 @@ class DecisionTree(RAPID):
                 param_grid = {"max_depth": [3, 5, 10, None], "min_samples_split": [2, 5, 10]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -292,7 +292,7 @@ class DecisionTree(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -448,12 +448,12 @@ class RandomForest(RAPID):
                 param_grid = {"n_estimators": [50, 100, 200], "max_depth": [5, 10, None]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -465,7 +465,7 @@ class RandomForest(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -614,12 +614,12 @@ class XGBoost(RAPID):
                 param_grid = {"n_estimators": [50, 100], "learning_rate": [0.05, 0.1], "max_depth": [3, 6]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -632,7 +632,7 @@ class XGBoost(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -781,12 +781,12 @@ class LightGBM(RAPID):
                 param_grid = {"n_estimators": [50, 100], "num_leaves": [15, 31]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -798,7 +798,7 @@ class LightGBM(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -947,12 +947,12 @@ class CatBoost(RAPID):
                 param_grid = {"iterations": [50, 100], "depth": [4, 6]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -964,7 +964,7 @@ class CatBoost(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)

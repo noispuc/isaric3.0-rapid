@@ -265,12 +265,12 @@ class Lasso(RAPID):
                 param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -281,7 +281,7 @@ class Lasso(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
     
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -430,12 +430,12 @@ class Ridge(RAPID):
                 param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -446,7 +446,7 @@ class Ridge(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -595,12 +595,12 @@ class ElasticNet(RAPID):
                 param_grid = {"C": [0.1, 1.0], "l1_ratio": [0.3, 0.5, 0.7]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -612,7 +612,7 @@ class ElasticNet(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
@@ -760,12 +760,12 @@ class SVM(RAPID):
                 param_grid = {"C": [0.1, 1.0, 10.0], "kernel": ["linear", "rbf"]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
                 X=self.X,
-                y=None,  # unsupervised
+                y=self.y,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -777,7 +777,7 @@ class SVM(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return pd.DataFrame({
@@ -920,7 +920,7 @@ class LogisticL2(RAPID):
                 param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
 
             if selection_metric == "auto":
-                selection_metric = "neg_mean_squared_error"
+                selection_metric = "roc_auc"
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
@@ -936,7 +936,7 @@ class LogisticL2(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X)
+        return self._model.fit(self.X, self.y)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)

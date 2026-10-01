@@ -144,7 +144,7 @@ def lca_profile_heatmap(
     class_profiles: pd.DataFrame,
     n_components: Optional[int] = None,
     title: str = "LCA Class Profiles",
-    colorscale: str = "Viridis",
+    colorscale: str = "viridis",
     height: int = 600,
     width: int = 800,
     backend: str = "plotly"
@@ -191,6 +191,45 @@ def lca_profile_heatmap(
     else:
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
 
+
+def lca_radar_plot(
+    class_profiles: pd.DataFrame,
+    n_components: Optional[int] = None,
+    title: str = "LCA Class Profiles (Radar)",
+    colors: Optional[List[str]] = None,
+    height: int = 600,
+    width: int = 800,
+    backend: str = "plotly"
+):
+    """
+    Generate a radar plot showing LCA class profiles.
+
+    Each latent class is a polygon, and each axis is a feature.
+    Useful for visually comparing class profiles.
+
+    Args:
+        class_profiles: DataFrame with shape (n_classes, n_features)
+            containing probabilities in [0, 1].
+        n_components: Number of latent classes (optional, for title).
+        title: Plot title.
+        colors: List of colors for each class.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+    """
+    if backend == "plotly":
+        return _lca_radar_plotly(
+            class_profiles, n_components, title, colors, height, width
+        )
+    elif backend == "matplotlib":
+        return _lca_radar_matplotlib(
+            class_profiles, n_components, title, colors, height, width
+        )
+    else:
+        raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
 
 # ============================================================================
 # PLOTLY BACKEND
@@ -310,6 +349,57 @@ def _lca_profile_plotly(
     return fig
 
 
+def _lca_radar_plotly(
+    class_profiles: pd.DataFrame,
+    n_components: Optional[int],
+    title: str,
+    colors: Optional[List[str]],
+    height: int,
+    width: int
+) -> go.Figure:
+    """Build Plotly radar plot for LCA profiles."""
+    features = class_profiles.columns.tolist()
+    n_features = len(features)
+
+    if colors is None:
+        colors = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261',
+                  '#8a5a44', '#a8dadc', '#457b9d', '#e63946', '#06d6a0']
+
+    fig = go.Figure()
+
+    for i, (class_name, row) in enumerate(class_profiles.iterrows()):
+        # Fecha o polígono (repetir o primeiro valor no final)
+        values = row.values.tolist() + [row.values[0]]
+        angles = features + [features[0]]
+
+        fig.add_trace(go.Scatterpolar(
+            r=values,
+            theta=angles,
+            fill='toself',
+            name=str(class_name),
+            line=dict(color=colors[i % len(colors)], width=2),
+            opacity=0.6
+        ))
+
+    if n_components:
+        title = f"LCA Class Profiles (K={n_components})"
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 1]
+            )
+        ),
+        title=title,
+        height=height,
+        width=width,
+        template='plotly_white',
+        showlegend=True
+    )
+
+    return fig
+
 # ============================================================================
 # MATPLOTLIB BACKEND
 # ============================================================================
@@ -425,5 +515,44 @@ def _lca_profile_matplotlib(
     ax.set_ylabel('Latent Class')
     ax.set_title(title)
     fig.colorbar(im, ax=ax, label='Probability')
+    fig.tight_layout()
+    return fig
+
+def _lca_radar_matplotlib(
+    class_profiles: pd.DataFrame,
+    n_components: Optional[int],
+    title: str,
+    colors: Optional[List[str]],
+    height: int,
+    width: int
+) -> plt.Figure:
+    """Build Matplotlib radar plot for LCA profiles."""
+    features = class_profiles.columns.tolist()
+    n_features = len(features)
+
+    if colors is None:
+        colors = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261',
+                  '#8a5a44', '#a8dadc', '#457b9d', '#e63946', '#06d6a0']
+
+    # Ângulos
+    angles = np.linspace(0, 2 * np.pi, n_features, endpoint=False).tolist()
+    angles += angles[:1]  # fechar
+
+    fig, ax = plt.subplots(figsize=(width/100, height/100),
+                            subplot_kw=dict(polar=True))
+
+    for i, (class_name, row) in enumerate(class_profiles.iterrows()):
+        values = row.values.tolist() + [row.values[0]]
+
+        ax.plot(angles, values, 'o-', linewidth=2,
+                color=colors[i % len(colors)], label=str(class_name))
+        ax.fill(angles, values, alpha=0.2, color=colors[i % len(colors)])
+
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(features)
+    ax.set_ylim(0, 1)
+    ax.set_title(title)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+
     fig.tight_layout()
     return fig

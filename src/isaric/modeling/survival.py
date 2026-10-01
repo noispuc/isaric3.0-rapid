@@ -317,7 +317,8 @@ class SurvivalCox(RAPID):
             # Formula-based fit (lifelines lida com categóricos)
             return self._model.fit(
                 self.model_data,
-                formula=self.formula
+                formula=self.formula,
+                event_col=self.event_var
             )
         else:
             # Matrix-based fit
