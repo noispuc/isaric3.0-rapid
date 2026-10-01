@@ -153,8 +153,8 @@ def bootstrap_metrics(
 
     for _ in range(n_iterations):
         indices = rng.integers(0, n_samples, n_samples)
-        X_boot = X.iloc[indices] if isinstance(X, pd.DataFrame) else X[indices]
-        y_boot = y.iloc[indices] if isinstance(y, pd.Series) else y[indices]
+        X_boot = X.iloc[indices].reset_index(drop=True) if isinstance(X, pd.DataFrame) else X[indices]
+        y_boot = y.iloc[indices].reset_index(drop=True) if isinstance(y, pd.Series) else y[indices]
 
         # Aplica o método de predição detectado
         if prediction_method == 'predict_partial_hazard':

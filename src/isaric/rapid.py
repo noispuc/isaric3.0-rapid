@@ -520,15 +520,23 @@ class RAPID(ABC):
             self.result_df.to_csv("results.csv", index=False)
             print("✅ CSV gerado: results.csv")
 
-        # Gera PNG (via Matplotlib)
+        # Gera PNG
         if "png" in format:
             for plot_name, plot_func in self.plots_map.items():
                 fig = plot_func(backend="matplotlib")
-                fig.savefig(f"{plot_name}.png", dpi=300, bbox_inches='tight')
-                plt.close(fig)
-                print(f"✅ PNG gerado: {plot_name}.png")
+                
+                # Trata lista de figuras (ex: residuals, retorna uma por covariável)
+                if isinstance(fig, list):
+                    for i, f in enumerate(fig):
+                        f.savefig(f"{plot_name}_{i}.png", dpi=300, bbox_inches='tight')
+                        plt.close(f)
+                        print(f"✅ PNG gerado: {plot_name}_{i}.png")
+                else:
+                    fig.savefig(f"{plot_name}.png", dpi=300, bbox_inches='tight')
+                    plt.close(fig)
+                    print(f"✅ PNG gerado: {plot_name}.png")
 
-        # Gera PDF consolidado (via Matplotlib)
+        # Gera PDF
         if "pdf" in format:
             from datetime import datetime
             from matplotlib.backends.backend_pdf import PdfPages
@@ -558,9 +566,17 @@ class RAPID(ABC):
                 # Páginas seguintes: Plots
                 for plot_name, plot_func in self.plots_map.items():
                     fig = plot_func(backend="matplotlib")
-                    pdf.savefig(fig, bbox_inches='tight')
-                    plt.close(fig)
-                    print(f"✅ Plot adicionado ao PDF: {plot_name}")
+                    
+                    # Trata lista de figuras
+                    if isinstance(fig, list):
+                        for i, f in enumerate(fig):
+                            pdf.savefig(f, bbox_inches='tight')
+                            plt.close(f)
+                            print(f"✅ Plot adicionado ao PDF: {plot_name}_{i}")
+                    else:
+                        pdf.savefig(fig, bbox_inches='tight')
+                        plt.close(fig)
+                        print(f"✅ Plot adicionado ao PDF: {plot_name}")
             
             print(f"✅ PDF consolidado: {pdf_filename}")
 
