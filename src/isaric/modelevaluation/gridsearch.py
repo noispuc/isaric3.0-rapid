@@ -177,3 +177,87 @@ def _build_grid_results_df(
     df = df.sort_values('rank_test_score').reset_index(drop=True)
 
     return df
+
+
+def run_clustering_grid_search(
+    estimator,
+    X,
+    param_grid: Dict[str, List[Any]],
+    selection_metric: str = "silhouette",
+    cv: int = 5,
+    n_jobs: int = -1
+) -> Tuple[Any, Dict[str, Any], pd.DataFrame]:
+    """
+    Grid search for unsupervised clustering estimators.
+
+    Uses silhouette (or Calinski-Harabasz) as the default metric, which
+    is more suitable than inertia for selecting the number of clusters.
+
+    Args:
+        estimator: Unfitted clustering estimator (e.g., KMeans).
+        X: Predictor matrix.
+        param_grid: Dictionary mapping parameter names to list of values.
+        selection_metric: "silhouette" or "calinski_harabasz".
+        cv: Ignored (KMeans não usa CV na forma clássica). Mantido por compat.
+        n_jobs: Número de jobs paralelos.
+
+    Returns:
+        Tuple of (best_estimator, best_params, results_df).
+    """
+    from itertools import product
+    from sklearn.base import clone
+    from sklearn.metrics import silhouette_score, calinski_harabasz_score
+
+    if not param_grid:
+        raise ValueError("param_grid cannot be empty.")
+
+    if selection_metric == "auto":
+        selection_metric = "silhouette"
+
+    # Métricas: maior melhor
+    def _score(model, X_data):
+        labels = model.labels_
+        if len(set(labels)) < 2:
+            return -np.inf
+        if selection_metric == "silhouette":
+            return silhouette_score(X_data, labels)
+        elif selection_metric == "calinski_harabasz":
+            return calinski_harabasz_score(X_data, labels)
+        else:
+            raise ValueError(
+                f"Unknown selection_metric: {selection_metric}. "
+                f"Use 'silhouette' or 'calinski_harabasz'."
+            )
+
+    # Gera combinações
+    param_names = list(param_grid.keys())
+    param_values = list(param_grid.values())
+    combinations = list(product(*param_values))
+
+    results = []
+    best_score = -np.inf
+    best_model = None
+    best_params = None
+
+    for combo in combinations:
+        params = dict(zip(param_names, combo))
+        try:
+            model = clone(estimator)
+            model.set_params(**params)
+            model.fit(X)
+
+            score = _score(model, X)
+            results.append({**params, 'score': score, 'status': 'ok'})
+
+            if score > best_score:
+                best_score = score
+                best_model = model
+                best_params = params
+        except Exception as e:
+            results.append({**params, 'score': np.nan, 'status': str(e)})
+
+    results_df = pd.DataFrame(results)
+    # Renomear coluna 'score' para o nome da métrica
+    results_df = results_df.rename(columns={'score': selection_metric})
+
+    return best_model, best_params, results_df

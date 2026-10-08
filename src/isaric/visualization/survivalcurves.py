@@ -786,8 +786,9 @@ def _martingale_residuals_plotly(
         hovertemplate=f'{covariate_name}: %{{x}}<br>Residual: %{{y:.3f}}<extra></extra>'
     ))
 
-    # Smoother (LOWESS)
-    if add_smoother and len(covariate) > 10:
+    # Smoother (LOWESS) - só se a covariável tem >= 3 valores únicos
+    n_unique = len(np.unique(covariate))
+    if add_smoother and len(covariate) > 10 and n_unique >= 3:
         try:
             import statsmodels.api as sm
             lowess = sm.nonparametric.lowess(residuals, covariate, frac=0.3)
@@ -1025,8 +1026,9 @@ def _martingale_residuals_matplotlib(
 
     ax.scatter(covariate, residuals, color='#2a9d8f', s=40, alpha=0.6)
 
-    # Smoother
-    if add_smoother and len(covariate) > 10:
+    # Smoother - só se a covariável tem >= 3 valores únicos
+    n_unique = len(np.unique(covariate))
+    if add_smoother and len(covariate) > 10 and n_unique >= 3:
         try:
             import statsmodels.api as sm
             lowess = sm.nonparametric.lowess(residuals, covariate, frac=0.3)

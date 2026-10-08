@@ -243,3 +243,151 @@ def likelihood_ratio_test(
         'dof_diff': int(dof_diff),
         'p_value': float(p_value)
     }
+
+def test_binned_residuals(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10
+) -> Dict[str, Any]:
+    """
+    Compute binned residuals for binary outcomes.
+
+    Divides predicted probabilities into bins and computes the mean
+    residual per bin. Residuals should fall within ±2 standard errors
+    if the model is well-calibrated.
+
+    Args:
+        y_true: True binary labels (0/1).
+        y_prob: Predicted probabilities.
+        n_bins: Number of bins (default 10).
+
+    Returns:
+        Dictionary with:
+        - 'bin_centers': mean predicted probability per bin.
+        - 'mean_residuals': mean residual per bin.
+        - 'se': standard error per bin.
+        - 'n_per_bin': number of observations per bin.
+        - 'lower_bound': mean_residuals - 2*se.
+        - 'upper_bound': mean_residuals + 2*se.
+    """
+    y_true = np.asarray(y_true).ravel()
+    y_prob = np.asarray(y_prob).ravel()
+
+    # Bin edges based on quantiles (uniform bins in probability space)
+    edges = np.linspace(0, 1, n_bins + 1)
+    # Evita extremos idênticos
+    bin_idx = np.digitize(y_prob, edges[1:-1])
+
+    # Residuals para classificação binária: y_true - y_prob
+    residuals = y_true - y_prob
+
+    bin_centers = []
+    mean_residuals = []
+    ses = []
+    ns = []
+
+    for i in range(n_bins):
+        mask = bin_idx == i
+        n = int(mask.sum())
+        if n == 0:
+            bin_centers.append(np.nan)
+            mean_residuals.append(np.nan)
+            ses.append(np.nan)
+            ns.append(0)
+            continue
+
+        bin_centers.append(float(y_prob[mask].mean()))
+        mean_residuals.append(float(residuals[mask].mean()))
+        # SE do resíduo médio
+        se = float(residuals[mask].std(ddof=1) / np.sqrt(n))
+        ses.append(se)
+        ns.append(n)
+
+    bin_centers = np.array(bin_centers)
+    mean_residuals = np.array(mean_residuals)
+    ses = np.array(ses)
+
+    return {
+        'bin_centers': bin_centers,
+        'mean_residuals': mean_residuals,
+        'se': ses,
+        'n_per_bin': np.array(ns),
+        'lower_bound': mean_residuals - 2 * ses,
+        'upper_bound': mean_residuals + 2 * ses,
+    }
+
+def bootstrap_lrt_lca(
+    X: np.ndarray,
+    n_components: int,
+    n_bootstraps: int = 100,
+    measurement: str = "bernoulli",
+    random_state: int = 42,
+    n_init: int = 5,
+    max_iter: int = 500
+) -> Dict[str, Any]:
+    """
+    Bootstrapped Likelihood Ratio Test for LCA (k vs k-1).
+
+    Uses StepMix's bootstrapped_likelihood_ratio_test: fits k-1 as the
+    null model, generates n_bootstraps samples under H0, fits k in each,
+    and compares the observed LRT statistic against the bootstrap
+    distribution.
+
+    Args:
+        X: Binary matrix (n_samples, n_features).
+        n_components: Number of components under the alternative (k).
+        n_bootstraps: Number of bootstrap samples (default 100).
+        measurement: StepMix measurement type (default "bernoulli").
+        random_state: Seed for reproducibility.
+        n_init: Number of random initializations.
+        max_iter: Maximum EM iterations.
+
+    Returns:
+        Dictionary with:
+        - 'lrt_statistic': observed LRT statistic
+        - 'p_value': bootstrapped p-value
+        - 'n_components': k tested
+        - 'n_bootstraps': number of bootstraps
+    """
+    try:
+        from stepmix import bootstrapped_likelihood_ratio_test
+    except ImportError:
+        return {
+            'error': 'stepmix.bootstrapped_likelihood_ratio_test not available',
+            'n_components': n_components,
+        }
+
+    try:
+        result = bootstrapped_likelihood_ratio_test(
+            n_components=n_components,
+            measurement=measurement,
+            X=X,
+            n_bootstraps=n_bootstraps,
+            random_state=random_state,
+            n_init=n_init,
+            max_iter=max_iter,
+        )
+
+        # O resultado pode ser um objeto ou dict, dependendo da versão
+        if hasattr(result, 'pvalue'):
+            p_value = float(result.pvalue)
+            lrt_stat = float(result.likelihood_ratio) if hasattr(result, 'likelihood_ratio') else None
+        elif isinstance(result, dict):
+            p_value = float(result.get('pvalue', result.get('p_value', np.nan)))
+            lrt_stat = float(result.get('likelihood_ratio', result.get('lrt_stat', np.nan)))
+        else:
+            p_value = np.nan
+            lrt_stat = np.nan
+
+        return {
+            'lrt_statistic': lrt_stat,
+            'p_value': p_value,
+            'n_components': n_components,
+            'n_bootstraps': n_bootstraps,
+        }
+
+    except Exception as e:
+        return {
+            'error': str(e),
+            'n_components': n_components,
+        }

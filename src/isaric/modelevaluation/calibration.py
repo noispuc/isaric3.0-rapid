@@ -23,6 +23,12 @@ from sklearn.metrics import brier_score_loss
 from scipy import stats
 from sklearn.calibration import calibration_curve as sklearn_calibration_curve
 
+import warnings
+try:
+    from lifelines.exceptions import ApproximationWarning
+    warnings.filterwarnings("ignore", category=ApproximationWarning)
+except ImportError:
+    pass
 
 def calibration_curve(
     y_true: np.ndarray,
@@ -230,8 +236,9 @@ def survival_brier_score(
     """
     from lifelines import KaplanMeierFitter
 
-    T = model_data[duration_var]
-    E = model_data[event_var]
+    # Trabalhar com vetores NumPy (evita problemas de índice)
+    T = model_data[duration_var].values
+    E = model_data[event_var].values
 
     max_data_time = T.max()
     eval_time = min(target_time, max_data_time)
@@ -242,19 +249,25 @@ def survival_brier_score(
 
     # IPCW: Kaplan-Meier of censoring distribution
     kmf_censoring = KaplanMeierFitter().fit(T, 1 - E)
-    G_T = kmf_censoring.predict(T, interpolate=True)
+    # G_T avaliado nos tempos de cada paciente (vetor, alinhado com T)
+    G_T = kmf_censoring.predict(T).values
 
     brier_scores = []
     for t in time_points:
+        # Probabilidades preditas (vetor, alinhado com T)
         predicted_probs = fitted_model.predict_survival_function(
             model_data, times=[t]
-        ).squeeze()
-        G_t = kmf_censoring.predict(t, interpolate=True)
+        ).squeeze().values
+
+        G_t = kmf_censoring.predict(t).values
+        # G_t é escalar disfarçado de array; extrair
+        G_t = float(np.atleast_1d(G_t)[0])
 
         # Term 1: subjects with event before t
         is_event_before_t = (T <= t) & (E == 1)
         term1 = np.sum(
-            ((predicted_probs[is_event_before_t] - 0) ** 2) / G_T[is_event_before_t]
+            ((predicted_probs[is_event_before_t] - 0) ** 2)
+            / G_T[is_event_before_t]
         )
 
         # Term 2: subjects without event by t
@@ -295,11 +308,24 @@ def survival_roc(
 
     Returns:
         Dictionary with 'fpr', 'tpr', 'auc'.
+
+    Raises:
+        ValueError: If target_time is not within the follow-up period.
     """
+    import warnings
     from sklearn.metrics import roc_curve, roc_auc_score
 
-    T = model_data[duration_var]
-    E = model_data[event_var]
+    T = model_data[duration_var].values
+    E = model_data[event_var].values
+
+    max_followup = T.max()
+    if target_time > max_followup:
+        raise ValueError(
+            f"target_time ({target_time}) exceeds maximum follow-up "
+            f"({max_followup}). ROC cannot be computed because all "
+            f"subjects have the same outcome by that time. "
+            f"Choose target_time <= {max_followup:.1f}."
+        )
 
     # Risk scores (partial hazard)
     risk_scores = fitted_model.predict_partial_hazard(model_data).values
@@ -308,8 +334,16 @@ def survival_roc(
     mask = ((T <= target_time) & (E == 1)) | (T > target_time)
     y_true = ((T <= target_time) & (E == 1)).astype(int)
 
-    fpr, tpr, _ = roc_curve(y_true[mask], risk_scores[mask])
-    auc_val = roc_auc_score(y_true[mask], risk_scores[mask])
+    # Verifica se y_true[mask] tem duas classes
+    y_true_masked = y_true[mask]
+    if len(np.unique(y_true_masked)) < 2:
+        raise ValueError(
+            f"Only one class present in y_true at target_time={target_time}. "
+            f"ROC is undefined. Try a different target_time."
+        )
+
+    fpr, tpr, _ = roc_curve(y_true_masked, risk_scores[mask])
+    auc_val = roc_auc_score(y_true_masked, risk_scores[mask])
 
     return {
         'fpr': fpr,

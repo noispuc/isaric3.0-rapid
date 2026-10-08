@@ -61,6 +61,8 @@ class RAPID(ABC):
         """Initialize with the initial state."""
         self._state = self._STATE_CREATED
         self._libraries_used = {}
+        self._fit_at = None
+        self._random_seed = 42  # default; subclasses podem sobrescrever
 
     # ======================================================================
     # STATE CONTROL (INHERITED BY SUBCLASSES)
@@ -262,12 +264,21 @@ class RAPID(ABC):
         """
         self._check_state(self._STATE_CREATED, "fit")
 
-        # Step 3: Modelling - Treina o modelo (com ou sem grid search)
+        from datetime import datetime
+
+        # Auto-ativa grid_search se param_grid foi passado
+        if not grid_search and param_grid is not None:
+            grid_search = True
+
+        # Step 3: Modelling - Treina o modelo
         self.fitted_model = self._train_model(
             grid_search=grid_search,
             param_grid=param_grid,
             selection_metric=selection_metric
         )
+
+        # Registra timestamp do fit
+        self._fit_at = datetime.now().isoformat()
 
         # Build result_df
         self.result_df = self._build_result_df()
@@ -309,6 +320,11 @@ class RAPID(ABC):
         - self.result_df (results DataFrame)
         - self.plots_map (dict: plot_name → plot_function)
 
+        Subclasses MAY have:
+        - self.model_info (dict: model information and metrics)
+        - self.grid_results (DataFrame: grid search results)
+        - self.best_params (dict: best parameters from grid search)
+
         Args:
             table_format: "full" (complete) or "short" (summarized).
             plots: List of plot names to generate.
@@ -324,34 +340,79 @@ class RAPID(ABC):
         # Guarda os plots solicitados
         self._displayed_plots = plots if plots else list(self.plots_map.keys())
 
-        # 1. Exibe tabela
+        # ======================================================================
+        # 1. MODEL INFORMATION
+        # ======================================================================
+        if hasattr(self, 'model_info') and self.model_info:
+            print("=" * 80)
+            print("MODEL INFORMATION")
+            print("=" * 80)
+
+            # Converte dict para DataFrame para exibição uniforme
+            import pandas as pd
+            info_df = pd.DataFrame(
+                list(self.model_info.items()),
+                columns=["Key", "Value"]
+            )
+
+            # Formata valores: float → 4 casas decimais, outros → str
+            def _fmt(v):
+                if isinstance(v, float):
+                    return f"{v:.4f}"
+                return str(v)
+
+            info_df["Value"] = info_df["Value"].apply(_fmt)
+            print(info_df.to_string(index=False))
+            print()
+
+        # ======================================================================
+        # 2. RESULTS
+        # ======================================================================
+        print("=" * 80)
+        print("RESULTS")
+        print("=" * 80)
+
         if table_format == "full":
-            print(self.result_df.to_string())
+            print(self.result_df.to_string(index=False))
         elif table_format == "short":
-            print(self.result_df[['Variable', 'p-value']].to_string())
+            # Pega as colunas disponíveis (varia por modelo)
+            display_cols = [
+                c for c in ['Variable', 'Effect', 'OddsRatio',
+                            'HazardRatio', 'Coefficient', 'Importance',
+                            'p-value']
+                if c in self.result_df.columns
+            ]
+            if display_cols:
+                print(self.result_df[display_cols].to_string(index=False))
+            else:
+                print(self.result_df.to_string(index=False))
         else:
             raise ValueError(
                 f"table_format must be 'full' or 'short'. "
                 f"Received: {table_format}"
             )
+        print()
 
-        # 2. Exibe grid search results (se existir)
+        # ======================================================================
+        # 3. GRID SEARCH RESULTS
+        # ======================================================================
         if hasattr(self, 'grid_results') and self.grid_results is not None:
-            print("\n" + "=" * 80)
+            print("=" * 80)
             print("GRID SEARCH RESULTS")
             print("=" * 80)
             print(self.grid_results.to_string(index=False))
+
             if hasattr(self, 'best_params') and self.best_params:
                 print(f"\nBest parameters: {self.best_params}")
-            print("=" * 80)
+            print()
 
-        # 3. Gera e exibe plots
+        # ======================================================================
+        # 4. PLOTS
+        # ======================================================================
         if plots:
             for plot in plots:
                 if plot in self.plots_map:
                     fig = self.plots_map[plot]()
-                    
-                    # Trata lista de figuras (residuals retornam lista)
                     if isinstance(fig, list):
                         for f in fig:
                             f.show()
@@ -366,7 +427,7 @@ class RAPID(ABC):
         """
         Persist the trained model to disk.
 
-        Saves JSON metadata + pickle object in a single .rapid file.
+        Saves a ZIP file containing JSON metadata + pickle object.
 
         Subclasses MUST have:
         - self.model_type (str)
@@ -385,14 +446,18 @@ class RAPID(ABC):
         import pickle
         import zipfile
         from datetime import datetime
+        import isaric
 
-        filename = f"{self.model_type}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.rapid"
+        filename = (
+            f"{self.model_type}-"
+            f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.rapid"
+        )
 
         metadata = {
             "model_name": self.model_type,
             "model_type": self.model_type,
             "created_at": datetime.now().isoformat(),
-            "rapid_version": "0.1.0",
+            "rapid_version": isaric.__version__,  # ← lê versão do pacote
             "library_versions": self._libraries_used,
             "key_metrics": self.metrics
         }
@@ -400,7 +465,7 @@ class RAPID(ABC):
         with zipfile.ZipFile(filename, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Grava metadata.json
             zf.writestr('metadata.json', json.dumps(metadata, indent=2))
-            
+
             # Grava model.pkl
             zf.writestr('model.pkl', pickle.dumps(self.fitted_model))
 
@@ -472,21 +537,23 @@ class RAPID(ABC):
         """
         Generate a publication report.
 
-        Subclasses MUST have:
-        - self.result_df (results DataFrame)
-        - self.metrics (dict with performance metrics)
-        - self.plots_map (dict: plot_name → plot_function)
+        Layout (page 1):
+        - Header: ISARIC platform identification
+        - Pipeline identification
+        - Model execution context (time, version, seed)
+        - Parameters used
+        - Fit metrics
+        - Parameter table
+        - Data size
+
+        Pages 2+: plots and assumptions.
 
         Args:
             format: List of output formats.
                 Accepted Values:
                     - None (generates all formats: pdf, png, csv)
-                    - ["pdf"]
-                    - ["png"]
-                    - ["csv"]
-                    - ["pdf", "png"]
-                    - ["pdf", "csv"]
-                    - ["png", "csv"]
+                    - ["pdf"], ["png"], ["csv"]
+                    - ["pdf", "png"], ["pdf", "csv"], ["png", "csv"]
                     - ["pdf", "png", "csv"]
 
         Returns:
@@ -497,16 +564,14 @@ class RAPID(ABC):
         """
         self._check_state(self._STATE_SUMMARIZED, "report")
 
-        # Imports necessários
         import matplotlib.pyplot as plt
-
-        # Usa apenas os plots exibidos no summary
-        plots_to_report = getattr(self, '_displayed_plots', list(self.plots_map.keys()))
+        import isaric
+        from datetime import datetime
 
         # Valida formatos aceitos
         if format is None:
             format = ["pdf", "png", "csv"]
-        
+
         valid_formats = ["pdf", "png", "csv"]
         for fmt in format:
             if fmt not in valid_formats:
@@ -515,59 +580,238 @@ class RAPID(ABC):
                     f"Accepted values: None, {valid_formats}"
                 )
 
-        # Gera CSV
+        plots_to_report = getattr(
+            self, '_displayed_plots', list(self.plots_map.keys())
+        )
+
+        # ==================================================================
+        # CSV - resultados + ARD (CDISC)
+        # ==================================================================
         if "csv" in format:
             self.result_df.to_csv("results.csv", index=False)
             print("✅ CSV gerado: results.csv")
 
-        # Gera PNG
+            # ARD (Analysis Results Dataset) - CDISC
+            ard_rows = []
+            for _, row in self.result_df.iterrows():
+                variable = row.get('Variable', '')
+                for col in self.result_df.columns:
+                    if col == 'Variable':
+                        continue
+                    ard_rows.append({
+                        'stat_name': col,
+                        'stat': row[col],
+                        'variable': variable,
+                    })
+            if ard_rows:
+                import pandas as pd
+                ard_df = pd.DataFrame(ard_rows)
+                ard_df.to_csv("results_ard.csv", index=False)
+                print("✅ ARD gerado: results_ard.csv")
+
+        # ==================================================================
+        # PNG - plots
+        # ==================================================================
         if "png" in format:
-            for plot_name, plot_func in self.plots_map.items():
-                fig = plot_func(backend="matplotlib")
-                
-                # Trata lista de figuras (ex: residuals, retorna uma por covariável)
+            for plot_name in plots_to_report:
+                if plot_name not in self.plots_map:
+                    continue
+
+                fig = self.plots_map[plot_name](backend="matplotlib")
+
                 if isinstance(fig, list):
                     for i, f in enumerate(fig):
-                        f.savefig(f"{plot_name}_{i}.png", dpi=300, bbox_inches='tight')
+                        f.savefig(
+                            f"{plot_name}_{i}.png",
+                            dpi=300,
+                            bbox_inches='tight'
+                        )
                         plt.close(f)
                         print(f"✅ PNG gerado: {plot_name}_{i}.png")
                 else:
-                    fig.savefig(f"{plot_name}.png", dpi=300, bbox_inches='tight')
+                    fig.savefig(
+                        f"{plot_name}.png",
+                        dpi=300,
+                        bbox_inches='tight'
+                    )
                     plt.close(fig)
                     print(f"✅ PNG gerado: {plot_name}.png")
 
-        # Gera PDF
+        # ==================================================================
+        # PDF - relatório consolidado
+        # ==================================================================
         if "pdf" in format:
-            from datetime import datetime
             from matplotlib.backends.backend_pdf import PdfPages
-            
-            pdf_filename = f"{self.model_type}-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
-            
+
+            pdf_filename = (
+                f"{self.model_type}-report-"
+                f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+            )
+
             with PdfPages(pdf_filename) as pdf:
-                # Página 1: Metadados
-                fig_meta, ax_meta = plt.subplots(figsize=(10, 6))
-                ax_meta.axis('off')
-                
-                metadata_text = (
-                    f"Model: {self.model_type}\n"
-                    f"Created: {datetime.now().isoformat()}\n"
-                    f"RAPID Version: 0.1.0\n\n"
-                    f"Key Metrics:\n"
-                )
+                # ==========================================================
+                # Página 1 - Cabeçalho + Contexto + Parâmetros + Métricas
+                # ==========================================================
+                fig, ax = plt.subplots(figsize=(11, 8.5))
+                ax.axis('off')
+
+                lines = []
+                sep = "=" * 70
+                thin = "-" * 70
+
+                # Header
+                lines.append(sep)
+                lines.append("ISARIC CLINICAL EPIDEMIOLOGY PLATFORM")
+                lines.append("RAPID - Reusable Analytics Pipeline for Infectious Disease")
+                lines.append(sep)
+                lines.append("")
+                lines.append(f"PIPELINE: {self.model_type}")
+
+                # Model summary
+                method = "Unknown"
+                framework = "Unknown"
+                if hasattr(self, 'model_info') and self.model_info:
+                    method = self.model_info.get('method', 'Unknown')
+                    framework = self.model_info.get('framework', 'Unknown')
+
+                lines.append(f"MODEL SUMMARY: {method.upper()}")
+                lines.append(f"Framework: {framework}")
+                lines.append(sep)
+                lines.append("")
+
+                # Model execution context
+                lines.append("MODEL EXECUTION CONTEXT")
+                lines.append(thin)
+                lines.append(f"  time_fit_was_run: {self._fit_at or 'Unknown'}")
+                lines.append(f"  rapid_version: {isaric.__version__}")
+                lines.append(f"  random_seed: {self._random_seed}")
+                lines.append("")
+
+                # Parameters
+                if hasattr(self, 'model_info') and self.model_info.get('parameters'):
+                    lines.append("PARAMETERS")
+                    lines.append(thin)
+                    for key, value in self.model_info['parameters'].items():
+                        if isinstance(value, float):
+                            value_str = f"{value:.4f}"
+                        else:
+                            value_str = str(value)
+                        lines.append(f"  {key:<25} {value_str}")
+                    lines.append("")
+
+                # Fit metrics
                 if self.metrics:
+                    lines.append("FIT METRICS")
+                    lines.append(thin)
                     for key, value in self.metrics.items():
-                        if key != 'confusion_matrix':
-                            metadata_text += f"  {key}: {value}\n"
-                
-                ax_meta.text(0.1, 0.9, metadata_text, fontsize=12, va='top', fontfamily='monospace')
-                pdf.savefig(fig_meta, bbox_inches='tight')
-                plt.close(fig_meta)
-                
-                # Páginas seguintes: Plots
-                for plot_name, plot_func in self.plots_map.items():
-                    fig = plot_func(backend="matplotlib")
-                    
-                    # Trata lista de figuras
+                        if key == 'confusion_matrix':
+                            continue
+                        if isinstance(value, float):
+                            value_str = f"{value:.4f}"
+                        else:
+                            value_str = str(value)
+                        lines.append(f"  {key:<25} {value_str}")
+                    lines.append("")
+
+                # Data size
+                if hasattr(self, 'model_info') and self.model_info:
+                    lines.append("DATA")
+                    lines.append(thin)
+                    for key in ['N_observations', 'N_events', 'N_censored',
+                                'N_features', 'N_variables', 'N_non_events']:
+                        if key in self.model_info:
+                            lines.append(
+                                f"  {key:<25} {self.model_info[key]}"
+                            )
+                    lines.append("")
+
+                text = "\n".join(lines)
+                ax.text(
+                    0.03, 0.97, text,
+                    fontsize=8, va='top', ha='left',
+                    fontfamily='monospace',
+                    transform=ax.transAxes
+                )
+                pdf.savefig(fig, bbox_inches='tight')
+                plt.close(fig)
+
+                # ==========================================================
+                # Página 2 - Parameter table
+                # ==========================================================
+                fig, ax = plt.subplots(figsize=(11, 8.5))
+                ax.axis('off')
+
+                lines = []
+                lines.append(sep)
+                lines.append("PARAMETER TABLE")
+                lines.append(sep)
+                lines.append("")
+
+                # Formata result_df como texto
+                result_str = self.result_df.to_string(index=False)
+                lines.append(result_str)
+
+                text = "\n".join(lines)
+                ax.text(
+                    0.03, 0.97, text,
+                    fontsize=7, va='top', ha='left',
+                    fontfamily='monospace',
+                    transform=ax.transAxes
+                )
+                pdf.savefig(fig, bbox_inches='tight')
+                plt.close(fig)
+
+                # ==========================================================
+                # Página 3 - Assumptions (se disponível)
+                # ==========================================================
+                if hasattr(self, 'assumptions') and self.assumptions:
+                    fig, ax = plt.subplots(figsize=(11, 8.5))
+                    ax.axis('off')
+
+                    lines = []
+                    lines.append(sep)
+                    lines.append("ASSUMPTION TESTS")
+                    lines.append(sep)
+                    lines.append("")
+
+                    def _fmt_assumption(v, indent=0):
+                        prefix = "  " * indent
+                        if isinstance(v, dict):
+                            out = []
+                            for k, val in v.items():
+                                if isinstance(val, (dict, list)):
+                                    out.append(f"{prefix}{k}:")
+                                    out.append(_fmt_assumption(val, indent + 1))
+                                else:
+                                    out.append(f"{prefix}{k}: {val}")
+                            return "\n".join(out)
+                        else:
+                            return f"{prefix}{v}"
+
+                    for key, value in self.assumptions.items():
+                        lines.append(f"{key}:")
+                        lines.append(_fmt_assumption(value, indent=1))
+                        lines.append("")
+
+                    text = "\n".join(lines)
+                    ax.text(
+                        0.03, 0.97, text,
+                        fontsize=8, va='top', ha='left',
+                        fontfamily='monospace',
+                        transform=ax.transAxes
+                    )
+                    pdf.savefig(fig, bbox_inches='tight')
+                    plt.close(fig)
+
+                # ==========================================================
+                # Páginas 4+ - plots
+                # ==========================================================
+                for plot_name in plots_to_report:
+                    if plot_name not in self.plots_map:
+                        continue
+
+                    fig = self.plots_map[plot_name](backend="matplotlib")
+
                     if isinstance(fig, list):
                         for i, f in enumerate(fig):
                             pdf.savefig(f, bbox_inches='tight')
@@ -577,7 +821,7 @@ class RAPID(ABC):
                         pdf.savefig(fig, bbox_inches='tight')
                         plt.close(fig)
                         print(f"✅ Plot adicionado ao PDF: {plot_name}")
-            
+
             print(f"✅ PDF consolidado: {pdf_filename}")
 
         self._transition_to(self._STATE_REPORTED)

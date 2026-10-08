@@ -44,7 +44,7 @@ def create_decision_tree_model(
     independent_vars: List[str],
     max_depth: Optional[int] = None,
     min_samples_split: int = 2,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[DecisionTreeClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a Decision Tree classifier (not fitted).
@@ -57,7 +57,7 @@ def create_decision_tree_model(
     model = DecisionTreeClassifier(
         max_depth=max_depth,
         min_samples_split=min_samples_split,
-        random_state=random_state,
+        random_state=random_seed,
         class_weight='balanced'
     )
 
@@ -70,7 +70,7 @@ def create_random_forest_model(
     independent_vars: List[str],
     n_estimators: int = 100,
     max_depth: Optional[int] = None,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[RandomForestClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a Random Forest classifier (not fitted).
@@ -83,7 +83,7 @@ def create_random_forest_model(
     model = RandomForestClassifier(
         n_estimators=n_estimators,
         max_depth=max_depth,
-        random_state=random_state,
+        random_state=random_seed,
         class_weight='balanced'
     )
 
@@ -97,7 +97,7 @@ def create_xgboost_model(
     n_estimators: int = 100,
     learning_rate: float = 0.1,
     max_depth: int = 6,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[XGBClassifier, pd.DataFrame, pd.Series]:
     """
     Configure an XGBoost classifier (not fitted).
@@ -111,7 +111,7 @@ def create_xgboost_model(
         n_estimators=n_estimators,
         learning_rate=learning_rate,
         max_depth=max_depth,
-        random_state=random_state,
+        random_state=random_seed,
         eval_metric='logloss'
     )
 
@@ -125,7 +125,7 @@ def create_lightgbm_model(
     n_estimators: int = 100,
     learning_rate: float = 0.1,
     num_leaves: int = 31,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[LGBMClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a LightGBM classifier (not fitted).
@@ -139,7 +139,7 @@ def create_lightgbm_model(
         n_estimators=n_estimators,
         learning_rate=learning_rate,
         num_leaves=num_leaves,
-        random_state=random_state,
+        random_state=random_seed,
         verbose=-1,
         class_weight='balanced'
     )
@@ -154,7 +154,7 @@ def create_catboost_model(
     iterations: int = 100,
     learning_rate: float = 0.1,
     depth: int = 6,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[CatBoostClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a CatBoost classifier (not fitted).
@@ -168,7 +168,7 @@ def create_catboost_model(
         iterations=iterations,
         learning_rate=learning_rate,
         depth=depth,
-        random_state=random_state,
+        random_state=random_seed,
         verbose=0,
         auto_class_weights='Balanced'
     )
@@ -250,15 +250,56 @@ class DecisionTree(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
+            "binned_residuals": self._binned_residuals,
         }
 
-    @classmethod
-    def create(cls, data, model="decision_tree", dependent_var=None,
-               independent_vars=None, **params):
-        model_config, X, y = create_decision_tree_model(
-            data, dependent_var, independent_vars, **params
+    def _binned_residuals(self, backend="plotly"):
+        """Generate binned residual plot."""
+        from isaric.visualization.lineplots import binned_residuals_plot
+        from isaric.modelevaluation.assumptions import test_binned_residuals
+
+        y_prob = self.fitted_model.predict_proba(self.X)
+        result = test_binned_residuals(self.y, y_prob)
+
+        return binned_residuals_plot(
+            bin_centers=result['bin_centers'],
+            mean_residuals=result['mean_residuals'],
+            lower_bound=result['lower_bound'],
+            upper_bound=result['upper_bound'],
+            n_per_bin=result['n_per_bin'],
+            title="Binned Residual Plot - Decision Tree",
+            backend=backend
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+    @classmethod
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "decision_tree",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "DecisionTree":
+        model_config, X, y = create_decision_tree_model(
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
+        )
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -298,10 +339,43 @@ class DecisionTree(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "scikit-learn",
+            "method": "Decision Tree Classifier",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "max_depth": self.fitted_model.max_depth,
+                "min_samples_split": self.fitted_model.min_samples_split,
+            },
+        }
+
+        if hasattr(self.fitted_model, 'max_depth'):
+            info["max_depth"] = self.fitted_model.max_depth
+        if hasattr(self.fitted_model, 'min_samples_split'):
+            info["min_samples_split"] = self.fitted_model.min_samples_split
+        if hasattr(self.fitted_model, 'get_depth'):
+            info["tree_depth"] = self.fitted_model.get_depth()
+        if hasattr(self.fitted_model, 'get_n_leaves'):
+            info["n_leaves"] = self.fitted_model.get_n_leaves()
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -321,8 +395,28 @@ class DecisionTree(RAPID):
         }
 
     def _check_assumptions(self):
-        from isaric.modelevaluation.assumptions import test_epv
-        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+        """Check model assumptions (VIF + binned residuals)."""
+        from isaric.modelevaluation.assumptions import (
+            test_vif,
+            test_epv,
+            test_binned_residuals
+        )
+
+        # VIF
+        vif_result = test_vif(self.X)
+
+        # EPV
+        epv_result = test_epv(self.y, n_predictors=len(self.X.columns))
+
+        # Binned residuals
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        binned_result = test_binned_residuals(self.y, y_prob)
+
+        return {
+            'vif': vif_result.to_dict(orient='records'),
+            'epv': epv_result,
+            'binned_residuals': binned_result,
+        }
 
     def _train_test_split(self, test_size=0.2):
         from isaric.modelevaluation.traintest import stratified_holdout
@@ -423,15 +517,55 @@ class RandomForest(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
+            "binned_residuals": self._binned_residuals,
         }
 
-    @classmethod
-    def create(cls, data, model="random_forest", dependent_var=None,
-               independent_vars=None, **params):
-        model_config, X, y = create_random_forest_model(
-            data, dependent_var, independent_vars, **params
+    def _binned_residuals(self, backend="plotly"):
+        """Generate binned residual plot."""
+        from isaric.visualization.lineplots import binned_residuals_plot
+        from isaric.modelevaluation.assumptions import test_binned_residuals
+
+        y_prob = self.fitted_model.predict_proba(self.X)
+        result = test_binned_residuals(self.y, y_prob)
+
+        return binned_residuals_plot(
+            bin_centers=result['bin_centers'],
+            mean_residuals=result['mean_residuals'],
+            lower_bound=result['lower_bound'],
+            upper_bound=result['upper_bound'],
+            n_per_bin=result['n_per_bin'],
+            title="Binned Residual Plot - Decision Tree",
+            backend=backend
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+    @classmethod
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "random_forest",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "RandomForest":
+        model_config, X, y = create_random_forest_model(
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
+        )
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -471,10 +605,39 @@ class RandomForest(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "scikit-learn",
+            "method": "Random Forest Classifier",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "n_estimators": self.fitted_model.n_estimators,
+                "max_depth": self.fitted_model.max_depth,
+            },
+        }
+
+        if hasattr(self.fitted_model, 'max_depth'):
+            info["max_depth"] = self.fitted_model.max_depth
+        if hasattr(self.fitted_model, 'oob_score_'):
+            info["oob_score"] = float(self.fitted_model.oob_score_)
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -491,8 +654,28 @@ class RandomForest(RAPID):
         }
 
     def _check_assumptions(self):
-        from isaric.modelevaluation.assumptions import test_epv
-        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+        """Check model assumptions (VIF + binned residuals)."""
+        from isaric.modelevaluation.assumptions import (
+            test_vif,
+            test_epv,
+            test_binned_residuals
+        )
+
+        # VIF
+        vif_result = test_vif(self.X)
+
+        # EPV
+        epv_result = test_epv(self.y, n_predictors=len(self.X.columns))
+
+        # Binned residuals
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        binned_result = test_binned_residuals(self.y, y_prob)
+
+        return {
+            'vif': vif_result.to_dict(orient='records'),
+            'epv': epv_result,
+            'binned_residuals': binned_result,
+        }
 
     def _train_test_split(self, test_size=0.2):
         from isaric.modelevaluation.traintest import stratified_holdout
@@ -589,15 +772,56 @@ class XGBoost(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
+            "binned_residuals": self._binned_residuals,
         }
 
-    @classmethod
-    def create(cls, data, model="xgboost", dependent_var=None,
-               independent_vars=None, **params):
-        model_config, X, y = create_xgboost_model(
-            data, dependent_var, independent_vars, **params
+    def _binned_residuals(self, backend="plotly"):
+        """Generate binned residual plot."""
+        from isaric.visualization.lineplots import binned_residuals_plot
+        from isaric.modelevaluation.assumptions import test_binned_residuals
+
+        y_prob = self.fitted_model.predict_proba(self.X)
+        result = test_binned_residuals(self.y, y_prob)
+
+        return binned_residuals_plot(
+            bin_centers=result['bin_centers'],
+            mean_residuals=result['mean_residuals'],
+            lower_bound=result['lower_bound'],
+            upper_bound=result['upper_bound'],
+            n_per_bin=result['n_per_bin'],
+            title="Binned Residual Plot - XGBoost",
+            backend=backend
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+    @classmethod
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "xgboost",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "XGBoost":
+        model_config, X, y = create_xgboost_model(
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
+        )
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -638,10 +862,42 @@ class XGBoost(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "xgboost",
+            "method": "XGBoost Classifier",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "n_estimators": self.fitted_model.n_estimators,
+                "max_depth": self.fitted_model.max_depth,
+                "learning_rate": self.fitted_model.learning_rate,
+            },
+        }
+
+        if hasattr(self.fitted_model, 'n_estimators'):
+            info["n_estimators"] = self.fitted_model.n_estimators
+        if hasattr(self.fitted_model, 'max_depth'):
+            info["max_depth"] = self.fitted_model.max_depth
+        if hasattr(self.fitted_model, 'learning_rate'):
+            info["learning_rate"] = self.fitted_model.learning_rate
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -658,8 +914,28 @@ class XGBoost(RAPID):
         }
 
     def _check_assumptions(self):
-        from isaric.modelevaluation.assumptions import test_epv
-        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+        """Check model assumptions (VIF + binned residuals)."""
+        from isaric.modelevaluation.assumptions import (
+            test_vif,
+            test_epv,
+            test_binned_residuals
+        )
+
+        # VIF
+        vif_result = test_vif(self.X)
+
+        # EPV
+        epv_result = test_epv(self.y, n_predictors=len(self.X.columns))
+
+        # Binned residuals
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        binned_result = test_binned_residuals(self.y, y_prob)
+
+        return {
+            'vif': vif_result.to_dict(orient='records'),
+            'epv': epv_result,
+            'binned_residuals': binned_result,
+        }
 
     def _train_test_split(self, test_size=0.2):
         from isaric.modelevaluation.traintest import stratified_holdout
@@ -756,15 +1032,55 @@ class LightGBM(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
+            "binned_residuals": self._binned_residuals,
         }
 
-    @classmethod
-    def create(cls, data, model="lightgbm", dependent_var=None,
-               independent_vars=None, **params):
-        model_config, X, y = create_lightgbm_model(
-            data, dependent_var, independent_vars, **params
+    def _binned_residuals(self, backend="plotly"):
+        """Generate binned residual plot."""
+        from isaric.visualization.lineplots import binned_residuals_plot
+        from isaric.modelevaluation.assumptions import test_binned_residuals
+
+        y_prob = self.fitted_model.predict_proba(self.X)
+        result = test_binned_residuals(self.y, y_prob)
+
+        return binned_residuals_plot(
+            bin_centers=result['bin_centers'],
+            mean_residuals=result['mean_residuals'],
+            lower_bound=result['lower_bound'],
+            upper_bound=result['upper_bound'],
+            n_per_bin=result['n_per_bin'],
+            title="Binned Residual Plot - Logistic Regression",
+            backend=backend
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+    @classmethod
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "lightgbm",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "LightGBM":
+        model_config, X, y = create_lightgbm_model(
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
+        )
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -804,10 +1120,42 @@ class LightGBM(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "lightgbm",
+            "method": "LightGBM Classifier",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "n_estimators": self.fitted_model.n_estimators,
+                "num_leaves": self.fitted_model.num_leaves,
+                "learning_rate": self.fitted_model.learning_rate,
+            },
+        }
+
+        if hasattr(self.fitted_model, 'n_estimators'):
+            info["n_estimators"] = self.fitted_model.n_estimators
+        if hasattr(self.fitted_model, 'num_leaves'):
+            info["num_leaves"] = self.fitted_model.num_leaves
+        if hasattr(self.fitted_model, 'learning_rate'):
+            info["learning_rate"] = self.fitted_model.learning_rate
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -824,8 +1172,28 @@ class LightGBM(RAPID):
         }
 
     def _check_assumptions(self):
-        from isaric.modelevaluation.assumptions import test_epv
-        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+        """Check model assumptions (VIF + binned residuals)."""
+        from isaric.modelevaluation.assumptions import (
+            test_vif,
+            test_epv,
+            test_binned_residuals
+        )
+
+        # VIF
+        vif_result = test_vif(self.X)
+
+        # EPV
+        epv_result = test_epv(self.y, n_predictors=len(self.X.columns))
+
+        # Binned residuals
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        binned_result = test_binned_residuals(self.y, y_prob)
+
+        return {
+            'vif': vif_result.to_dict(orient='records'),
+            'epv': epv_result,
+            'binned_residuals': binned_result,
+        }
 
     def _train_test_split(self, test_size=0.2):
         from isaric.modelevaluation.traintest import stratified_holdout
@@ -922,15 +1290,55 @@ class CatBoost(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
+            "binned_residuals": self._binned_residuals,
         }
 
-    @classmethod
-    def create(cls, data, model="catboost", dependent_var=None,
-               independent_vars=None, **params):
-        model_config, X, y = create_catboost_model(
-            data, dependent_var, independent_vars, **params
+    def _binned_residuals(self, backend="plotly"):
+        """Generate binned residual plot."""
+        from isaric.visualization.lineplots import binned_residuals_plot
+        from isaric.modelevaluation.assumptions import test_binned_residuals
+
+        y_prob = self.fitted_model.predict_proba(self.X)
+        result = test_binned_residuals(self.y, y_prob)
+
+        return binned_residuals_plot(
+            bin_centers=result['bin_centers'],
+            mean_residuals=result['mean_residuals'],
+            lower_bound=result['lower_bound'],
+            upper_bound=result['upper_bound'],
+            n_per_bin=result['n_per_bin'],
+            title="Binned Residual Plot - Logistic Regression",
+            backend=backend
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+    @classmethod
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "catboost",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "CatBoost":
+        model_config, X, y = create_catboost_model(
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
+        )
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -970,10 +1378,46 @@ class CatBoost(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "catboost",
+            "method": "CatBoost Classifier",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "iterations": self.fitted_model.tree_count_ if hasattr(self.fitted_model, 'tree_count_') else None,
+                "depth": self.fitted_model.get_all_params().get('depth', None) if hasattr(self.fitted_model, 'get_all_params') else None,
+            },
+        }
+
+        if hasattr(self.fitted_model, 'tree_count_'):
+            info["n_estimators"] = self.fitted_model.tree_count_
+        if hasattr(self.fitted_model, 'get_all_params'):
+            try:
+                params = self.fitted_model.get_all_params()
+                if 'depth' in params:
+                    info["depth"] = params['depth']
+                if 'learning_rate' in params:
+                    info["learning_rate"] = params['learning_rate']
+            except Exception:
+                pass
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -990,8 +1434,28 @@ class CatBoost(RAPID):
         }
 
     def _check_assumptions(self):
-        from isaric.modelevaluation.assumptions import test_epv
-        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+        """Check model assumptions (VIF + binned residuals)."""
+        from isaric.modelevaluation.assumptions import (
+            test_vif,
+            test_epv,
+            test_binned_residuals
+        )
+
+        # VIF
+        vif_result = test_vif(self.X)
+
+        # EPV
+        epv_result = test_epv(self.y, n_predictors=len(self.X.columns))
+
+        # Binned residuals
+        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        binned_result = test_binned_residuals(self.y, y_prob)
+
+        return {
+            'vif': vif_result.to_dict(orient='records'),
+            'epv': epv_result,
+            'binned_residuals': binned_result,
+        }
 
     def _train_test_split(self, test_size=0.2):
         from isaric.modelevaluation.traintest import stratified_holdout

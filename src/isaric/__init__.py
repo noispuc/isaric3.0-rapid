@@ -101,7 +101,6 @@ from isaric.preprocessing.encoding import (
 from isaric.preprocessing.scaling import (
     log_transform,
     boxcox_transform
-
 )
 from isaric.preprocessing.featureselection import (
     variance_threshold,
@@ -136,15 +135,6 @@ from isaric.modeling.predictive import (
     SVM,
     LogisticL2
 )
-from isaric.modelevaluation.assumptions import (
-    test_durbin_watson,
-    test_shapiro_wilk,
-    test_vif,
-    test_cooks_distance,
-    test_epv,
-    test_proportional_hazards,
-    likelihood_ratio_test
-)
 
 # ============================================================================
 # MODEL EVALUATION (Step 4)
@@ -173,6 +163,8 @@ from isaric.modelevaluation.calibration import (
     compute_brier_score,
     predicted_vs_observed,
     survival_calibration,
+    survival_brier_score,
+    survival_roc,
     residuals_vs_fitted,
     qq_plot
 )
@@ -181,6 +173,22 @@ from isaric.modelevaluation.traintest import (
     stratified_holdout,
     temporal_holdout,
     temporal_train_test_split
+)
+from isaric.modelevaluation.assumptions import (
+    test_durbin_watson,
+    test_shapiro_wilk,
+    test_vif,
+    test_cooks_distance,
+    test_epv,
+    test_proportional_hazards,
+    likelihood_ratio_test,
+    test_binned_residuals,
+    bootstrap_lrt_lca,
+)
+from isaric.modelevaluation.gridsearch import (
+    run_grid_search,
+    run_custom_grid_search,
+    run_clustering_grid_search,
 )
 
 # ============================================================================
@@ -196,7 +204,7 @@ from isaric.validation.bootstrap import (
     non_parametric_bootstrap,
     confidence_interval,
     bootstrap_metrics,
-    bootstrap_validate
+    bootstrap_c_index,
 )
 from isaric.validation.sensitivity import (
     alternative_missing_handling,
@@ -222,12 +230,16 @@ from isaric.validation.netprofit import (
 from isaric.visualization.barplots import (
     simple_bar_plot,
     grouped_bar_plot,
-    stacked_bar_plot
+    stacked_bar_plot,
+    histogram_plot,  
+    boxplot,         
 )
 from isaric.visualization.lineplots import (
     time_series_plot,
     multi_line_plot,
-    line_with_ci
+    line_with_ci,
+    binned_residuals_plot,
+    information_criteria_plot,
 )
 from isaric.visualization.upsetplots import (
     upset_plot,
@@ -237,12 +249,19 @@ from isaric.visualization.upsetplots import (
 from isaric.visualization.survivalcurves import (
     kaplan_meier_curve,
     compare_survival_curves,
-    baseline_survival_curve
+    baseline_survival_curve,
+    schoenfeld_residuals_plot,
+    martingale_residuals_plot,
+    deviance_residuals_plot,
+    brier_score_plot,
+    roc_time_dependent_plot,
+    calibration_plot
 )
 from isaric.visualization.heatmaps import (
     correlation_heatmap,
     confusion_matrix_heatmap,
-    lca_profile_heatmap
+    lca_profile_heatmap,
+    pairplot,
 )
 from isaric.visualization.forestplots import (
     odds_ratio_plot,
@@ -253,7 +272,6 @@ from isaric.visualization.sankey import (
     patient_pathway,
     cohort_flow
 )
-
 
 # ============================================================================
 # PUBLIC API
@@ -275,8 +293,14 @@ __all__ = [
     "key_based_deduplication",
     "linear_conversion",
     "lookup_tables",
+    "convert_temperature_celsius_to_fahrenheit",
+    "convert_temperature_fahrenheit_to_celsius",
+    "convert_weight_kg_to_lbs",
+    "convert_weight_lbs_to_kg",
     "frequency_ratio_analysis",
     "unique_value_count",
+    "get_zero_variance_features",
+    "get_near_zero_variance_features",
     "drop_rows",
     "drop_columns",
     "impute_mean",
@@ -285,14 +309,25 @@ __all__ = [
 
     # Data Preprocessing
     "Preprocess",
+    "simple_random_split",
+    "stratified_split",
+    "temporal_split",
     "mice_imputation",
     "vif_analysis",
+    "get_vif_table",
+    "pearson_correlation",
+    "get_correlation_pairs",
     "standardize",
     "minmax_scale",
     "onehot_encode",
+    "label_encode",
+    "target_encode",
     "log_transform",
     "boxcox_transform",
     "variance_threshold",
+    "lasso_selection",
+    "rfe_selection",
+    "filter_selection",
     "duration_encode",
     "cyclical_encode",
 
@@ -318,26 +353,92 @@ __all__ = [
     # Model Evaluation
     "compute_classification_metrics",
     "compute_regression_metrics",
+    "compute_information_criteria",
+    "compute_pseudo_r2",
     "compute_survival_metrics",
+    "compute_calibration_metrics",
+    "compute_clustering_metrics",
+    "select_classification_threshold",
     "kfold_cross_validation",
+    "repeated_kfold_cross_validation",
+    "stratified_kfold_cross_validation",
+    "out_of_fold_predictions",
+    "build_repeated_stratified_kfold",
+    "calibration_curve",
+    "binned_calibration",
     "compute_brier_score",
+    "predicted_vs_observed",
+    "survival_calibration",
+    "survival_brier_score",
+    "survival_roc",
+    "residuals_vs_fitted",
+    "qq_plot",
     "holdout_validation",
+    "stratified_holdout",
+    "temporal_holdout",
+    "temporal_train_test_split",
+    "test_durbin_watson",
+    "test_shapiro_wilk",
+    "test_vif",
+    "test_cooks_distance",
+    "test_epv",
+    "test_proportional_hazards",
+    "likelihood_ratio_test",
+    "run_grid_search",
+    "run_custom_grid_search",
+    "run_clustering_grid_search",
+    "test_binned_residuals",
+    "bootstrap_lrt_lca",
 
     # Validation
     "temporal_validation",
+    "geographic_validation",
+    "recalibration",
+    "non_parametric_bootstrap",
+    "confidence_interval",
     "bootstrap_metrics",
+    "bootstrap_c_index",
     "alternative_missing_handling",
+    "outlier_variation",
+    "outcome_variation",
     "stratified_metrics",
+    "stratified_regression",
+    "interaction_test",
     "decision_curve_analysis",
+    "net_benefit_curve",
+    "treat_all_none",
+    "clinical_utility_curve",
 
     # Visualization
     "simple_bar_plot",
+    "grouped_bar_plot",
+    "stacked_bar_plot",
     "time_series_plot",
+    "multi_line_plot",
+    "line_with_ci",
     "upset_plot",
+    "set_size_plot",
+    "intersection_size_plot",
     "kaplan_meier_curve",
+    "compare_survival_curves",
+    "baseline_survival_curve",
+    "schoenfeld_residuals_plot",
+    "martingale_residuals_plot",
+    "deviance_residuals_plot",
+    "brier_score_plot",
+    "roc_time_dependent_plot",
+    "calibration_plot",
     "correlation_heatmap",
     "confusion_matrix_heatmap",
+    "lca_profile_heatmap",
     "odds_ratio_plot",
     "hazard_ratio_plot",
+    "coefficient_plot",
     "patient_pathway",
+    "cohort_flow",
+    "binned_residuals_plot",
+    "information_criteria_plot",
+    "pairplot",
+    "histogram_plot",
+    "boxplot",
 ]

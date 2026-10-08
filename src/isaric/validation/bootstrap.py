@@ -10,6 +10,7 @@ Techniques:
 - non_parametric_bootstrap: Draw samples with replacement.
 - confidence_interval: Calculate confidence intervals from bootstrap.
 - bootstrap_metrics: Bootstrap performance metrics.
+- bootstrap_c_index: Bootstrap C-index for survival models.  # ← adicionar quando implementar B.1
 """
 
 import pandas as pd
@@ -170,10 +171,8 @@ def bootstrap_metrics(
         # Detecta se o metric_func aceita probabilidades
         metric_name = getattr(metric_func, '__name__', '')
 
-        if metric_name in ('roc_auc_score', 'concordance_index'):
-            value = metric_func(y_boot, y_pred)
-        elif metric_name == 'concordance_index':
-            # Para C-index: precisa do tempo também
+        if metric_name == 'roc_auc_score':
+            # Passa probabilidades diretamente
             value = metric_func(y_boot, y_pred)
         else:
             # Converte para classes binárias (threshold 0.5)
@@ -193,55 +192,63 @@ def bootstrap_metrics(
         'ci_upper': ci_upper
     }
 
-def bootstrap_validate(
+def bootstrap_c_index(
     fitted_model,
-    data: pd.DataFrame,
-    n_iter: int = 100,
-    random_state: int = 42,
-    **kwargs
+    model_data: pd.DataFrame,
+    duration_var: str,
+    event_var: str,
+    n_iterations: int = 1000,
+    random_state: int = 42
 ) -> Dict[str, np.ndarray]:
     """
-    Bootstrap validation for a fitted model.
+    Bootstrap C-index for survival models.
 
-    This function was previously used by the old model classes.
-    It is retained for backward compatibility and wraps bootstrap_metrics.
+    Each bootstrap sample re-samples the rows of model_data, computes
+    the partial hazard on the bootstrapped data, and calculates the
+    concordance index against the bootstrapped durations and events.
 
     Args:
-        fitted_model: Fitted model.
-        data: DataFrame used for fitting.
-        n_iter: Number of bootstrap iterations (default 100).
+        fitted_model: Fitted lifelines CoxPHFitter.
+        model_data: DataFrame used for fitting.
+        duration_var: Time-to-event column.
+        event_var: Event indicator column.
+        n_iterations: Number of bootstrap samples (default 1000).
         random_state: Seed for reproducibility.
-        **kwargs: Additional arguments (X, y, metric_func).
 
     Returns:
-        Dictionary with bootstrap results.
-
-    Raises:
-        ValueError: If X and y are not provided or in kwargs.
+        Dictionary with 'values', 'mean', 'ci_lower', 'ci_upper'.
     """
-    if 'X' in kwargs and 'y' in kwargs:
-        X = kwargs.pop('X')
-        y = kwargs.pop('y')
-    else:
-        # Try to infer from data (requires dependent_var)
+    from lifelines.utils import concordance_index
+
+    if n_iterations < 1:
         raise ValueError(
-            "X and y must be provided for bootstrap validation."
+            f"n_iterations must be at least 1. Received: {n_iterations}"
         )
 
-    metric_func = kwargs.pop('metric_func', None)
+    rng = np.random.default_rng(random_state)
+    n_samples = len(model_data)
+    bootstrap_values = []
 
-    results = bootstrap_metrics(
-        fitted_model,
-        X,
-        y,
-        n_iterations=n_iter,
-        metric_func=metric_func,
-        random_state=random_state
-    )
+    for _ in range(n_iterations):
+        indices = rng.integers(0, n_samples, n_samples)
+        data_boot = model_data.iloc[indices].reset_index(drop=True)
+
+        T_boot = data_boot[duration_var].values
+        E_boot = data_boot[event_var].values
+
+        # Partial hazard: risco previsto
+        risk_boot = fitted_model.predict_partial_hazard(data_boot).values
+
+        # Concordance index: risco alto → sobrevida curta
+        c_idx = concordance_index(T_boot, -risk_boot, E_boot)
+        bootstrap_values.append(c_idx)
+
+    values = np.array(bootstrap_values)
+    ci_lower, ci_upper = confidence_interval(values)
 
     return {
-        'values': results['values'],
-        'mean': results['mean'],
-        'ci_lower': results['ci_lower'],
-        'ci_upper': results['ci_upper']
+        'values': values,
+        'mean': float(np.mean(values)),
+        'ci_lower': ci_lower,
+        'ci_upper': ci_upper
     }

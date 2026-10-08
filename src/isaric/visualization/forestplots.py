@@ -247,7 +247,7 @@ def _build_forest_plotly(
     Build a Plotly forest plot.
     """
     plot_df = df.copy()
-    plot_df = plot_df.sort_values(by=effect_col, ascending=True)
+    plot_df = plot_df.sort_values(by=effect_col, ascending=True).reset_index(drop=True)
 
     traces = []
 
@@ -270,9 +270,61 @@ def _build_forest_plotly(
             hoverinfo='skip'
         ))
 
+    # Calcula range manualmente para evitar ticks esquisitos
+    all_values = pd.concat([
+        plot_df[effect_col],
+        plot_df[lower_col],
+        plot_df[upper_col]
+    ]).replace([np.inf, -np.inf], np.nan).dropna()
+
     xaxis_config = dict(title=xaxis_title)
+
     if log_scale:
         xaxis_config['type'] = 'log'
+
+        # Filtra só valores positivos (log não aceita <= 0)
+        positive_values = all_values[all_values > 0]
+
+        if len(positive_values) > 0:
+            x_min = positive_values.min()
+            x_max = positive_values.max()
+
+            # Margem de 5% em escala log
+            log_min = np.log10(x_min)
+            log_max = np.log10(x_max)
+            log_margin = (log_max - log_min) * 0.05
+
+            xaxis_config['range'] = [
+                log_min - log_margin,
+                log_max + log_margin
+            ]
+
+            # Ticks "bonitos": potências de 10 e alguns intermediários
+            # Ex: [0.1, 0.5, 1, 2, 5, 10, 50, 100]
+            tick_candidates = [
+                0.1, 0.2, 0.5,
+                1, 2, 5,
+                10, 20, 50,
+                100, 200, 500,
+                1000
+            ]
+            ticks = [
+                t for t in tick_candidates
+                if x_min * 0.9 <= t <= x_max * 1.1
+            ]
+            if ticks:
+                xaxis_config['tickvals'] = ticks
+                xaxis_config['ticktext'] = [
+                    str(t) for t in ticks
+                ]
+
+    else:
+        # Escala linear (coeficientes)
+        if len(all_values) > 0:
+            x_min = all_values.min()
+            x_max = all_values.max()
+            margin = (x_max - x_min) * 0.1
+            xaxis_config['range'] = [x_min - margin, x_max + margin]
 
     layout = go.Layout(
         title=title,
@@ -308,29 +360,14 @@ def _build_forest_plotly(
 # ============================================================================
 
 def _build_forest_matplotlib(
-    df: pd.DataFrame,
-    label_col: str,
-    effect_col: str,
-    lower_col: str,
-    upper_col: str,
-    title: str,
-    xaxis_title: str,
-    null_value: float,
-    log_scale: bool,
-    height: int,
-    width: int
-) -> plt.Figure:
-    """
-    Build a Matplotlib forest plot.
-    """
-    plot_df = df.copy()
-    plot_df = plot_df.sort_values(by=effect_col, ascending=True)
-    
+    df, label_col, effect_col, lower_col, upper_col,
+    title, xaxis_title, null_value, log_scale, height, width
+):
+    plot_df = df.copy().sort_values(by=effect_col, ascending=True).reset_index(drop=True)
     fig, ax = plt.subplots(figsize=(width/100, height/100))
-    
+
     y_positions = range(len(plot_df))
-    
-    # Plot confidence intervals
+
     for i, (_, row) in enumerate(plot_df.iterrows()):
         ax.plot(
             [row[lower_col], row[upper_col]],
@@ -338,33 +375,36 @@ def _build_forest_matplotlib(
             color='#2a9d8f',
             linewidth=2
         )
-    
-    # Plot point estimates
-    ax.scatter(
-        plot_df[effect_col],
-        y_positions,
-        color='#2a9d8f',
-        s=80,
-        zorder=5
-    )
-    
-    # Null effect line
+
+    ax.scatter(plot_df[effect_col], y_positions, color='#2a9d8f', s=80, zorder=5)
     ax.axvline(x=null_value, color='red', linestyle='--', linewidth=2)
-    
-    # Labels
+
     ax.set_yticks(list(y_positions))
     ax.set_yticklabels(plot_df[label_col].tolist())
     ax.set_xlabel(xaxis_title)
     ax.set_title(title)
-    
+
     if log_scale:
         ax.set_xscale('log')
-    
+
+        # Limits e ticks customizados
+        all_values = pd.concat([
+            plot_df[effect_col], plot_df[lower_col], plot_df[upper_col]
+        ]).replace([np.inf, -np.inf], np.nan).dropna()
+        positive = all_values[all_values > 0]
+        if len(positive) > 0:
+            ax.set_xlim(positive.min() * 0.9, positive.max() * 1.1)
+            ticks = [t for t in [0.1, 0.5, 1, 2, 5, 10, 100]
+                     if positive.min() * 0.9 <= t <= positive.max() * 1.1]
+            if ticks:
+                ax.set_xticks(ticks)
+                ax.set_xticklabels([str(t) for t in ticks])
+
     ax.grid(axis='x', alpha=0.3)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    
     fig.tight_layout()
+    
     return fig
 
 

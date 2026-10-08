@@ -142,7 +142,7 @@ def confusion_matrix_heatmap(
 
 def lca_profile_heatmap(
     class_profiles: pd.DataFrame,
-    n_components: Optional[int] = None,
+    n_clusters: Optional[int] = None,  # ← padronizado
     title: str = "LCA Class Profiles",
     colorscale: str = "viridis",
     height: int = 600,
@@ -157,7 +157,7 @@ def lca_profile_heatmap(
     Args:
         class_profiles: DataFrame with shape (n_classes, n_features)
             containing probabilities in [0, 1].
-        n_components: Number of latent classes (optional, for title).
+        n_clusters: Number of latent classes (optional, for title).
         title: Plot title.
         colorscale: Plotly colorscale name or Matplotlib colormap name.
         height: Figure height in pixels.
@@ -173,7 +173,7 @@ def lca_profile_heatmap(
     if backend == "plotly":
         return _lca_profile_plotly(
             class_profiles=class_profiles,
-            n_components=n_components,
+            n_clusters=n_clusters,
             title=title,
             colorscale=colorscale,
             height=height,
@@ -182,7 +182,7 @@ def lca_profile_heatmap(
     elif backend == "matplotlib":
         return _lca_profile_matplotlib(
             class_profiles=class_profiles,
-            n_components=n_components,
+            n_clusters=n_clusters,
             title=title,
             cmap=colorscale,
             height=height,
@@ -194,7 +194,7 @@ def lca_profile_heatmap(
 
 def lca_radar_plot(
     class_profiles: pd.DataFrame,
-    n_components: Optional[int] = None,
+    n_clusters: Optional[int] = None,
     title: str = "LCA Class Profiles (Radar)",
     colors: Optional[List[str]] = None,
     height: int = 600,
@@ -210,7 +210,7 @@ def lca_radar_plot(
     Args:
         class_profiles: DataFrame with shape (n_classes, n_features)
             containing probabilities in [0, 1].
-        n_components: Number of latent classes (optional, for title).
+        n_clusters: Number of latent classes (optional, for title).
         title: Plot title.
         colors: List of colors for each class.
         height: Figure height in pixels.
@@ -222,14 +222,75 @@ def lca_radar_plot(
     """
     if backend == "plotly":
         return _lca_radar_plotly(
-            class_profiles, n_components, title, colors, height, width
+            class_profiles, n_clusters, title, colors, height, width
         )
     elif backend == "matplotlib":
         return _lca_radar_matplotlib(
-            class_profiles, n_components, title, colors, height, width
+            class_profiles, n_clusters, title, colors, height, width
         )
     else:
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
+
+def pairplot(
+    data: pd.DataFrame,
+    variables: Optional[List[str]] = None,
+    group_col: Optional[str] = None,
+    title: str = "Pairplot",
+    height: int = 700,
+    width: int = 800,
+    backend: str = "plotly"
+):
+    """
+    Generate a pairplot (scatter matrix) for continuous variables.
+
+    Diagonal: distribution (histogram) of each variable.
+    Off-diagonal: scatter plots for each pair of variables.
+    If group_col is provided, points are colored by group.
+
+    Args:
+        data: Input DataFrame.
+        variables: List of numeric columns to include.
+            If None, uses all numeric columns.
+        group_col: Optional column for coloring points by group.
+        title: Plot title.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+
+    Raises:
+        ValueError: If variables not found or backend invalid.
+    """
+    if variables is None:
+        variables = data.select_dtypes(include=[np.number]).columns.tolist()
+
+    # Valida colunas
+    for col in variables:
+        if col not in data.columns:
+            raise ValueError(f"Column '{col}' not found in DataFrame.")
+        if not pd.api.types.is_numeric_dtype(data[col]):
+            raise ValueError(f"Column '{col}' must be numeric for pairplot.")
+
+    if len(variables) < 2:
+        raise ValueError("pairplot requires at least 2 numeric variables.")
+
+    if group_col is not None and group_col not in data.columns:
+        raise ValueError(f"Group column '{group_col}' not found in DataFrame.")
+
+    if backend == "plotly":
+        return _pairplot_plotly(
+            data, variables, group_col, title, height, width
+        )
+    elif backend == "matplotlib":
+        return _pairplot_matplotlib(
+            data, variables, group_col, title, height, width
+        )
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: {backend}"
+        )
 
 # ============================================================================
 # PLOTLY BACKEND
@@ -312,7 +373,7 @@ def _confusion_matrix_plotly(
 
 def _lca_profile_plotly(
     class_profiles: pd.DataFrame,
-    n_components: Optional[int],
+    n_clusters: Optional[int],
     title: str,
     colorscale: str,
     height: int,
@@ -333,8 +394,8 @@ def _lca_profile_plotly(
         colorbar=dict(title="Probability")
     ))
 
-    if n_components:
-        title = f"LCA Class Profiles (K={n_components})"
+    if n_clusters:
+        title = f"LCA Class Profiles (K={n_clusters})"
 
     fig.update_layout(
         title=title,
@@ -351,11 +412,12 @@ def _lca_profile_plotly(
 
 def _lca_radar_plotly(
     class_profiles: pd.DataFrame,
-    n_components: Optional[int],
-    title: str,
-    colors: Optional[List[str]],
-    height: int,
-    width: int
+    n_clusters: Optional[int] = None,
+    title: str = "LCA Class Profiles",
+    colorscale: str = "viridis",
+    height: int = 600,
+    width: int = 800,
+    backend: str = "plotly"
 ) -> go.Figure:
     """Build Plotly radar plot for LCA profiles."""
     features = class_profiles.columns.tolist()
@@ -381,8 +443,8 @@ def _lca_radar_plotly(
             opacity=0.6
         ))
 
-    if n_components:
-        title = f"LCA Class Profiles (K={n_components})"
+    if n_clusters:
+        title = f"LCA Class Profiles (K={n_clusters})"
 
     fig.update_layout(
         polar=dict(
@@ -399,6 +461,47 @@ def _lca_radar_plotly(
     )
 
     return fig
+
+def _pairplot_plotly(
+    data, variables, group_col, title, height, width
+) -> go.Figure:
+    """Build Plotly pairplot via scatter_matrix."""
+    import plotly.express as px
+
+    # Prepara DataFrame
+    cols = variables + ([group_col] if group_col else [])
+    df = data[cols].dropna()
+
+    if group_col:
+        fig = px.scatter_matrix(
+            df,
+            dimensions=variables,
+            color=group_col,
+            title=title,
+            height=height,
+            width=width
+        )
+    else:
+        fig = px.scatter_matrix(
+            df,
+            dimensions=variables,
+            title=title,
+            height=height,
+            width=width
+        )
+
+    fig.update_traces(
+        diagonal_visible=True,
+        marker=dict(size=4, opacity=0.6)
+    )
+
+    fig.update_layout(
+        template='plotly_white',
+        dragmode='select'
+    )
+
+    return fig
+
 
 # ============================================================================
 # MATPLOTLIB BACKEND
@@ -481,7 +584,7 @@ def _confusion_matrix_matplotlib(
 
 def _lca_profile_matplotlib(
     class_profiles: pd.DataFrame,
-    n_components: Optional[int],
+    n_clusters: Optional[int],
     title: str,
     cmap: str,
     height: int,
@@ -508,8 +611,8 @@ def _lca_profile_matplotlib(
                 fontsize=8
             )
     
-    if n_components:
-        title = f"LCA Class Profiles (K={n_components})"
+    if n_clusters:
+        title = f"LCA Class Profiles (K={n_clusters})"
     
     ax.set_xlabel('Variables')
     ax.set_ylabel('Latent Class')
@@ -520,7 +623,7 @@ def _lca_profile_matplotlib(
 
 def _lca_radar_matplotlib(
     class_profiles: pd.DataFrame,
-    n_components: Optional[int],
+    n_clusters: Optional[int],
     title: str,
     colors: Optional[List[str]],
     height: int,
@@ -554,5 +657,83 @@ def _lca_radar_matplotlib(
     ax.set_title(title)
     ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
 
+    fig.tight_layout()
+    return fig
+
+def _pairplot_matplotlib(
+    data, variables, group_col, title, height, width
+) -> plt.Figure:
+    """Build Matplotlib pairplot (scatter matrix)."""
+    import matplotlib.pyplot as plt
+    from pandas.plotting import scatter_matrix
+
+    cols = variables + ([group_col] if group_col else [])
+    df = data[cols].dropna()
+
+    if group_col:
+        # Colorir por grupo
+        groups = df[group_col].unique()
+        colors = plt.cm.Set2(np.linspace(0, 1, len(groups)))
+        color_map = {g: colors[i] for i, g in enumerate(groups)}
+
+        fig, axes = plt.subplots(
+            len(variables), len(variables),
+            figsize=(width/100, height/100)
+        )
+        # Garante matriz 2D mesmo se len(variables) == 1
+        if len(variables) == 1:
+            axes = np.array([[axes]])
+
+        for i, var_i in enumerate(variables):
+            for j, var_j in enumerate(variables):
+                ax = axes[i, j]
+                if i == j:
+                    # Diagonal: histograma por grupo
+                    for g in groups:
+                        ax.hist(
+                            df[df[group_col] == g][var_i],
+                            bins=20, alpha=0.5,
+                            color=color_map[g], label=str(g)
+                        )
+                else:
+                    # Off-diagonal: scatter por grupo
+                    for g in groups:
+                        sub = df[df[group_col] == g]
+                        ax.scatter(
+                            sub[var_j], sub[var_i],
+                            s=8, alpha=0.6,
+                            color=color_map[g], label=str(g)
+                        )
+                # Labels apenas nas bordas
+                if i == len(variables) - 1:
+                    ax.set_xlabel(var_j)
+                if j == 0:
+                    ax.set_ylabel(var_i)
+                ax.tick_params(labelsize=7)
+
+        # Legenda em um dos subplots
+        if len(groups) > 1:
+            axes[0, -1].legend(
+                loc='upper right',
+                fontsize=7,
+                frameon=True
+            )
+    else:
+        # Sem grupo: scatter_matrix do pandas
+        fig, axes = plt.subplots(
+            len(variables), len(variables),
+            figsize=(width/100, height/100)
+        )
+        scatter_matrix(
+            df[variables],
+            alpha=0.5,
+            figsize=(width/100, height/100),
+            diagonal='hist',
+            ax=axes,
+            marker='o',
+            s=10
+        )
+
+    fig.suptitle(title, fontsize=12)
     fig.tight_layout()
     return fig

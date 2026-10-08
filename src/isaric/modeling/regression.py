@@ -518,7 +518,26 @@ class LogisticRegression(RAPID):
             "forest_plot": self._forest_plot,
             "confusion_matrix": self._confusion_matrix,
             "calibration_curve": self._calibration_plot,
+            "binned_residuals": self._binned_residuals,
         }
+
+    def _binned_residuals(self, backend="plotly"):
+        """Generate binned residual plot."""
+        from isaric.visualization.lineplots import binned_residuals_plot
+        from isaric.modelevaluation.assumptions import test_binned_residuals
+
+        y_prob = self.fitted_model.predict(self.X)
+        result = test_binned_residuals(self.y, y_prob)
+
+        return binned_residuals_plot(
+            bin_centers=result['bin_centers'],
+            mean_residuals=result['mean_residuals'],
+            lower_bound=result['lower_bound'],
+            upper_bound=result['upper_bound'],
+            n_per_bin=result['n_per_bin'],
+            title="Binned Residual Plot - Logistic Regression",
+            backend=backend
+        )
 
     @classmethod
     def create(
@@ -643,13 +662,63 @@ class LogisticRegression(RAPID):
     def _calculate_metrics(self, metrics=None):
         """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
-        
+
         y_prob = self.fitted_model.predict(self.X)
         y_pred = (y_prob >= 0.5).astype(int)
-        
-        return compute_classification_metrics(
+
+        result = compute_classification_metrics(
             self.y, y_pred, y_prob=y_prob
         )
+
+        # ============ MODEL INFO ============
+        import numpy as np
+        info = {
+            "model_type": self.model_type,
+            "framework": "statsmodels",
+            "method": "Binomial GLM",
+            "link_function": type(self.fitted_model.family.link).__name__,
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_events": int(self.y.sum()),
+            "N_non_events": int((1 - self.y).sum()),
+            "N_features": self.X.shape[1],
+            "parameters": {
+                "link": self.link if hasattr(self, 'link') else "logit",
+            },
+        }
+
+        if hasattr(self.fitted_model, 'converged'):
+            info["converged"] = bool(self.fitted_model.converged)
+
+        if hasattr(self.fitted_model, 'llf'):
+            info["log_likelihood"] = float(self.fitted_model.llf)
+        if hasattr(self.fitted_model, 'aic'):
+            info["aic"] = float(self.fitted_model.aic)
+        if hasattr(self.fitted_model, 'bic'):
+            info["bic"] = float(self.fitted_model.bic)
+
+        try:
+            ll_model = self.fitted_model.llf
+            ll_null = self.fitted_model.llnull
+            info["mcfadden_r2"] = float(1 - (ll_model / ll_null))
+        except Exception:
+            pass
+
+        try:
+            y_array = np.asarray(self.y).ravel()
+            fitted = np.asarray(self.fitted_model.fittedvalues).ravel()
+            y_mean = y_array.mean()
+            efron = 1 - (
+                np.sum((y_array - fitted) ** 2) /
+                np.sum((y_array - y_mean) ** 2)
+            )
+            info["efron_r2"] = float(efron)
+        except Exception:
+            pass
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         """Execute k-fold cross-validation."""
@@ -689,11 +758,25 @@ class LogisticRegression(RAPID):
         }
 
     def _check_assumptions(self):
-        """Check model assumptions."""
-        from isaric.modelevaluation.assumptions import test_epv
-        
+        """Check model assumptions (VIF + binned residuals)."""
+        from isaric.modelevaluation.assumptions import (
+            test_vif,
+            test_epv,
+            test_binned_residuals
+        )
+
+        # VIF
+        vif_result = test_vif(self.X)
+        # EPV
+        epv_result = test_epv(self.y, n_predictors=len(self.X.columns))
+        # Binned residuals
+        y_prob = self.fitted_model.predict(self.X)
+        binned_result = test_binned_residuals(self.y, y_prob)
+
         return {
-            'epv': test_epv(self.y, n_predictors=len(self.X.columns))
+            'vif': vif_result.to_dict(orient='records'),
+            'epv': epv_result,
+            'binned_residuals': binned_result,
         }
 
     def _train_test_split(self, test_size=0.2):
@@ -958,10 +1041,10 @@ class GLM(RAPID):
             compute_information_criteria,
             compute_pseudo_r2
         )
-        
+
         y_pred = self.fitted_model.predict(self.X)
         result = compute_regression_metrics(self.y, y_pred)
-        
+
         if hasattr(self.fitted_model, 'llf'):
             info_criteria = compute_information_criteria(
                 self.fitted_model,
@@ -969,14 +1052,43 @@ class GLM(RAPID):
                 n_params=len(self.X.columns)
             )
             result.update(info_criteria)
-            
+
             pseudo_r2 = compute_pseudo_r2(
                 self.fitted_model,
                 self.y,
                 y_pred
             )
             result.update(pseudo_r2)
-        
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "statsmodels",
+            "method": "Generalized Linear Model",
+            "family": type(self.fitted_model.family).__name__,
+            "link_function": type(self.fitted_model.family.link).__name__,
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "parameters": {
+                "family": getattr(self, 'family', 'gaussian'),
+                "link": getattr(self, 'link', 'identity'),
+            },
+        }
+
+        if hasattr(self.fitted_model, 'converged'):
+            info["converged"] = bool(self.fitted_model.converged)
+        if hasattr(self.fitted_model, 'llf'):
+            info["log_likelihood"] = float(self.fitted_model.llf)
+        if hasattr(self.fitted_model, 'aic'):
+            info["aic"] = float(self.fitted_model.aic)
+        if hasattr(self.fitted_model, 'bic'):
+            info["bic"] = float(self.fitted_model.bic)
+        if hasattr(self.fitted_model, 'deviance'):
+            info["deviance"] = float(self.fitted_model.deviance)
+
+        self.model_info = info
+
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
@@ -1016,23 +1128,31 @@ class GLM(RAPID):
         }
 
     def _check_assumptions(self):
-        """Check model assumptions."""
+        """Check model assumptions (VIF + binned residuals)."""
         from isaric.modelevaluation.assumptions import (
             test_durbin_watson,
             test_shapiro_wilk,
             test_vif,
-            test_cooks_distance
+            test_cooks_distance,
+            test_binned_residuals
         )
-        
+
         residuals = self.y - self.fitted_model.predict(self.X)
-        
+
+        # Binned residuals (para modelos com família binomial)
+        binned_result = None
+        if isinstance(self.fitted_model.family, sm.families.Binomial):
+            y_prob = self.fitted_model.predict(self.X)
+            binned_result = test_binned_residuals(self.y, y_prob)
+
         return {
             'durbin_watson': test_durbin_watson(residuals),
             'shapiro_wilk': test_shapiro_wilk(residuals),
-            'vif': test_vif(self.X),
+            'vif': test_vif(self.X).to_dict(orient='records'),
             'cooks_distance': test_cooks_distance(
                 self.fitted_model, self.X, self.y
-            )
+            ),
+            'binned_residuals': binned_result,
         }
 
     def _train_test_split(self, test_size=0.2):

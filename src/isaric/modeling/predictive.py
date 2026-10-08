@@ -40,7 +40,7 @@ def create_lasso_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure a LASSO (L1) logistic regression model (not fitted).
@@ -54,7 +54,7 @@ def create_lasso_model(
         penalty='l1',
         solver='liblinear',
         C=C,
-        random_state=random_state,
+        random_state=random_seed,
         max_iter=1000,
         class_weight='balanced'
     )
@@ -67,7 +67,7 @@ def create_ridge_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure a Ridge (L2) logistic regression model (not fitted).
@@ -81,7 +81,7 @@ def create_ridge_model(
         penalty='l2',
         solver='lbfgs',
         C=C,
-        random_state=random_state,
+        random_state=random_seed,
         max_iter=1000,
         class_weight='balanced'
     )
@@ -95,7 +95,7 @@ def create_elastic_net_model(
     independent_vars: List[str],
     C: float = 1.0,
     l1_ratio: float = 0.5,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure an Elastic Net logistic regression model (not fitted).
@@ -110,7 +110,7 @@ def create_elastic_net_model(
         solver='saga',
         C=C,
         l1_ratio=l1_ratio,
-        random_state=random_state,
+        random_state=random_seed,
         max_iter=1000,
         class_weight='balanced'
     )
@@ -124,7 +124,7 @@ def create_svm_model(
     independent_vars: List[str],
     C: float = 1.0,
     kernel: str = "rbf",
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[SVC, pd.DataFrame, pd.Series]:
     """
     Configure a Support Vector Machine (SVM) classifier (not fitted).
@@ -138,7 +138,7 @@ def create_svm_model(
         C=C,
         kernel=kernel,
         probability=True,
-        random_state=random_state,
+        random_state=random_seed,
         class_weight='balanced'
     )
 
@@ -150,7 +150,7 @@ def create_logistic_l2_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_state: int = 42
+    random_seed=42
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure a Logistic Regression with L2 penalty (predictive focus).
@@ -159,7 +159,7 @@ def create_logistic_l2_model(
         Tuple of (model, X, y).
     """
     return create_ridge_model(
-        data, dependent_var, independent_vars, C=C, random_state=random_state
+        data, dependent_var, independent_vars, C=C, random_state=random_seed
     )
 
 
@@ -243,12 +243,34 @@ class Lasso(RAPID):
         }
 
     @classmethod
-    def create(cls, data, model="lasso", dependent_var=None,
-               independent_vars=None, **params):
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "lasso",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "Lasso":
         model_config, X, y = create_lasso_model(
-            data, dependent_var, independent_vars, **params
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -287,10 +309,40 @@ class Lasso(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "scikit-learn",
+            "method": "Logistic Regression (L1)",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "C": self.fitted_model.C,
+                "penalty": "l1",
+                "solver": self.fitted_model.solver,
+            },
+        }
+        if hasattr(self.fitted_model, 'C'):
+            info["C"] = float(self.fitted_model.C)
+        if hasattr(self.fitted_model, 'coef_'):
+            n_nonzero = int((self.fitted_model.coef_ != 0).sum())
+            info["n_selected_features"] = n_nonzero
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -408,12 +460,34 @@ class Ridge(RAPID):
         }
 
     @classmethod
-    def create(cls, data, model="ridge", dependent_var=None,
-               independent_vars=None, **params):
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "ridge",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "Ridge":
         model_config, X, y = create_ridge_model(
-            data, dependent_var, independent_vars, **params
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -452,10 +526,38 @@ class Ridge(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "scikit-learn",
+            "method": "Logistic Regression (L2)",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "C": self.fitted_model.C,
+                "penalty": "l2",
+                "solver": self.fitted_model.solver,
+            },
+        }
+
+        if hasattr(self.fitted_model, 'C'):
+            info["C"] = float(self.fitted_model.C)
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -573,12 +675,34 @@ class ElasticNet(RAPID):
         }
 
     @classmethod
-    def create(cls, data, model="elastic_net", dependent_var=None,
-               independent_vars=None, **params):
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "elastic_net",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "ElasticNet":
         model_config, X, y = create_elastic_net_model(
-            data, dependent_var, independent_vars, **params
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -618,10 +742,43 @@ class ElasticNet(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "scikit-learn",
+            "method": "Logistic Regression (Elastic Net)",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "C": self.fitted_model.C,
+                "l1_ratio": self.fitted_model.l1_ratio,
+                "penalty": "elasticnet",
+            },
+        }
+
+        if hasattr(self.fitted_model, 'C'):
+            info["C"] = float(self.fitted_model.C)
+        if hasattr(self.fitted_model, 'l1_ratio') and self.fitted_model.l1_ratio is not None:
+            info["l1_ratio"] = float(self.fitted_model.l1_ratio)
+        if hasattr(self.fitted_model, 'coef_'):
+            n_nonzero = int((self.fitted_model.coef_ != 0).sum())
+            info["n_selected_features"] = n_nonzero
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -738,12 +895,33 @@ class SVM(RAPID):
         }
 
     @classmethod
-    def create(cls, data, model="svm", dependent_var=None,
-               independent_vars=None, **params):
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "svm",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "SVM":
         model_config, X, y = create_svm_model(
-            data, dependent_var, independent_vars, **params
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -786,10 +964,42 @@ class SVM(RAPID):
         })
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "scikit-learn",
+            "method": "Support Vector Machine",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "C": self.fitted_model.C,
+                "kernel": self.fitted_model.kernel,
+                "gamma": str(self.fitted_model.gamma),
+            },
+        }
+
+        if hasattr(self.fitted_model, 'C'):
+            info["C"] = float(self.fitted_model.C)
+        if hasattr(self.fitted_model, 'gamma'):
+            info["gamma"] = str(self.fitted_model.gamma)
+        if hasattr(self.fitted_model, 'n_support_'):
+            info["n_support_vectors"] = int(self.fitted_model.n_support_.sum())
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
@@ -898,12 +1108,34 @@ class LogisticL2(RAPID):
         }
 
     @classmethod
-    def create(cls, data, model="logistic_l2", dependent_var=None,
-               independent_vars=None, **params):
+    def create(
+        cls,
+        data: pd.DataFrame,
+        model: str = "logistic_l2",
+        dependent_var: Optional[str] = None,
+        independent_vars: Optional[List[str]] = None,
+        random_seed: int = 42,
+        **params
+    ) -> "LogisticL2":
         model_config, X, y = create_logistic_l2_model(
-            data, dependent_var, independent_vars, **params
+            data=data,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            random_seed=random_seed,
+            **params
         )
-        return cls(model_config, X, y, dependent_var, independent_vars, **params)
+
+        instance = cls(
+            model=model_config,
+            X=X,
+            y=y,
+            dependent_var=dependent_var,
+            independent_vars=independent_vars,
+            **params
+        )
+        instance._random_seed = random_seed
+        
+        return instance
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
@@ -942,10 +1174,37 @@ class LogisticL2(RAPID):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
+        """Calculate classification metrics."""
         from isaric.modelevaluation.metrics import compute_classification_metrics
+
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
         y_pred = (y_prob >= 0.5).astype(int)
-        return compute_classification_metrics(self.y, y_pred, y_prob=y_prob)
+
+        result = compute_classification_metrics(
+            self.y, y_pred, y_prob=y_prob
+        )
+
+        # ============ MODEL INFO ============
+        info = {
+            "model_type": self.model_type,
+            "framework": "scikit-learn",
+            "method": "Logistic Regression (L2)",
+            "random_seed": self._random_seed,
+            "N_observations": len(self.y),
+            "N_features": self.X.shape[1],
+            "N_events": int(self.y.sum()),
+            "parameters": {
+                "C": self.fitted_model.C,
+                "penalty": "l2",
+            },
+        }
+
+        if hasattr(self.fitted_model, 'C'):
+            info["C"] = float(self.fitted_model.C)
+
+        self.model_info = info
+
+        return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
