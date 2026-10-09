@@ -277,7 +277,7 @@ class SurvivalCox(RAPID):
         labels: Optional[Dict[str, str]] = None,
         **params
     ) -> "SurvivalCox":
-        model_config, model_data, time_unit, formula, event_var = create_survival_model(
+        model_config, model_data, time_unit, formula, event_var, target_time = create_survival_model(
             data=data,
             duration_var=duration_var,
             event_var=event_var,
