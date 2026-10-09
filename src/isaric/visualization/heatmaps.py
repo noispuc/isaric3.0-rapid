@@ -412,12 +412,11 @@ def _lca_profile_plotly(
 
 def _lca_radar_plotly(
     class_profiles: pd.DataFrame,
-    n_clusters: Optional[int] = None,
-    title: str = "LCA Class Profiles",
-    colorscale: str = "viridis",
-    height: int = 600,
-    width: int = 800,
-    backend: str = "plotly"
+    n_clusters: Optional[int],
+    title: str,
+    colors: Optional[List[str]],
+    height: int,
+    width: int
 ) -> go.Figure:
     """Build Plotly radar plot for LCA profiles."""
     features = class_profiles.columns.tolist()
@@ -654,10 +653,15 @@ def _lca_radar_matplotlib(
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(features)
     ax.set_ylim(0, 1)
+
+    if n_clusters:
+        title = f"LCA Class Profiles (K={n_clusters})"
+
     ax.set_title(title)
     ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
 
     fig.tight_layout()
+    
     return fig
 
 def _pairplot_matplotlib(
