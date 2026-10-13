@@ -447,9 +447,7 @@ def bootstrap_stepmix(
     for rep in range(n_bootstrap):
         # Resample data
         if parametric:
-            X_rep, Y_rep, _ = fitted_estimator.sample(
-                n_samples, random_state=rng
-            )
+            X_rep, Y_rep, _ = fitted_estimator.sample(n_samples)
         else:
             idx = rng.choice(n_samples, size=n_samples, replace=True)
             X_rep = X[idx]
