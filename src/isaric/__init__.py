@@ -244,13 +244,14 @@ from isaric.visualization.lineplots import (
     line_with_ci,
     binned_residuals_plot,
     information_criteria_plot,
+    grid_search_metric_plot,
     selection_rate_plot,
+    bootstrap_ci_plot, 
 )
 from isaric.visualization.upsetplots import (
     upset_plot,
     set_size_plot,
     intersection_size_plot,
-    grid_search_metric_plot,
 )
 from isaric.visualization.survivalcurves import (
     kaplan_meier_curve,
