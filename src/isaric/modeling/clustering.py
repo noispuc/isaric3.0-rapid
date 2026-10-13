@@ -505,19 +505,39 @@ class LCA(RAPID):
         var_relevance_df = pd.DataFrame(var_relevance_dict).T
         var_relevance_df.index.name = "n_clusters"
 
+        # ave_pp: DataFrame com padding (k varia por linha)
+        max_k = max(len(v) for v in ave_pp_dict.values()) if ave_pp_dict else 0
+        ave_pp_rows = []
+        ave_pp_index = []
+        for k, vals in ave_pp_dict.items():
+            ave_pp_rows.append(list(vals) + [np.nan] * (max_k - len(vals)))
+            ave_pp_index.append(k)
+        ave_pp_df = pd.DataFrame(
+            ave_pp_rows,
+            index=ave_pp_index,
+            columns=[f"Class_{i+1}" for i in range(max_k)]
+        )
+        ave_pp_df.index.name = "n_clusters"
+
+        # occ_ratios: mesmo tratamento
+        occ_rows = []
+        occ_index = []
+        for k, vals in occ_ratios_dict.items():
+            occ_rows.append(list(vals) + [np.nan] * (max_k - len(vals)))
+            occ_index.append(k)
+        occ_df = pd.DataFrame(
+            occ_rows,
+            index=occ_index,
+            columns=[f"Class_{i+1}" for i in range(max_k)]
+        )
+        occ_df.index.name = "n_clusters"
+
         self.DiagClass = {
             'posterior_prob': pd.concat(post_prob_dict, axis=1),
-            'ave_pp': pd.DataFrame(ave_pp_dict).T,
-            'occ_ratios': pd.DataFrame(occ_ratios_dict).T,
+            'ave_pp': ave_pp_df,
+            'occ_ratios': occ_df,
             'var_relevance': var_relevance_df,
         }
-        # Renomeia colunas para ficar claro
-        self.DiagClass['ave_pp'].columns = [
-            f"Class_{i}" for i in range(self.DiagClass['ave_pp'].shape[1])
-        ]
-        self.DiagClass['occ_ratios'].columns = [
-            f"Class_{i}" for i in range(self.DiagClass['occ_ratios'].shape[1])
-        ]
 
         # O fitted_model default é o do best_k (sugestão)
         self._model = model_objects[best_k]
