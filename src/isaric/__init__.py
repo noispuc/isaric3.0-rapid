@@ -184,6 +184,10 @@ from isaric.modelevaluation.assumptions import (
     likelihood_ratio_test,
     test_binned_residuals,
     bootstrap_lrt_lca,
+    bootstrap_stepmix,
+    bootstrap_lrt_stepmix,
+    bootstrap_ci_stepmix,
+    bootstrap_selection_rate,
 )
 from isaric.modelevaluation.gridsearch import (
     run_grid_search,
@@ -240,11 +244,13 @@ from isaric.visualization.lineplots import (
     line_with_ci,
     binned_residuals_plot,
     information_criteria_plot,
+    selection_rate_plot,
 )
 from isaric.visualization.upsetplots import (
     upset_plot,
     set_size_plot,
-    intersection_size_plot
+    intersection_size_plot,
+    grid_search_metric_plot,
 )
 from isaric.visualization.survivalcurves import (
     kaplan_meier_curve,
@@ -262,6 +268,7 @@ from isaric.visualization.heatmaps import (
     confusion_matrix_heatmap,
     lca_profile_heatmap,
     pairplot,
+    crosstab_heatmap,
 )
 from isaric.visualization.forestplots import (
     odds_ratio_plot,
@@ -389,6 +396,11 @@ __all__ = [
     "run_clustering_grid_search",
     "test_binned_residuals",
     "bootstrap_lrt_lca",
+    "bootstrap_stepmix",
+    "bootstrap_lrt_stepmix",
+    "bootstrap_ci_stepmix",
+    "bootstrap_ci_plot",
+    "bootstrap_selection_rate",
 
     # Validation
     "temporal_validation",
@@ -441,4 +453,7 @@ __all__ = [
     "pairplot",
     "histogram_plot",
     "boxplot",
+    "grid_search_metric_plot",
+    "crosstab_heatmap",
+    "selection_rate_plot",
 ]

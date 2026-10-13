@@ -197,6 +197,7 @@ def lca_radar_plot(
     n_clusters: Optional[int] = None,
     title: str = "LCA Class Profiles (Radar)",
     colors: Optional[List[str]] = None,
+    class_names: Optional[List[str]] = None,
     height: int = 600,
     width: int = 800,
     backend: str = "plotly"
@@ -213,6 +214,8 @@ def lca_radar_plot(
         n_clusters: Number of latent classes (optional, for title).
         title: Plot title.
         colors: List of colors for each class.
+        class_names: List of display names for each class (optional).
+            If None, uses the DataFrame index (e.g., "Class_1", ...).
         height: Figure height in pixels.
         width: Figure width in pixels.
         backend: "plotly" or "matplotlib".
@@ -222,11 +225,11 @@ def lca_radar_plot(
     """
     if backend == "plotly":
         return _lca_radar_plotly(
-            class_profiles, n_clusters, title, colors, height, width
+            class_profiles, n_clusters, title, colors, class_names, height, width
         )
     elif backend == "matplotlib":
         return _lca_radar_matplotlib(
-            class_profiles, n_clusters, title, colors, height, width
+            class_profiles, n_clusters, title, colors, class_names, height, width
         )
     else:
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
@@ -286,6 +289,56 @@ def pairplot(
     elif backend == "matplotlib":
         return _pairplot_matplotlib(
             data, variables, group_col, title, height, width
+        )
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: {backend}"
+        )
+
+
+def crosstab_heatmap(
+    crosstab: pd.DataFrame,
+    title: str = "Crosstab",
+    normalize: bool = False,
+    colorscale: str = "Blues",
+    height: int = 500,
+    width: int = 700,
+    backend: str = "plotly"
+):
+    """
+    Generate a heatmap from a crosstab (classes x outcome).
+
+    Args:
+        crosstab: DataFrame from pd.crosstab (rows = classes,
+            columns = outcome categories).
+        title: Plot title.
+        normalize: If True, normalize by row (percentage per class).
+        colorscale: Plotly colorscale name or Matplotlib colormap name.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+    """
+    if normalize:
+        # Normaliza por linha (cada classe soma 100%)
+        row_sums = crosstab.sum(axis=1)
+        data = crosstab.div(row_sums, axis=0) * 100
+        text = np.round(data.values, 1).astype(str)
+        colorbar_title = "% (row)"
+    else:
+        data = crosstab
+        text = crosstab.values.astype(str)
+        colorbar_title = "Count"
+
+    if backend == "plotly":
+        return _crosstab_heatmap_plotly(
+            data, text, title, colorscale, colorbar_title, height, width
+        )
+    elif backend == "matplotlib":
+        return _crosstab_heatmap_matplotlib(
+            data, text, title, colorscale, colorbar_title, height, width
         )
     else:
         raise ValueError(
@@ -415,21 +468,31 @@ def _lca_radar_plotly(
     n_clusters: Optional[int],
     title: str,
     colors: Optional[List[str]],
+    class_names: Optional[List[str]],
     height: int,
     width: int
 ) -> go.Figure:
     """Build Plotly radar plot for LCA profiles."""
     features = class_profiles.columns.tolist()
-    n_features = len(features)
 
     if colors is None:
         colors = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261',
                   '#8a5a44', '#a8dadc', '#457b9d', '#e63946', '#06d6a0']
 
+    # Nomes de exibição para as classes
+    if class_names is not None:
+        if len(class_names) != len(class_profiles):
+            raise ValueError(
+                f"class_names has length {len(class_names)}, "
+                f"but there are {len(class_profiles)} classes."
+            )
+        labels = list(class_names)
+    else:
+        labels = list(class_profiles.index)
+
     fig = go.Figure()
 
     for i, (class_name, row) in enumerate(class_profiles.iterrows()):
-        # Fecha o polígono (repetir o primeiro valor no final)
         values = row.values.tolist() + [row.values[0]]
         angles = features + [features[0]]
 
@@ -437,7 +500,7 @@ def _lca_radar_plotly(
             r=values,
             theta=angles,
             fill='toself',
-            name=str(class_name),
+            name=str(labels[i]),
             line=dict(color=colors[i % len(colors)], width=2),
             opacity=0.6
         ))
@@ -501,6 +564,33 @@ def _pairplot_plotly(
 
     return fig
 
+def _crosstab_heatmap_plotly(
+    data, text, title, colorscale, colorbar_title, height, width
+) -> go.Figure:
+    """Build Plotly crosstab heatmap."""
+    fig = go.Figure(data=go.Heatmap(
+        z=data.values,
+        x=data.columns.tolist(),
+        y=data.index.tolist(),
+        colorscale=colorscale,
+        text=text,
+        texttemplate='%{text}',
+        textfont=dict(size=12),
+        hovertemplate='Class: %{y}<br>Outcome: %{x}<br>Value: %{z:.2f}<extra></extra>',
+        colorbar=dict(title=colorbar_title)
+    ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title='Outcome',
+        yaxis_title='Class',
+        height=height,
+        width=width,
+        template='plotly_white',
+        yaxis=dict(autorange='reversed')
+    )
+
+    return fig
 
 # ============================================================================
 # MATPLOTLIB BACKEND
@@ -625,6 +715,7 @@ def _lca_radar_matplotlib(
     n_clusters: Optional[int],
     title: str,
     colors: Optional[List[str]],
+    class_names: Optional[List[str]],
     height: int,
     width: int
 ) -> plt.Figure:
@@ -635,6 +726,17 @@ def _lca_radar_matplotlib(
     if colors is None:
         colors = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261',
                   '#8a5a44', '#a8dadc', '#457b9d', '#e63946', '#06d6a0']
+
+    # Nomes de exibição para as classes
+    if class_names is not None:
+        if len(class_names) != len(class_profiles):
+            raise ValueError(
+                f"class_names has length {len(class_names)}, "
+                f"but there are {len(class_profiles)} classes."
+            )
+        labels = list(class_names)
+    else:
+        labels = list(class_profiles.index)
 
     # Ângulos
     angles = np.linspace(0, 2 * np.pi, n_features, endpoint=False).tolist()
@@ -647,7 +749,7 @@ def _lca_radar_matplotlib(
         values = row.values.tolist() + [row.values[0]]
 
         ax.plot(angles, values, 'o-', linewidth=2,
-                color=colors[i % len(colors)], label=str(class_name))
+                color=colors[i % len(colors)], label=str(labels[i]))
         ax.fill(angles, values, alpha=0.2, color=colors[i % len(colors)])
 
     ax.set_xticks(angles[:-1])
@@ -661,7 +763,6 @@ def _lca_radar_matplotlib(
     ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
 
     fig.tight_layout()
-    
     return fig
 
 def _pairplot_matplotlib(
@@ -739,5 +840,34 @@ def _pairplot_matplotlib(
         )
 
     fig.suptitle(title, fontsize=12)
+    fig.tight_layout()
+    return fig
+
+
+def _crosstab_heatmap_matplotlib(
+    data, text, title, cmap, colorbar_title, height, width
+) -> plt.Figure:
+    """Build Matplotlib crosstab heatmap."""
+    fig, ax = plt.subplots(figsize=(width/100, height/100))
+
+    im = ax.imshow(data.values, cmap=cmap, aspect='auto')
+
+    ax.set_xticks(range(len(data.columns)))
+    ax.set_yticks(range(len(data.index)))
+    ax.set_xticklabels(data.columns.tolist(), rotation=45, ha='right')
+    ax.set_yticklabels(data.index.tolist())
+
+    # Texto
+    for i in range(len(data.index)):
+        for j in range(len(data.columns)):
+            ax.text(
+                j, i, text[i][j] if isinstance(text, np.ndarray) else str(text[i][j]),
+                ha='center', va='center', fontsize=10
+            )
+
+    ax.set_xlabel('Outcome')
+    ax.set_ylabel('Class')
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax, label=colorbar_title)
     fig.tight_layout()
     return fig
