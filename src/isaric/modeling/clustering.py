@@ -258,7 +258,13 @@ class LCA(RAPID):
         super().__init__()
 
     def _setup_plots_map(self):
-        """Configure available plots for LCA."""
+        """
+        Configure base plots available for LCA.
+
+        Bootstrap plots are excluded here — they are added by
+        _update_plots_map_after_fit() only when bootstrap_likelihood=True
+        was passed to fit().
+        """
         self.plots_map = {
             "profile_heatmap": self._profile_heatmap,
             "cluster_distribution": self._cluster_distribution,
@@ -267,11 +273,32 @@ class LCA(RAPID):
             "ll_curve": self._ll_curve,
             "entropy_curve": self._entropy_curve,
             "relative_entropy_curve": self._relative_entropy_curve,
-            "bootstrap_bic_ci": self._bootstrap_bic_ci,
-            "bootstrap_entropy_ci": self._bootstrap_entropy_ci,
             "crosstab": self._crosstab,
-            "selection_rate": self._selection_rate,
         }
+
+    def _update_plots_map_after_fit(self):
+        """
+        Extend plots_map after fit() based on what was executed.
+
+        Called at the end of _calculate_metrics() so the state is known.
+        - crosstab: only when outcome was provided in create().
+        - bootstrap plots: only when bootstrap_likelihood=True was used.
+        """
+        # Crosstab only when outcome was provided
+        if self.outcome is None or self.outcome_data is None:
+            self.plots_map.pop("crosstab", None)
+
+        # Bootstrap plots only when BLRT was executed
+        blrt_available = (
+            hasattr(self, 'lrt_results')
+            and self.lrt_results is not None
+            and self.lrt_results.get('blrt') is not None
+            and not self.lrt_results['blrt'].empty
+        )
+        if blrt_available:
+            self.plots_map["bootstrap_bic_ci"] = self._bootstrap_bic_ci
+            self.plots_map["bootstrap_entropy_ci"] = self._bootstrap_entropy_ci
+            self.plots_map["selection_rate"] = self._selection_rate
 
     @classmethod
     def create(
@@ -325,7 +352,9 @@ class LCA(RAPID):
             **params
         )
         instance._random_seed = random_seed
-
+        instance._n_init = n_init
+        instance._max_iter = max_iter
+        
         return instance
 
     # ======================================================================
@@ -334,41 +363,59 @@ class LCA(RAPID):
 
     def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
         """
-        Train LCA model, optionally with class enumeration grid search.
+        Train LCA model with class enumeration over all k in param_grid.
 
-        When grid_search=True, trains ALL k in the range and stores
-        each fitted model in self.model_objects (dict k → StepMix).
-        The user can later explore alternatives via summary(k=N).
+        Always runs class enumeration regardless of grid_search value.
+        AIC, BIC, CAIC, SABIC, entropy, relative_entropy are always computed
+        for every k tested. No automatic k selection is performed — the user
+        decides k after reviewing grid_results.
 
-        The selection_metric determines which k is used as the DEFAULT
-        (self.fitted_model). It does NOT prevent exploration of others.
+        The Bootstrapped LRT (BLRT) only runs when bootstrap_likelihood=True
+        was passed to fit(). The nested LRT (chi-square approximation) always
+        runs.
 
         Args:
-            grid_search: Enable class enumeration.
-            param_grid: {"n_clusters": [2, 3, 4, 5]} or None (default 2..10).
-            selection_metric: "BIC", "AIC", "CAIC", "SABIC", or "auto" (=BIC).
+            grid_search: Ignored for LCA — class enumeration always runs.
+            param_grid: {"n_clusters": [1, 2, 3, ...]}.
+                If None, defaults to range [1 .. n_clusters] where n_clusters
+                is the value from create(). A warning is emitted.
+            selection_metric: Metric used only to set the reference pointer
+                for fitted_model. Does NOT select the final model.
+                Options: "BIC" (default), "AIC", "CAIC", "SABIC".
 
         Returns:
-            Fitted StepMix model (the default one, per selection_metric).
+            Fitted StepMix for the reference k (n_clusters from create()).
         """
-
+        import warnings
         from scipy import stats
-        
-        # Auto-ativa grid_search se param_grid foi passado
-        if not grid_search and param_grid is not None:
-            grid_search = True
 
-        # LCA exige grid search ou n_clusters explícito
-        if not grid_search and param_grid is None:
-            raise ValueError(
-                "LCA requires class enumeration. "
-                "Pass either `grid_search=True` or "
-                "`param_grid={'n_clusters': [...]}`."
-            )
-        
-        # ============ GRID SEARCH ============
+        # Read flags set by create() and fit()
+        bootstrap_likelihood = getattr(self, '_bootstrap_likelihood', False)
+        n_init = getattr(self, '_n_init', 5)
+        max_iter = getattr(self, '_max_iter', 500)
+
+        # ── Default param_grid ────────────────────────────────────────────
         if param_grid is None:
-            param_grid = {"n_clusters": list(range(2, 11))}
+            k_max = max(self.n_clusters, 2)
+            param_grid = {"n_clusters": list(range(1, k_max + 1))}
+            warnings.warn(
+                f"[LCA] No param_grid specified. "
+                f"Testing k = 1 to {k_max} (n_clusters from create()). "
+                f"Pass param_grid={{'n_clusters': [1, 2, ...]}} to customize the range.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+        # ── Parameter transparency ────────────────────────────────────────
+        k_values = param_grid.get("n_clusters", [self.n_clusters])
+        warnings.warn(
+            f"[LCA] Class enumeration: k = {k_values}. "
+            f"Parameters: n_init={n_init}, max_iter={max_iter}, "
+            f"random_state={self._random_seed}. "
+            f"Adjust via create(n_init=..., max_iter=..., random_seed=...).",
+            UserWarning,
+            stacklevel=3,
+        )
 
         if selection_metric == "auto":
             selection_metric = "BIC"
@@ -378,21 +425,20 @@ class LCA(RAPID):
 
         results = []
         model_objects = {}
-        best_score = np.inf
-        best_k = self.n_clusters
 
-        # Buffers para diagnóstico (Fase 1.1)
-        post_prob_dict = {}     # k → DataFrame de posteriors
-        ave_pp_dict = {}        # k → list de AvePP por classe
-        occ_ratios_dict = {}    # k → list de OCC por classe
-        var_relevance_dict = {} # k → Series (max por variável)
+        # Buffers for diagnostics
+        post_prob_dict = {}
+        ave_pp_dict = {}
+        occ_ratios_dict = {}
+        var_relevance_dict = {}
 
-        for k in param_grid.get("n_clusters", [self.n_clusters]):
+        # ── Class enumeration loop ────────────────────────────────────────
+        for k in k_values:
             model = StepMix(
                 n_components=k,
                 measurement="bernoulli",
-                n_init=5,
-                max_iter=500,
+                n_init=n_init,
+                max_iter=max_iter,
                 random_state=self._random_seed,
                 verbose=0,
             )
@@ -407,17 +453,15 @@ class LCA(RAPID):
             sabic = -2 * ll + npar * np.log(n_samples * ((n_samples + 2) / 24))
             entropy = model.entropy(self.X)
 
-            # Entropia relativa (Fase 1.1 - arquivo 8)
             relentropy = (
                 1 - entropy / (n_samples * np.log(k))
                 if k > 1 else np.nan
             )
 
-            # Graus de liberdade (Fase 1.1 - arquivo 8)
             dof = (2 ** n_col) - ((k - 1) + n_col * 2)
 
-            # === Diagnóstico: AvePP, OCC, min_mm_f, min_class_perc ===
-            post_probs = model.predict_proba(self.X)  # (n_samples, k)
+            # Diagnostics: AvePP, OCC
+            post_probs = model.predict_proba(self.X)
             post_probs_df = pd.DataFrame(
                 post_probs,
                 columns=[f"Class_{i}" for i in range(k)],
@@ -429,7 +473,6 @@ class LCA(RAPID):
 
             ave_pp = []
             for i in range(k):
-                # Média dos posteriors dos pacientes atribuídos à classe i
                 mask = (modal_classes == i)
                 if mask.sum() > 0:
                     ave_pp.append(float(post_probs[mask, i].mean()))
@@ -437,8 +480,7 @@ class LCA(RAPID):
                     ave_pp.append(np.nan)
             ave_pp_dict[k] = ave_pp
 
-            # OCC (Odds of Correct Classification)
-            pi = model.weights_  # prior
+            pi = model.weights_
             occ_ratios = []
             for i in range(k):
                 if np.isnan(ave_pp[i]) or ave_pp[i] >= 1:
@@ -452,19 +494,14 @@ class LCA(RAPID):
                 occ_ratios.append(odds_correct / odds_prior)
             occ_ratios_dict[k] = occ_ratios
 
-            # Variável mais relevante: max do perfil por variável
-            # get_mm_df() retorna DataFrame com multi-índice (model_name, param, variable)
             try:
                 mmdf = model.get_mm_df()
-                # Cada coluna é uma classe; pegamos o max por variável
-                # e depois o mínimo entre variáveis (variável menos relevante)
-                var_max = mmdf.max(axis=1)  # max por variável (entre classes)
+                var_max = mmdf.max(axis=1)
                 var_relevance_dict[k] = var_max
                 min_mm_f = float(var_max.min())
             except Exception:
                 min_mm_f = np.nan
 
-            # min_class_perc: menor % de classe
             min_class_perc = float(model.weights_.min() * 100)
 
             results.append({
@@ -487,28 +524,30 @@ class LCA(RAPID):
 
             model_objects[k] = model
 
-            metric_value = {
-                'BIC': bic, 'AIC': aic, 'CAIC': caic, 'SABIC': sabic
-            }.get(selection_metric, bic)
-
-            if metric_value < best_score:
-                best_score = metric_value
-                best_k = k
-
-        # ============ GUARDA RESULTADOS ============
+        # ── Store grid results ────────────────────────────────────────────
         self.grid_results = pd.DataFrame(results)
         self.model_objects = model_objects
-        self.best_params = {"n_clusters": best_k}
-        self.selection_metric = selection_metric
 
-        # Diagnósticos completos (Fase 1.1)
+        # ── Reference model: n_clusters from create(), NOT auto-selected ─
+        # The user decides k after reviewing grid_results and the plots.
+        ref_k = self.n_clusters
+        if ref_k not in model_objects:
+            ref_k = min(model_objects.keys())
+            warnings.warn(
+                f"[LCA] n_clusters={self.n_clusters} (from create()) is not in "
+                f"the tested range {sorted(model_objects.keys())}. "
+                f"Using k={ref_k} as the reference model. "
+                f"Review grid_results to select the appropriate k.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+        # ── Diagnostics DataFrames ────────────────────────────────────────
         var_relevance_df = pd.DataFrame(var_relevance_dict).T
         var_relevance_df.index.name = "n_clusters"
 
-        # ave_pp: DataFrame com padding (k varia por linha)
         max_k = max(len(v) for v in ave_pp_dict.values()) if ave_pp_dict else 0
-        ave_pp_rows = []
-        ave_pp_index = []
+        ave_pp_rows, ave_pp_index = [], []
         for k, vals in ave_pp_dict.items():
             ave_pp_rows.append(list(vals) + [np.nan] * (max_k - len(vals)))
             ave_pp_index.append(k)
@@ -519,9 +558,7 @@ class LCA(RAPID):
         )
         ave_pp_df.index.name = "n_clusters"
 
-        # occ_ratios: mesmo tratamento
-        occ_rows = []
-        occ_index = []
+        occ_rows, occ_index = [], []
         for k, vals in occ_ratios_dict.items():
             occ_rows.append(list(vals) + [np.nan] * (max_k - len(vals)))
             occ_index.append(k)
@@ -539,22 +576,18 @@ class LCA(RAPID):
             'var_relevance': var_relevance_df,
         }
 
-        # O fitted_model default é o do best_k (sugestão)
-        self._model = model_objects[best_k]
-        self.n_clusters = best_k  # ← CORRIGIDO
-
-        # ============ NESTED LRT (com dof correto) ============
+        # ── Nested LRT (always computed) ──────────────────────────────────
         nested_rows = []
         df_grid = self.grid_results.sort_values('n_clusters').reset_index(drop=True)
         for i in range(1, len(df_grid)):
             k_curr = int(df_grid.loc[i, 'n_clusters'])
-            k_prev = int(df_grid.loc[i-1, 'n_clusters'])
+            k_prev = int(df_grid.loc[i - 1, 'n_clusters'])
             if k_curr - k_prev != 1:
                 continue
             ll_curr = float(df_grid.loc[i, 'LL'])
-            ll_prev = float(df_grid.loc[i-1, 'LL'])
+            ll_prev = float(df_grid.loc[i - 1, 'LL'])
             npar_curr = int(df_grid.loc[i, 'n_par'])
-            npar_prev = int(df_grid.loc[i-1, 'n_par'])
+            npar_prev = int(df_grid.loc[i - 1, 'n_par'])
             dof_diff = npar_curr - npar_prev
             lr_stat = max(0.0, 2 * (ll_curr - ll_prev))
             p_value = float(stats.chi2.sf(lr_stat, dof_diff)) if dof_diff > 0 else np.nan
@@ -568,18 +601,28 @@ class LCA(RAPID):
                 'p_value': p_value,
             })
 
-        self.nested_models_lrt = pd.DataFrame(nested_rows) if nested_rows else pd.DataFrame()
-
-        # ============ LRT bootstrapped (Fase 2 vai refinar) ============
-        self.lrt_results = self._run_lrt(
-            k_values=param_grid.get("n_clusters", [self.n_clusters]),
-            n_bootstraps=50
+        self.nested_models_lrt = (
+            pd.DataFrame(nested_rows) if nested_rows else pd.DataFrame()
         )
-        # Anexa o nested LRT já calculado
-        if not self.nested_models_lrt.empty:
-            self.lrt_results['nested'] = self.nested_models_lrt
 
-        return self._model
+        # ── Bootstrapped LRT (only if bootstrap_likelihood=True) ──────────
+        if bootstrap_likelihood:
+            self.lrt_results = self._run_lrt(
+                k_values=k_values,
+                n_bootstraps=50,
+            )
+            if not self.nested_models_lrt.empty:
+                self.lrt_results['nested'] = self.nested_models_lrt
+        else:
+            self.lrt_results = {
+                'nested': self.nested_models_lrt,
+                'blrt': None,
+                'ci_bootstrap': None,
+                'bootstrap_stats': None,
+                'selection_rate': None,
+            }
+
+        return model_objects[ref_k]
 
     def _build_result_df(self):
         """Build class profiles DataFrame."""
@@ -610,16 +653,18 @@ class LCA(RAPID):
             "N_variables": self.X.shape[1],
             "parameters": {
                 "measurement": "bernoulli",
-                "n_init": 5,
-                "max_iter": 500,
-                "n_clusters": self.n_clusters,
+                "n_init": getattr(self, '_n_init', 5),
+                "max_iter": getattr(self, '_max_iter', 500),
+                "n_clusters_tested": sorted(self.model_objects.keys()) if hasattr(self, 'model_objects') else self.n_clusters,
+                "n_clusters_reference": self.fitted_model.n_components,
             },
         }
 
-        # Diagnósticos do k ativo (Fase 1.1)
+        # Diagnósticos do k de referência (fitted_model)
         if hasattr(self, 'grid_results') and self.grid_results is not None:
+            ref_k = self.fitted_model.n_components
             row = self.grid_results[
-                self.grid_results['n_clusters'] == self.n_clusters
+                self.grid_results['n_clusters'] == ref_k
             ]
             if len(row) > 0:
                 row = row.iloc[0]
@@ -680,12 +725,16 @@ class LCA(RAPID):
             except Exception as e:
                 info["outcome_error"] = str(e)
 
-        # ============ ADICIONA LRT E BEST_PARAMS ============
+            # ============ ADICIONA LRT ============
         if hasattr(self, 'lrt_results') and self.lrt_results:
-            if self.lrt_results.get('nested') is not None:
-                info["lrt_nested"] = self.lrt_results['nested'].to_dict(orient='records')
-            if self.lrt_results.get('bootstrapped') is not None:
-                info["lrt_bootstrapped"] = self.lrt_results['bootstrapped']
+            nested = self.lrt_results.get('nested')
+            if nested is not None and not nested.empty:
+                info["lrt_nested"] = nested.to_dict(orient='records')
+
+            # BLRT só aparece no model_info se foi executado
+            blrt = self.lrt_results.get('blrt')
+            if blrt is not None and not blrt.empty:
+                info["lrt_blrt"] = blrt.to_dict(orient='records')
 
         if hasattr(self.fitted_model, 'converged_'):
             info["converged"] = bool(self.fitted_model.converged_)
@@ -696,10 +745,17 @@ class LCA(RAPID):
         if 'entropy' in result and result['entropy'] is not None:
             info["entropy"] = result['entropy']
 
-        if hasattr(self, 'best_params') and self.best_params:
-            info["best_params"] = str(self.best_params)
+        # Referência: k do fitted_model (não selecionado automaticamente)
+        info["reference_k"] = self.fitted_model.n_components
+        info["note"] = (
+            "No automatic k selection. Review grid_results and plots "
+            "to decide the appropriate number of classes."
+        )
 
         self.model_info = info
+
+        # Atualiza plots_map com base no que foi executado
+        self._update_plots_map_after_fit()
 
         return result
 
@@ -759,7 +815,7 @@ class LCA(RAPID):
             - 'ci_bootstrap' (DataFrame): Bias-corrected CIs.
             - 'bootstrap_stats' (DataFrame): Full bootstrap stats per k.
         """
-        from isaric.modelevaluation.assumptions import (
+        from isaric.modelevaluation.gridsearch import (
             bootstrap_stepmix,
             bootstrap_lrt_stepmix,
             bootstrap_ci_stepmix,
@@ -872,7 +928,7 @@ class LCA(RAPID):
 
         if results.get('bootstrap_stats') is not None:
             try:
-                from isaric.modelevaluation.assumptions import bootstrap_selection_rate
+                from isaric.modelevaluation.gridsearch import bootstrap_selection_rate
                 sel_rate = bootstrap_selection_rate(
                     bootstrap_stats=results['bootstrap_stats'],
                     k_col='n_clusters',

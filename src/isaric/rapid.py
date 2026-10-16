@@ -224,7 +224,8 @@ class RAPID(ABC):
         test_size: float = 0.2,
         grid_search: bool = False,
         param_grid: Optional[Dict[str, List[Any]]] = None,
-        selection_metric: str = "auto"
+        selection_metric: str = "auto",
+        bootstrap_likelihood: bool = False,
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
@@ -255,6 +256,10 @@ class RAPID(ABC):
                 If None, uses model-specific default.
             selection_metric: Metric to optimize during grid search.
                 "auto" uses model-specific default.
+            bootstrap_likelihood: Enable Bootstrapped Likelihood Ratio Test
+                (BLRT). Only applicable to LCA models. Computationally
+                expensive — runs one bootstrap per consecutive pair (k-1, k).
+                Default False.
 
         Returns:
             self for method chaining.
@@ -265,6 +270,9 @@ class RAPID(ABC):
         self._check_state(self._STATE_CREATED, "fit")
 
         from datetime import datetime
+
+        # Store bootstrap_likelihood flag for subclasses that need it (e.g. LCA)
+        self._bootstrap_likelihood = bootstrap_likelihood
 
         # Auto-ativa grid_search se param_grid foi passado
         if not grid_search and param_grid is not None:

@@ -183,16 +183,17 @@ from isaric.modelevaluation.assumptions import (
     test_proportional_hazards,
     likelihood_ratio_test,
     test_binned_residuals,
-    bootstrap_lrt_lca,
-    bootstrap_stepmix,
-    bootstrap_lrt_stepmix,
-    bootstrap_ci_stepmix,
-    bootstrap_selection_rate,
+
 )
 from isaric.modelevaluation.gridsearch import (
     run_grid_search,
     run_custom_grid_search,
     run_clustering_grid_search,
+    bootstrap_lrt_lca,
+    bootstrap_stepmix,
+    bootstrap_lrt_stepmix,
+    bootstrap_ci_stepmix,
+    bootstrap_selection_rate,
 )
 
 # ============================================================================
