@@ -214,6 +214,68 @@ def _build_result_df(
     return result_df
 
 
+def _bootstrap_sklearn_coefficients(
+    fitted_model,
+    X: pd.DataFrame,
+    y: pd.Series,
+    n_iterations: int = 1000,
+    bootstrap_type: str = "bias_corrected",
+    random_state: int = 42,
+) -> dict:
+    """
+    Bootstrap confidence intervals and p-values for sklearn coefficients.
+
+    Uses bootstrap_coefficients() with a fit_func that clones the fitted
+    model, refits on bootstrap samples, and extracts coef_.flatten().
+
+    Args:
+        fitted_model: Fitted sklearn model with coef_ attribute.
+        X: Predictor matrix.
+        y: Outcome vector.
+        n_iterations: Number of bootstrap samples.
+        bootstrap_type: CI type ('percentile', 'bias_corrected', 'bca').
+            Default 'bias_corrected'.
+        random_state: Seed for reproducibility.
+
+    Returns:
+        Dictionary with:
+        - 'coefficients': DataFrame with Feature, observed (coefficient),
+          bootstrap_mean, bootstrap_se, ci_lower, ci_upper,
+          bootstrap_p_value, bootstrap_type, n_iterations.
+        - 'bootstrap_type': type used.
+        - 'n_iterations': iterations run.
+    """
+    from sklearn.base import clone
+    from isaric.modelevaluation.bootstrap import bootstrap_coefficients
+
+    feature_names = list(X.columns) if hasattr(X, 'columns') else None
+
+    def fit_func(X_boot, y_boot):
+        try:
+            model_boot = clone(fitted_model)
+            model_boot.fit(X_boot, y_boot)
+            return model_boot.coef_.flatten()
+        except Exception:
+            n = X_boot.shape[1] if hasattr(X_boot, 'shape') else len(feature_names or [])
+            return np.full(n, np.nan)
+
+    df = bootstrap_coefficients(
+        X=X,
+        y=y,
+        fit_func=fit_func,
+        n_iterations=n_iterations,
+        bootstrap_type=bootstrap_type,
+        variable_names=feature_names,
+        random_state=random_state,
+    )
+
+    return {
+        'coefficients': df,
+        'bootstrap_type': bootstrap_type,
+        'n_iterations': n_iterations,
+    }
+
+
 # ============================================================================
 # SUBCLASSES (INHERIT FROM RAPID)
 # ============================================================================
@@ -374,10 +436,29 @@ class Lasso(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals and p-values for coefficients.
+
+        Uses bias_corrected CI by default for regularized linear models.
+        bootstrap_type is read from fit() via self._bootstrap_type.
+
+        Returns:
+            Dictionary with coefficients DataFrame (Feature, observed,
+            bootstrap_mean, bootstrap_se, ci_lower, ci_upper,
+            bootstrap_p_value, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'bias_corrected'
+
+        return _bootstrap_sklearn_coefficients(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
 
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling
@@ -589,10 +670,29 @@ class Ridge(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals and p-values for coefficients.
+
+        Uses bias_corrected CI by default for regularized linear models.
+        bootstrap_type is read from fit() via self._bootstrap_type.
+
+        Returns:
+            Dictionary with coefficients DataFrame (Feature, observed,
+            bootstrap_mean, bootstrap_se, ci_lower, ci_upper,
+            bootstrap_p_value, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'bias_corrected'
+
+        return _bootstrap_sklearn_coefficients(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
 
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling
@@ -810,10 +910,29 @@ class ElasticNet(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals and p-values for coefficients.
+
+        Uses bias_corrected CI by default for regularized linear models.
+        bootstrap_type is read from fit() via self._bootstrap_type.
+
+        Returns:
+            Dictionary with coefficients DataFrame (Feature, observed,
+            bootstrap_mean, bootstrap_se, ci_lower, ci_upper,
+            bootstrap_p_value, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'bias_corrected'
+
+        return _bootstrap_sklearn_coefficients(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
 
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling
@@ -1031,11 +1150,82 @@ class SVM(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap CI for SVM.
 
+        - Linear kernel: bootstrap coefficients (bias_corrected).
+        - Non-linear kernels (rbf, poly, sigmoid): bootstrap AUC CI
+          (percentile), since coef_ is not available.
+
+        bootstrap_type is read from fit() via self._bootstrap_type.
+
+        Returns:
+            Dictionary with either 'coefficients' DataFrame (linear)
+            or 'auc' CI dict (non-linear).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        kernel = getattr(self.fitted_model, 'kernel', 'rbf')
+
+        # Linear SVM: has coef_
+        if kernel == 'linear' and hasattr(self.fitted_model, 'coef_'):
+            if bootstrap_type == 'auto':
+                bootstrap_type = 'bias_corrected'
+            return _bootstrap_sklearn_coefficients(
+                fitted_model=self.fitted_model,
+                X=self.X,
+                y=self.y,
+                n_iterations=n_iterations,
+                bootstrap_type=bootstrap_type,
+                random_state=getattr(self, '_random_seed', 42),
+            )
+
+        # Non-linear SVM: no coef_ — bootstrap AUC CI
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'percentile'
+
+        from sklearn.base import clone
+        from sklearn.metrics import roc_auc_score
+        from isaric.modelevaluation.bootstrap import confidence_interval
+
+        rng = np.random.default_rng(getattr(self, '_random_seed', 42))
+        X_arr = self.X.values if hasattr(self.X, 'values') else np.asarray(self.X)
+        y_arr = self.y.values if hasattr(self.y, 'values') else np.asarray(self.y)
+        n_samples = X_arr.shape[0]
+
+        auc_values = []
+        for _ in range(n_iterations):
+            idx = rng.integers(0, n_samples, n_samples)
+            X_boot, y_boot = X_arr[idx], y_arr[idx]
+            try:
+                y_prob = self.fitted_model.predict_proba(X_boot)[:, 1]
+                auc_values.append(roc_auc_score(y_boot, y_prob))
+            except Exception:
+                pass
+
+        auc_arr = np.array(auc_values)
+        obs_auc = roc_auc_score(
+            self.y,
+            self.fitted_model.predict_proba(self.X)[:, 1]
+        )
+
+        ci_lo, ci_hi = confidence_interval(
+            values=auc_arr,
+            bootstrap_type=bootstrap_type,
+            observed=float(obs_auc),
+        ) if len(auc_arr) > 1 else (np.nan, np.nan)
+
+        return {
+            'auc': {
+                'observed': float(obs_auc),
+                'mean': float(np.mean(auc_arr)) if len(auc_arr) > 0 else np.nan,
+                'ci_lower': float(ci_lo),
+                'ci_upper': float(ci_hi),
+            },
+            'note': f'SVM kernel={kernel}: coef_ not available. AUC CI returned instead.',
+            'bootstrap_type': bootstrap_type,
+            'n_iterations': n_iterations,
+        }
+    
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling
         data = pd.concat([self.X, self.y], axis=1)
@@ -1236,10 +1426,29 @@ class LogisticL2(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals and p-values for coefficients.
+
+        Uses bias_corrected CI by default for regularized linear models.
+        bootstrap_type is read from fit() via self._bootstrap_type.
+
+        Returns:
+            Dictionary with coefficients DataFrame (Feature, observed,
+            bootstrap_mean, bootstrap_se, ci_lower, ci_upper,
+            bootstrap_p_value, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'bias_corrected'
+
+        return _bootstrap_sklearn_coefficients(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
 
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling

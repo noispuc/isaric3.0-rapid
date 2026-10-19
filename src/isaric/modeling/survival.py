@@ -516,16 +516,46 @@ class SurvivalCox(RAPID):
         )
 
     def _validate_bootstrap(self, n_iterations=1000):
-        """Bootstrap validation for Cox model using C-index."""
-        from isaric.validation.bootstrap import bootstrap_c_index
+        """
+        Bootstrap confidence intervals for Cox hazard ratios.
 
-        return bootstrap_c_index(
-            fitted_model=self.fitted_model,
-            model_data=self.model_data,
+        Uses bootstrap_hazard_ratios() with the type configured in fit()
+        via bootstrap_type= (default bias_corrected for survival).
+        Computes CIs on the log-HR scale and exponentiates for HR bounds.
+
+        Returns:
+            Dictionary with:
+            - 'hazard_ratios': DataFrame with variable, observed_hr,
+              observed_log_hr, bootstrap_mean_log_hr, bootstrap_se_log_hr,
+              hr_ci_lower, hr_ci_upper, bootstrap_p_value,
+              bootstrap_type, n_iterations.
+            - 'bootstrap_type': type used.
+            - 'n_iterations': number of iterations.
+        """
+        from isaric.modelevaluation.bootstrap import bootstrap_hazard_ratios
+
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'bias_corrected'
+
+        penalizer = float(self._model.penalizer) if hasattr(self._model, 'penalizer') else 0.0
+
+        df = bootstrap_hazard_ratios(
+            data=self.model_data,
             duration_var=self.duration_var,
             event_var=self.event_var,
-            n_iterations=n_iterations
+            covariates=self.independent_vars,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+            penalizer=penalizer,
         )
+
+        return {
+            'hazard_ratios': df,
+            'bootstrap_type': bootstrap_type,
+            'n_iterations': n_iterations,
+        }
 
     def _validate_sensitivity(self):
         """Sensitivity analysis."""
@@ -870,40 +900,67 @@ class KaplanMeier(RAPID):
         return None
 
     def _validate_bootstrap(self, n_iterations=1000):
-        """Bootstrap validation for Kaplan-Meier median survival."""
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import mean_squared_error
+        """
+        Bootstrap confidence interval for Kaplan-Meier median survival time.
 
-        # KaplanMeier não tem predict - usamos o median_survival_time_
-        # como métrica única
-        import numpy as np
+        Resamples the survival data with replacement, refits KaplanMeierFitter,
+        and collects median survival times. CI type is read from fit()
+        via bootstrap_type= (default percentile for KM).
+
+        Returns:
+            Dictionary with:
+            - 'metric': 'median_survival_time'
+            - 'observed': observed median from fitted model
+            - 'values': array of bootstrap estimates
+            - 'mean': mean of bootstrap estimates
+            - 'ci_lower': lower CI bound
+            - 'ci_upper': upper CI bound
+            - 'bootstrap_type': type used
+            - 'n_iterations': number of iterations
+        """
         from lifelines import KaplanMeierFitter
+        from isaric.modelevaluation.bootstrap import confidence_interval
 
-        rng = np.random.default_rng(42)
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'percentile'
+
+        rng = np.random.default_rng(getattr(self, '_random_seed', 42))
         n_samples = len(self.model_data)
         bootstrap_values = []
 
         for _ in range(n_iterations):
             indices = rng.integers(0, n_samples, n_samples)
-            data_boot = self.model_data.iloc[indices]
+            data_boot = self.model_data.iloc[indices].reset_index(drop=True)
 
             kmf = KaplanMeierFitter()
-            kmf.fit(
-                data_boot[self.duration_var],
-                event_observed=data_boot[self.event_var]
-            )
-            bootstrap_values.append(kmf.median_survival_time_)
+            try:
+                kmf.fit(
+                    data_boot[self.duration_var],
+                    event_observed=data_boot[self.event_var]
+                )
+                bootstrap_values.append(kmf.median_survival_time_)
+            except Exception:
+                pass
 
         values = np.array(bootstrap_values)
+        observed = float(self.fitted_model.median_survival_time_)
 
-        from isaric.validation.bootstrap import confidence_interval
-        ci_lower, ci_upper = confidence_interval(values)
+        ci_lower, ci_upper = confidence_interval(
+            values=values,
+            bootstrap_type=bootstrap_type,
+            observed=observed,
+        )
 
         return {
+            'metric': 'median_survival_time',
+            'observed': observed,
             'values': values,
             'mean': float(np.mean(values)),
             'ci_lower': ci_lower,
-            'ci_upper': ci_upper
+            'ci_upper': ci_upper,
+            'bootstrap_type': bootstrap_type,
+            'n_iterations': n_iterations,
         }
 
     def _validate_sensitivity(self):

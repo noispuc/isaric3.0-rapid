@@ -195,6 +195,14 @@ from isaric.modelevaluation.gridsearch import (
     bootstrap_ci_stepmix,
     bootstrap_selection_rate,
 )
+from isaric.modelevaluation.bootstrap import (
+    non_parametric_bootstrap,
+    confidence_interval,
+    bootstrap_metrics,
+    bootstrap_c_index,
+    bootstrap_coefficients,
+    bootstrap_hazard_ratios,
+)
 
 # ============================================================================
 # VALIDATION (Step 5)
@@ -204,12 +212,6 @@ from isaric.validation.external import (
     temporal_validation,
     geographic_validation,
     recalibration
-)
-from isaric.validation.bootstrap import (
-    non_parametric_bootstrap,
-    confidence_interval,
-    bootstrap_metrics,
-    bootstrap_c_index,
 )
 from isaric.validation.sensitivity import (
     alternative_missing_handling,
@@ -403,6 +405,9 @@ __all__ = [
     "bootstrap_ci_stepmix",
     "bootstrap_ci_plot",
     "bootstrap_selection_rate",
+    "bootstrap_c_index",
+    "bootstrap_coefficients",
+    "bootstrap_hazard_ratios",
 
     # Validation
     "temporal_validation",
@@ -411,7 +416,6 @@ __all__ = [
     "non_parametric_bootstrap",
     "confidence_interval",
     "bootstrap_metrics",
-    "bootstrap_c_index",
     "alternative_missing_handling",
     "outlier_variation",
     "outcome_variation",

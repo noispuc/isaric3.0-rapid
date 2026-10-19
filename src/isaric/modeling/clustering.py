@@ -780,8 +780,113 @@ class LCA(RAPID):
         return None
 
     def _validate_bootstrap(self, n_iterations=1000):
-        """Bootstrap validation for class profiles."""
-        return None
+        """
+        Bootstrap confidence intervals for LCA metrics by k.
+
+        Runs parametric bootstrap (bootstrap_stepmix) for each k tested
+        during class enumeration. Computes bias-corrected CIs for AIC,
+        BIC, SABIC, entropy, relative_entropy, and selection rates.
+
+        Results are also stored in lrt_results['ci_bootstrap'] so that
+        CI plots (_bootstrap_bic_ci, _bootstrap_entropy_ci, _selection_rate)
+        become available in summary() even without bootstrap_likelihood=True.
+
+        Args:
+            n_iterations: Number of bootstrap samples per k.
+
+        Returns:
+            Dictionary with ci_by_k, selection_rate, bootstrap_stats,
+            n_bootstraps, bootstrap_type. None if model_objects not found.
+        """
+        if not hasattr(self, 'model_objects') or not self.model_objects:
+            return None
+
+        from isaric.modelevaluation.gridsearch import (
+            bootstrap_stepmix,
+            bootstrap_ci_stepmix,
+            bootstrap_selection_rate,
+        )
+
+        X_arr = self.X.values if isinstance(self.X, pd.DataFrame) else self.X
+        k_list = sorted(self.model_objects.keys())
+
+        bootstrap_stats_by_k = {}
+        ci_rows = []
+
+        for k in k_list:
+            model_k = self.model_objects[k]
+
+            # Parametric bootstrap for this k
+            try:
+                stats_k = bootstrap_stepmix(
+                    fitted_estimator=model_k,
+                    X=X_arr,
+                    Y=None,
+                    n_bootstrap=n_iterations,
+                    parametric=True,
+                    random_state=self._random_seed,
+                )
+                stats_k['n_clusters'] = k
+                stats_k['rep'] = range(len(stats_k))
+                bootstrap_stats_by_k[k] = stats_k
+            except Exception:
+                bootstrap_stats_by_k[k] = None
+
+            # CI for this k
+            stats_k_data = bootstrap_stats_by_k.get(k)
+            if stats_k_data is not None:
+                try:
+                    ci_k = bootstrap_ci_stepmix(
+                        fitted_estimator=model_k,
+                        stats_bootstrap=stats_k_data,
+                        X=X_arr,
+                    )
+                    ci_k['n_clusters'] = k
+                    ci_rows.append(ci_k)
+                except Exception:
+                    pass
+
+        # Concatenate all bootstrap stats
+        valid_stats = [s for s in bootstrap_stats_by_k.values() if s is not None]
+        stats_concat = (
+            pd.concat(valid_stats, ignore_index=True) if valid_stats else None
+        )
+
+        ci_df = (
+            pd.concat(ci_rows, ignore_index=True) if ci_rows else None
+        )
+
+        # Selection rate
+        sel_rate = None
+        if stats_concat is not None:
+            try:
+                sel_rate = bootstrap_selection_rate(
+                    bootstrap_stats=stats_concat,
+                    k_col='n_clusters',
+                    rep_col='rep',
+                )
+            except Exception:
+                pass
+
+        # Update lrt_results so CI plots are available in summary()
+        if not hasattr(self, 'lrt_results') or self.lrt_results is None:
+            self.lrt_results = {}
+
+        if ci_df is not None and self.lrt_results.get('ci_bootstrap') is None:
+            self.lrt_results['ci_bootstrap'] = ci_df
+        if sel_rate is not None and self.lrt_results.get('selection_rate') is None:
+            self.lrt_results['selection_rate'] = sel_rate
+
+        # Re-register bootstrap plots now that data is available
+        self._update_plots_map_after_fit()
+
+        return {
+            'ci_by_k': ci_df,
+            'selection_rate': sel_rate,
+            'bootstrap_stats': stats_concat,
+            'n_bootstraps': n_iterations,
+            'bootstrap_type': 'parametric',
+        }
 
     def _validate_sensitivity(self):
         """Not applicable for LCA."""
@@ -1348,8 +1453,104 @@ class KMeans(RAPID):
         return None
 
     def _validate_bootstrap(self, n_iterations=1000):
-        """Not applicable for KMeans."""
-        return None
+        """
+        Bootstrap CI for KMeans cluster stability and silhouette.
+
+        Resamples data with replacement, refits KMeans with the same
+        n_clusters, and computes:
+        - Silhouette score CI (cluster compactness and separation).
+        - Adjusted Rand Index (ARI) CI (stability of cluster assignments
+          vs original clustering on the full dataset).
+
+        bootstrap_type is read from fit() via self._bootstrap_type
+        (default 'percentile' for KMeans).
+
+        Args:
+            n_iterations: Number of bootstrap samples.
+
+        Returns:
+            Dictionary with silhouette CI, ari CI, bootstrap_type,
+            and n_iterations.
+        """
+        from sklearn.cluster import KMeans as SklearnKMeans
+        from sklearn.metrics import silhouette_score, adjusted_rand_score
+        from isaric.modelevaluation.bootstrap import confidence_interval
+
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'percentile'
+
+        rng = np.random.default_rng(getattr(self, '_random_seed', 42))
+        X_arr = self.X.values if isinstance(self.X, pd.DataFrame) else self.X
+        n_samples = X_arr.shape[0]
+
+        original_labels = self.fitted_model.labels_
+
+        sil_values = []
+        ari_values = []
+
+        for _ in range(n_iterations):
+            idx = rng.integers(0, n_samples, n_samples)
+            X_boot = X_arr[idx]
+
+            try:
+                km_boot = SklearnKMeans(
+                    n_clusters=self.n_clusters,
+                    random_state=int(rng.integers(0, 10000)),
+                    n_init=10,
+                )
+                km_boot.fit(X_boot)
+
+                # Silhouette on bootstrap sample
+                if len(np.unique(km_boot.labels_)) > 1:
+                    sil = silhouette_score(X_boot, km_boot.labels_)
+                    sil_values.append(sil)
+
+                # ARI: stability of bootstrap model vs original on full data
+                labels_on_orig = km_boot.predict(X_arr)
+                ari = adjusted_rand_score(original_labels, labels_on_orig)
+                ari_values.append(ari)
+
+            except Exception:
+                pass
+
+        sil_arr = np.array(sil_values)
+        ari_arr = np.array(ari_values)
+
+        obs_sil = (
+            float(silhouette_score(X_arr, original_labels))
+            if len(np.unique(original_labels)) > 1 else np.nan
+        )
+
+        sil_ci = (
+            confidence_interval(sil_arr, bootstrap_type=bootstrap_type, observed=obs_sil)
+            if len(sil_arr) > 1 else (np.nan, np.nan)
+        )
+        ari_ci = (
+            confidence_interval(ari_arr, bootstrap_type=bootstrap_type, observed=1.0)
+            if len(ari_arr) > 1 else (np.nan, np.nan)
+        )
+
+        return {
+            'silhouette': {
+                'observed': obs_sil,
+                'mean': float(np.mean(sil_arr)) if len(sil_arr) > 0 else np.nan,
+                'ci_lower': float(sil_ci[0]),
+                'ci_upper': float(sil_ci[1]),
+            },
+            'ari': {
+                'observed': 1.0,
+                'mean': float(np.mean(ari_arr)) if len(ari_arr) > 0 else np.nan,
+                'ci_lower': float(ari_ci[0]),
+                'ci_upper': float(ari_ci[1]),
+                'interpretation': (
+                    'Stability of cluster assignments vs original clustering. '
+                    'ARI = 1.0 means perfect agreement.'
+                ),
+            },
+            'bootstrap_type': bootstrap_type,
+            'n_iterations': n_iterations,
+        }
 
     def _validate_sensitivity(self):
         """Not applicable for KMeans."""

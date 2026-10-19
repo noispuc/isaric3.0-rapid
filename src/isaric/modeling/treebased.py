@@ -224,6 +224,94 @@ def _build_result_df(
     return result_df
 
 
+def _bootstrap_feature_importance(
+    fitted_model,
+    X: pd.DataFrame,
+    y: pd.Series,
+    n_iterations: int = 1000,
+    bootstrap_type: str = "percentile",
+    random_state: int = 42,
+) -> dict:
+    """
+    Bootstrap confidence intervals for tree-based feature importances.
+
+    Refits a clone of the fitted model on each bootstrap sample and
+    collects feature_importances_. CI is computed per feature using
+    the requested bootstrap type.
+
+    Args:
+        fitted_model: Fitted sklearn-compatible tree-based model.
+        X: Predictor matrix.
+        y: Outcome vector.
+        n_iterations: Number of bootstrap samples.
+        bootstrap_type: CI type ('percentile', 'bias_corrected', 'bca').
+            Default 'percentile'.
+        random_state: Seed for reproducibility.
+
+    Returns:
+        Dictionary with:
+        - 'importances': DataFrame with Feature, observed_importance,
+          bootstrap_mean, bootstrap_se, ci_lower, ci_upper,
+          bootstrap_type, n_iterations.
+        - 'bootstrap_type': type used.
+        - 'n_iterations': iterations run.
+    """
+    from sklearn.base import clone
+    from isaric.modelevaluation.bootstrap import confidence_interval
+
+    X_arr = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
+    y_arr = y.values if isinstance(y, pd.Series) else np.asarray(y)
+    n_samples = X_arr.shape[0]
+    n_features = X_arr.shape[1]
+    feature_names = list(X.columns) if hasattr(X, 'columns') else [f"var_{i}" for i in range(n_features)]
+
+    rng = np.random.default_rng(random_state)
+    boot_importances = np.full((n_iterations, n_features), np.nan)
+
+    for i in range(n_iterations):
+        idx = rng.integers(0, n_samples, n_samples)
+        X_boot = X_arr[idx]
+        y_boot = y_arr[idx]
+        try:
+            model_boot = clone(fitted_model)
+            model_boot.fit(X_boot, y_boot)
+            boot_importances[i] = model_boot.feature_importances_
+        except Exception:
+            pass
+
+    observed = fitted_model.feature_importances_
+
+    rows = []
+    for j, feat in enumerate(feature_names):
+        boot_j = boot_importances[:, j]
+        boot_j = boot_j[~np.isnan(boot_j)]
+        obs_j = float(observed[j])
+
+        ci_lo, ci_hi = confidence_interval(
+            values=boot_j,
+            bootstrap_type=bootstrap_type,
+            observed=obs_j,
+        ) if len(boot_j) > 1 else (np.nan, np.nan)
+
+        rows.append({
+            'Feature': feat,
+            'observed_importance': obs_j,
+            'bootstrap_mean': float(np.mean(boot_j)) if len(boot_j) > 0 else np.nan,
+            'bootstrap_se': float(np.std(boot_j, ddof=1)) if len(boot_j) > 1 else np.nan,
+            'ci_lower': float(ci_lo),
+            'ci_upper': float(ci_hi),
+            'bootstrap_type': bootstrap_type,
+            'n_iterations': n_iterations,
+        })
+
+    return {
+        'importances': pd.DataFrame(rows).sort_values(
+            'observed_importance', ascending=False
+        ).reset_index(drop=True),
+        'bootstrap_type': bootstrap_type,
+        'n_iterations': n_iterations,
+    }
+
 # ============================================================================
 # SUBCLASSES (INHERIT FROM RAPID)
 # ============================================================================
@@ -430,11 +518,30 @@ class DecisionTree(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations,
-                                 metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals for feature importances.
+
+        Refits a clone of the model on each bootstrap sample and
+        collects feature_importances_. CI type is read from fit()
+        via bootstrap_type= (default 'percentile' for tree-based).
+
+        Returns:
+            Dictionary with importances DataFrame (Feature,
+            observed_importance, bootstrap_mean, bootstrap_se,
+            ci_lower, ci_upper, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'percentile'
+
+        return _bootstrap_feature_importance(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
 
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling
@@ -689,10 +796,30 @@ class RandomForest(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals for feature importances.
+
+        Refits a clone of the model on each bootstrap sample and
+        collects feature_importances_. CI type is read from fit()
+        via bootstrap_type= (default 'percentile' for tree-based).
+
+        Returns:
+            Dictionary with importances DataFrame (Feature,
+            observed_importance, bootstrap_mean, bootstrap_se,
+            ci_lower, ci_upper, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'percentile'
+
+        return _bootstrap_feature_importance(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
 
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling
@@ -949,10 +1076,30 @@ class XGBoost(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals for feature importances.
+
+        Refits a clone of the model on each bootstrap sample and
+        collects feature_importances_. CI type is read from fit()
+        via bootstrap_type= (default 'percentile' for tree-based).
+
+        Returns:
+            Dictionary with importances DataFrame (Feature,
+            observed_importance, bootstrap_mean, bootstrap_se,
+            ci_lower, ci_upper, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'percentile'
+
+        return _bootstrap_feature_importance(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
 
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling
@@ -1207,11 +1354,31 @@ class LightGBM(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals for feature importances.
 
+        Refits a clone of the model on each bootstrap sample and
+        collects feature_importances_. CI type is read from fit()
+        via bootstrap_type= (default 'percentile' for tree-based).
+
+        Returns:
+            Dictionary with importances DataFrame (Feature,
+            observed_importance, bootstrap_mean, bootstrap_se,
+            ci_lower, ci_upper, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'percentile'
+
+        return _bootstrap_feature_importance(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+    
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling
         data = pd.concat([self.X, self.y], axis=1)
@@ -1469,10 +1636,30 @@ class CatBoost(RAPID):
                                    independent_vars=self.independent_vars)
 
     def _validate_bootstrap(self, n_iterations=1000):
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        return bootstrap_metrics(self.fitted_model, self.X, self.y,
-                                 n_iterations=n_iterations, metric_func=roc_auc_score)
+        """
+        Bootstrap confidence intervals for feature importances.
+
+        Refits a clone of the model on each bootstrap sample and
+        collects feature_importances_. CI type is read from fit()
+        via bootstrap_type= (default 'percentile' for tree-based).
+
+        Returns:
+            Dictionary with importances DataFrame (Feature,
+            observed_importance, bootstrap_mean, bootstrap_se,
+            ci_lower, ci_upper, bootstrap_type, n_iterations).
+        """
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'percentile'
+
+        return _bootstrap_feature_importance(
+            fitted_model=self.fitted_model,
+            X=self.X,
+            y=self.y,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            random_state=getattr(self, '_random_seed', 42),
+        )
 
     def _validate_sensitivity(self):
         from isaric.validation.sensitivity import alternative_missing_handling

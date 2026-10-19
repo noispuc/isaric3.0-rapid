@@ -802,17 +802,82 @@ class LogisticRegression(RAPID):
         )
 
     def _validate_bootstrap(self, n_iterations=1000):
-        """Bootstrap validation."""
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        
-        return bootstrap_metrics(
-            self.fitted_model,
-            self.X,
-            self.y,
+        """
+        Bootstrap confidence intervals and p-values for log-OR coefficients.
+
+        Uses bootstrap_coefficients() with the type configured in fit()
+        via bootstrap_type= (default bias_corrected for regression).
+        Excludes intercept/const from results.
+
+        Returns:
+            Dictionary with:
+            - 'coefficients': DataFrame with variable, observed (log-OR),
+              bootstrap_mean, bootstrap_se, ci_lower, ci_upper,
+              bootstrap_p_value, bootstrap_type, n_iterations.
+            - 'bootstrap_type': type used.
+            - 'n_iterations': number of iterations.
+        """
+        import statsmodels.api as sm
+        from isaric.modelevaluation.bootstrap import bootstrap_coefficients
+
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'bias_corrected'
+
+        family = self.fitted_model.family
+
+        def fit_func(X_boot, y_boot):
+            try:
+                model = sm.GLM(
+                    endog=y_boot,
+                    exog=X_boot,
+                    family=family
+                )
+                result = model.fit(disp=False)
+                return result.params.values
+            except Exception:
+                return np.full(X_boot.shape[1], np.nan)
+
+        # Exclude intercept/const from variable names
+        var_names = [
+            v for v in self.X.columns
+            if v.lower() not in ('intercept', 'const', 'constant')
+        ]
+        X_no_const = self.X[[v for v in self.X.columns if v.lower() not in ('intercept', 'const', 'constant')]]
+
+        # Re-run fit_func with intercept (statsmodels needs const in X)
+        # but label only the non-intercept variables
+        def fit_func_labeled(X_boot, y_boot):
+            try:
+                model = sm.GLM(
+                    endog=y_boot,
+                    exog=X_boot,
+                    family=family
+                )
+                result = model.fit(disp=False)
+                params = result.params
+                return np.array([
+                    params[v] for v in self.X.columns
+                    if v.lower() not in ('intercept', 'const', 'constant')
+                ])
+            except Exception:
+                return np.full(len(var_names), np.nan)
+
+        df = bootstrap_coefficients(
+            X=self.X,
+            y=self.y,
+            fit_func=fit_func_labeled,
             n_iterations=n_iterations,
-            metric_func=roc_auc_score  # ← sem lambda
+            bootstrap_type=bootstrap_type,
+            variable_names=var_names,
+            random_state=getattr(self, '_random_seed', 42),
         )
+
+        return {
+            'coefficients': df,
+            'bootstrap_type': bootstrap_type,
+            'n_iterations': n_iterations,
+        }
 
     def _validate_sensitivity(self):
         """Sensitivity analysis."""
@@ -1174,17 +1239,66 @@ class GLM(RAPID):
         )
 
     def _validate_bootstrap(self, n_iterations=1000):
-        """Bootstrap validation."""
-        from isaric.validation.bootstrap import bootstrap_metrics
-        from sklearn.metrics import roc_auc_score
-        
-        return bootstrap_metrics(
-            self.fitted_model,
-            self.X,
-            self.y,
+        """
+        Bootstrap confidence intervals and p-values for GLM coefficients.
+
+        Uses bootstrap_coefficients() with the type configured in fit()
+        via bootstrap_type= (default bias_corrected for regression).
+        Excludes intercept/const from results.
+
+        Returns:
+            Dictionary with:
+            - 'coefficients': DataFrame with variable, observed,
+              bootstrap_mean, bootstrap_se, ci_lower, ci_upper,
+              bootstrap_p_value, bootstrap_type, n_iterations.
+            - 'bootstrap_type': type used.
+            - 'n_iterations': number of iterations.
+        """
+        import statsmodels.api as sm
+        from isaric.modelevaluation.bootstrap import bootstrap_coefficients
+
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        if bootstrap_type == 'auto':
+            bootstrap_type = 'bias_corrected'
+
+        family = self.fitted_model.family
+
+        var_names = [
+            v for v in self.X.columns
+            if v.lower() not in ('intercept', 'const', 'constant')
+        ]
+
+        def fit_func_labeled(X_boot, y_boot):
+            try:
+                model = sm.GLM(
+                    endog=y_boot,
+                    exog=X_boot,
+                    family=family
+                )
+                result = model.fit(disp=False)
+                params = result.params
+                return np.array([
+                    params[v] for v in self.X.columns
+                    if v.lower() not in ('intercept', 'const', 'constant')
+                ])
+            except Exception:
+                return np.full(len(var_names), np.nan)
+
+        df = bootstrap_coefficients(
+            X=self.X,
+            y=self.y,
+            fit_func=fit_func_labeled,
             n_iterations=n_iterations,
-            metric_func=roc_auc_score  # ← sem lambda
+            bootstrap_type=bootstrap_type,
+            variable_names=var_names,
+            random_state=getattr(self, '_random_seed', 42),
         )
+
+        return {
+            'coefficients': df,
+            'bootstrap_type': bootstrap_type,
+            'n_iterations': n_iterations,
+        }
 
     def _validate_sensitivity(self):
         """Sensitivity analysis."""

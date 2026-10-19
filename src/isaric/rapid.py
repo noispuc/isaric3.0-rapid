@@ -226,6 +226,9 @@ class RAPID(ABC):
         param_grid: Optional[Dict[str, List[Any]]] = None,
         selection_metric: str = "auto",
         bootstrap_likelihood: bool = False,
+        bootstrap: bool = False,
+        bootstrap_type: str = "auto",
+        n_iterations: int = 1000,
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
@@ -252,6 +255,8 @@ class RAPID(ABC):
             train_test: Enable train/test split validation.
             test_size: Proportion for test set (default 0.2)
             grid_search: Enable grid search over hyperparameters.
+                For LCA this parameter is ignored — class enumeration
+                always runs. Pass param_grid to control the k range.
             param_grid: Dictionary mapping parameter names to list of values.
                 If None, uses model-specific default.
             selection_metric: Metric to optimize during grid search.
@@ -260,6 +265,20 @@ class RAPID(ABC):
                 (BLRT). Only applicable to LCA models. Computationally
                 expensive — runs one bootstrap per consecutive pair (k-1, k).
                 Default False.
+            bootstrap: Enable bootstrap confidence intervals. When True,
+                calls _run_bootstrap() after model training. Default False.
+            bootstrap_type: Type of bootstrap CI to compute.
+                Options: "percentile", "bias_corrected", "bca", "parametric",
+                "auto" (uses model-specific default).
+                - "percentile": simple quantile-based CI.
+                - "bias_corrected": BC correction for skewed distributions.
+                - "bca": bias-corrected and accelerated (computationally
+                  expensive, standard for regression coefficients).
+                - "parametric": samples from the fitted model's distribution
+                  (LCA only, uses bootstrap_stepmix).
+                Default "auto".
+            n_iterations: Number of bootstrap samples. Only used when
+                bootstrap=True. Default 1000.
 
         Returns:
             self for method chaining.
@@ -273,6 +292,11 @@ class RAPID(ABC):
 
         # Store bootstrap_likelihood flag for subclasses that need it (e.g. LCA)
         self._bootstrap_likelihood = bootstrap_likelihood
+
+        # Store bootstrap params for _run_bootstrap()
+        self._bootstrap = bootstrap
+        self._bootstrap_type = bootstrap_type
+        self._n_iterations = n_iterations
 
         # Auto-ativa grid_search se param_grid foi passado
         if not grid_search and param_grid is not None:
@@ -306,9 +330,13 @@ class RAPID(ABC):
         if assumptions:
             self.assumptions = self._check_assumptions()
 
-        # Train/Test
+                # Train/Test
         if train_test:
             self.train_test = self._train_test_split(test_size)
+
+                # Bootstrap CIs
+        if bootstrap:
+            self.bootstrap_results = self._validate_bootstrap(n_iterations)
 
         self._transition_to(self._STATE_FITTED)
         return self
@@ -483,31 +511,36 @@ class RAPID(ABC):
     def validation(
         self,
         external_data: Optional[DataFrame] = None,
-        bootstrap: bool = False,
-        n_iterations: int = 1000,
         sensitivity: bool = False,
         subgroups: Optional[Dict] = None,
         net_benefit: bool = False
     ) -> Dict:
         """
-        Validate the trained model using external data.
+        Validate the trained model using independent external data.
 
         This method implements Step 5 (Validation) of the RAPID
-        methodology.
+        methodology. It is reserved for performance assessment on
+        independent datasets — analogous to a TEST set in ML
+        (TRAIN / VALIDATION / TEST split).
+
+        Bootstrap confidence intervals are computed during fit()
+        via bootstrap=True, not here.
 
         Subclasses MUST have:
         - self.fitted_model (trained model)
 
         Args:
-            external_data: Independent dataset for external validation.
-            bootstrap: Enable bootstrapping.
-            n_iterations: Number of bootstrap iterations.
+            external_data: Independent dataset for external validation
+                (e.g. data from another site, a held-out time period,
+                or data collected subsequently). Required for external
+                validation metrics to be computed.
             sensitivity: Enable sensitivity analysis.
-            subgroups: Dictionary defining subgroups.
-            net_benefit: Enable Decision Curve Analysis.
+            subgroups: Dictionary defining subgroups for stratified
+                performance assessment.
+            net_benefit: Enable Decision Curve Analysis (DCA).
 
         Returns:
-            Dictionary with validation metrics.
+            Dictionary with validation results.
 
         Raises:
             ValueError: If state is incorrect.
@@ -516,13 +549,9 @@ class RAPID(ABC):
 
         validation_results = {}
 
-        # External validation
+        # External validation — independent dataset
         if external_data is not None:
             validation_results['external'] = self._validate_external(external_data)
-
-        # Bootstrap
-        if bootstrap:
-            validation_results['bootstrap'] = self._validate_bootstrap(n_iterations)
 
         # Sensitivity
         if sensitivity:
@@ -534,7 +563,7 @@ class RAPID(ABC):
 
         # Net benefit
         if net_benefit:
-            validation_results['net_benefit'] = self._validate_net_benefit()  # ← chama subclasse
+            validation_results['net_benefit'] = self._validate_net_benefit()
 
         return validation_results
 
