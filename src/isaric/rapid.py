@@ -413,7 +413,7 @@ class RAPID(ABC):
         elif table_format == "short":
             # Pega as colunas disponíveis (varia por modelo)
             display_cols = [
-                c for c in ['Variable', 'Effect', 'OddsRatio',
+                c for c in ['Variable', 'Feature', 'Effect', 'OddsRatio',
                             'HazardRatio', 'Coefficient', 'Importance',
                             'p-value']
                 if c in self.result_df.columns
