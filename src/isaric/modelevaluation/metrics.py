@@ -69,6 +69,11 @@ def compute_classification_metrics(
     cm = confusion_matrix(y_true, y_pred)
     metrics['confusion_matrix'] = cm.tolist()
 
+    # Specificity = TN / (TN + FP)
+    if cm.shape == (2, 2):
+        tn, fp = cm[0, 0], cm[0, 1]
+        metrics['specificity'] = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
+
     return metrics
 
 
