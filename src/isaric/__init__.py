@@ -75,6 +75,11 @@ from isaric.datacleaning.handle_missing import (
 # ============================================================================
 
 from isaric.preprocessing.preprocess import Preprocess
+from isaric.preprocessing.transformers import (
+    RAPIDStandardScaler,
+    RAPIDOneHotEncoder,
+    RAPIDImputer,
+)
 from isaric.preprocessing.datasplitting import (
     simple_random_split,
     stratified_split,

@@ -31,7 +31,7 @@ Contract Note:
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pandas import DataFrame
 
 
@@ -185,9 +185,36 @@ class RAPID(ABC):
                 f"Available models: {available_models}"
             )
 
+        # Extrai test_size antes de repassar para a subclasse (não é parâmetro das factories)
+        import numpy as np
+        from sklearn.model_selection import train_test_split as _sklearn_tts
+
+        test_size = params.pop('test_size', 0.3)
+        random_seed = params.get('random_seed', 42)
+
         # Delega para a subclasse
         pipeline_cls = registry[model]
         instance = pipeline_cls.create(data=data, model=model, **params)
+
+        # Split estratificado automático para modelos de classificação sklearn
+        _CLASSIFICATION_MODELS = {
+            "lasso", "ridge", "elastic_net", "svm", "logistic_l2",
+            "decision_tree", "random_forest", "xgboost", "lightgbm", "catboost",
+        }
+        if model in _CLASSIFICATION_MODELS and hasattr(instance, 'X') and hasattr(instance, 'y'):
+            idx = np.arange(len(instance.X))
+            train_idx, test_idx = _sklearn_tts(
+                idx,
+                test_size=test_size,
+                random_state=random_seed,
+                stratify=instance.y,
+            )
+            instance.train_idx = train_idx
+            instance.test_idx  = test_idx
+            instance.X_train = instance.X.iloc[train_idx].reset_index(drop=True)
+            instance.X_test  = instance.X.iloc[test_idx].reset_index(drop=True)
+            instance.y_train = instance.y.iloc[train_idx].reset_index(drop=True)
+            instance.y_test  = instance.y.iloc[test_idx].reset_index(drop=True)
 
         # Registra bibliotecas usadas baseado no modelo
         instance._register_library("pandas")
@@ -229,6 +256,7 @@ class RAPID(ABC):
         bootstrap: bool = False,
         bootstrap_type: str = "auto",
         n_iterations: int = 1000,
+        threshold: Union[float, str] = 0.5,
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
@@ -314,6 +342,9 @@ class RAPID(ABC):
 
         # Build result_df
         self.result_df = self._build_result_df()
+
+        # Armazena limiar para subclasses lerem em _calculate_metrics
+        self._threshold = threshold
 
         # Step 4: Model Evaluation - Calcula métricas
         self.metrics = self._calculate_metrics(metrics)

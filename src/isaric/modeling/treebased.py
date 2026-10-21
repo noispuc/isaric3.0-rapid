@@ -418,8 +418,8 @@ class DecisionTree(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -431,20 +431,31 @@ class DecisionTree(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -454,8 +465,11 @@ class DecisionTree(RAPID):
             "method": "Decision Tree Classifier",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "max_depth": self.fitted_model.max_depth,
                 "min_samples_split": self.fitted_model.min_samples_split,
@@ -478,7 +492,7 @@ class DecisionTree(RAPID):
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
         return kfold_cross_validation(
-            self._model, self.X, self.y,
+            self._model, self.X_train, self.y_train,
             n_splits=k_folds,
             scoring='roc_auc'
         )
@@ -703,8 +717,8 @@ class RandomForest(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -716,20 +730,31 @@ class RandomForest(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -739,8 +764,11 @@ class RandomForest(RAPID):
             "method": "Random Forest Classifier",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "n_estimators": self.fitted_model.n_estimators,
                 "max_depth": self.fitted_model.max_depth,
@@ -758,7 +786,7 @@ class RandomForest(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):
@@ -979,8 +1007,8 @@ class XGBoost(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -993,20 +1021,31 @@ class XGBoost(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -1016,8 +1055,11 @@ class XGBoost(RAPID):
             "method": "XGBoost Classifier",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "n_estimators": self.fitted_model.n_estimators,
                 "max_depth": self.fitted_model.max_depth,
@@ -1038,7 +1080,7 @@ class XGBoost(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):
@@ -1258,8 +1300,8 @@ class LightGBM(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -1271,20 +1313,31 @@ class LightGBM(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -1294,8 +1347,11 @@ class LightGBM(RAPID):
             "method": "LightGBM Classifier",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "n_estimators": self.fitted_model.n_estimators,
                 "num_leaves": self.fitted_model.num_leaves,
@@ -1316,7 +1372,7 @@ class LightGBM(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):
@@ -1536,8 +1592,8 @@ class CatBoost(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -1549,20 +1605,31 @@ class CatBoost(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -1572,8 +1639,11 @@ class CatBoost(RAPID):
             "method": "CatBoost Classifier",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "iterations": self.fitted_model.tree_count_ if hasattr(self.fitted_model, 'tree_count_') else None,
                 "depth": self.fitted_model.get_all_params().get('depth', None) if hasattr(self.fitted_model, 'get_all_params') else None,
@@ -1598,7 +1668,7 @@ class CatBoost(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):

@@ -359,8 +359,8 @@ class Lasso(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -371,20 +371,31 @@ class Lasso(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
-    
+        return self._model.fit(self.X_train, self.y_train)
+
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -394,8 +405,11 @@ class Lasso(RAPID):
             "method": "Logistic Regression (L1)",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "C": self.fitted_model.C,
                 "penalty": "l1",
@@ -414,7 +428,7 @@ class Lasso(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):
@@ -595,8 +609,8 @@ class Ridge(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -607,20 +621,31 @@ class Ridge(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -630,8 +655,11 @@ class Ridge(RAPID):
             "method": "Logistic Regression (L2)",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "C": self.fitted_model.C,
                 "penalty": "l2",
@@ -648,21 +676,21 @@ class Ridge(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
         return {
-            'brier_score': compute_brier_score(self.y, y_prob),
-            'calibration_curve': calibration_curve(self.y, y_prob),
-            'calibration_table': binned_calibration(self.y, y_prob)
+            'brier_score': compute_brier_score(self.y_test, y_prob),
+            'calibration_curve': calibration_curve(self.y_test, y_prob),
+            'calibration_table': binned_calibration(self.y_test, y_prob)
         }
 
     def _check_assumptions(self):
         from isaric.modelevaluation.assumptions import test_epv
-        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+        return {'epv': test_epv(self.y_train, n_predictors=len(self.X.columns))}
 
     def _train_test_split(self, test_size=0.2):
         from isaric.modelevaluation.traintest import stratified_holdout
@@ -829,8 +857,8 @@ class ElasticNet(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -842,20 +870,31 @@ class ElasticNet(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -865,8 +904,11 @@ class ElasticNet(RAPID):
             "method": "Logistic Regression (Elastic Net)",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "C": self.fitted_model.C,
                 "l1_ratio": self.fitted_model.l1_ratio,
@@ -888,21 +930,21 @@ class ElasticNet(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
         return {
-            'brier_score': compute_brier_score(self.y, y_prob),
-            'calibration_curve': calibration_curve(self.y, y_prob),
-            'calibration_table': binned_calibration(self.y, y_prob)
+            'brier_score': compute_brier_score(self.y_test, y_prob),
+            'calibration_curve': calibration_curve(self.y_test, y_prob),
+            'calibration_table': binned_calibration(self.y_test, y_prob)
         }
 
     def _check_assumptions(self):
         from isaric.modelevaluation.assumptions import test_epv
-        return {'epv': test_epv(self.y, n_predictors=len(self.X.columns))}
+        return {'epv': test_epv(self.y_train, n_predictors=len(self.X.columns))}
 
     def _train_test_split(self, test_size=0.2):
         from isaric.modelevaluation.traintest import stratified_holdout
@@ -1067,8 +1109,8 @@ class SVM(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -1080,7 +1122,7 @@ class SVM(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return pd.DataFrame({
@@ -1089,14 +1131,25 @@ class SVM(RAPID):
         })
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -1106,8 +1159,11 @@ class SVM(RAPID):
             "method": "Support Vector Machine",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "C": self.fitted_model.C,
                 "kernel": self.fitted_model.kernel,
@@ -1128,16 +1184,16 @@ class SVM(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
         return {
-            'brier_score': compute_brier_score(self.y, y_prob),
-            'calibration_curve': calibration_curve(self.y, y_prob),
-            'calibration_table': binned_calibration(self.y, y_prob)
+            'brier_score': compute_brier_score(self.y_test, y_prob),
+            'calibration_curve': calibration_curve(self.y_test, y_prob),
+            'calibration_table': binned_calibration(self.y_test, y_prob)
         }
 
     def _check_assumptions(self):
@@ -1352,8 +1408,8 @@ class LogisticL2(RAPID):
 
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=self.X_train,
+                y=self.y_train,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -1364,20 +1420,31 @@ class LogisticL2(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        return self._model.fit(self.X_train, self.y_train)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """Calculate classification metrics on hold-out test set."""
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        threshold = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold, str):
+            y_prob_tr = self.fitted_model.predict_proba(self.X_train)[:, 1]
+            threshold = select_classification_threshold(
+                self.y_train.values, y_prob_tr, method=threshold
+            )
+        self._resolved_threshold = threshold
+
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
+        y_pred = (y_prob >= threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            self.y_test, y_pred, y_prob=y_prob
         )
 
         # ============ MODEL INFO ============
@@ -1387,8 +1454,11 @@ class LogisticL2(RAPID):
             "method": "Logistic Regression (L2)",
             "random_seed": self._random_seed,
             "N_observations": len(self.y),
+            "N_train": len(self.y_train),
+            "N_test": len(self.y_test),
             "N_features": self.X.shape[1],
             "N_events": int(self.y.sum()),
+            "threshold": self._resolved_threshold,
             "parameters": {
                 "C": self.fitted_model.C,
                 "penalty": "l2",
@@ -1404,16 +1474,16 @@ class LogisticL2(RAPID):
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
+        return kfold_cross_validation(self._model, self.X_train, self.y_train,
                                       n_splits=k_folds, scoring='roc_auc')
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
+        y_prob = self.fitted_model.predict_proba(self.X_test)[:, 1]
         return {
-            'brier_score': compute_brier_score(self.y, y_prob),
-            'calibration_curve': calibration_curve(self.y, y_prob),
-            'calibration_table': binned_calibration(self.y, y_prob)
+            'brier_score': compute_brier_score(self.y_test, y_prob),
+            'calibration_curve': calibration_curve(self.y_test, y_prob),
+            'calibration_table': binned_calibration(self.y_test, y_prob)
         }
 
     def _check_assumptions(self):
