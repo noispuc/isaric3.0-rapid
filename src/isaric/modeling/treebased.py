@@ -44,7 +44,8 @@ def create_decision_tree_model(
     independent_vars: List[str],
     max_depth: Optional[int] = None,
     min_samples_split: int = 2,
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[DecisionTreeClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a Decision Tree classifier (not fitted).
@@ -58,7 +59,7 @@ def create_decision_tree_model(
         max_depth=max_depth,
         min_samples_split=min_samples_split,
         random_state=random_seed,
-        class_weight='balanced'
+        class_weight=class_weight,
     )
 
     return model, X, y
@@ -70,7 +71,8 @@ def create_random_forest_model(
     independent_vars: List[str],
     n_estimators: int = 100,
     max_depth: Optional[int] = None,
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[RandomForestClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a Random Forest classifier (not fitted).
@@ -84,7 +86,7 @@ def create_random_forest_model(
         n_estimators=n_estimators,
         max_depth=max_depth,
         random_state=random_seed,
-        class_weight='balanced'
+        class_weight=class_weight,
     )
 
     return model, X, y
@@ -125,7 +127,8 @@ def create_lightgbm_model(
     n_estimators: int = 100,
     learning_rate: float = 0.1,
     num_leaves: int = 31,
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[LGBMClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a LightGBM classifier (not fitted).
@@ -141,7 +144,7 @@ def create_lightgbm_model(
         num_leaves=num_leaves,
         random_state=random_seed,
         verbose=-1,
-        class_weight='balanced'
+        class_weight=class_weight,
     )
 
     return model, X, y
@@ -154,7 +157,8 @@ def create_catboost_model(
     iterations: int = 100,
     learning_rate: float = 0.1,
     depth: int = 6,
-    random_seed=42
+    random_seed=42,
+    auto_class_weights=None,
 ) -> Tuple[CatBoostClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a CatBoost classifier (not fitted).
@@ -170,7 +174,7 @@ def create_catboost_model(
         depth=depth,
         random_state=random_seed,
         verbose=0,
-        auto_class_weights='Balanced'
+        auto_class_weights=auto_class_weights,
     )
 
     return model, X, y

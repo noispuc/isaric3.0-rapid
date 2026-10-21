@@ -40,7 +40,8 @@ def create_lasso_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure a LASSO (L1) logistic regression model (not fitted).
@@ -56,7 +57,7 @@ def create_lasso_model(
         C=C,
         random_state=random_seed,
         max_iter=1000,
-        class_weight='balanced'
+        class_weight=class_weight,
     )
 
     return model, X, y
@@ -67,7 +68,8 @@ def create_ridge_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure a Ridge (L2) logistic regression model (not fitted).
@@ -83,7 +85,7 @@ def create_ridge_model(
         C=C,
         random_state=random_seed,
         max_iter=1000,
-        class_weight='balanced'
+        class_weight=class_weight,
     )
 
     return model, X, y
@@ -95,7 +97,8 @@ def create_elastic_net_model(
     independent_vars: List[str],
     C: float = 1.0,
     l1_ratio: float = 0.5,
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure an Elastic Net logistic regression model (not fitted).
@@ -112,7 +115,7 @@ def create_elastic_net_model(
         l1_ratio=l1_ratio,
         random_state=random_seed,
         max_iter=1000,
-        class_weight='balanced'
+        class_weight=class_weight,
     )
 
     return model, X, y
@@ -124,7 +127,8 @@ def create_svm_model(
     independent_vars: List[str],
     C: float = 1.0,
     kernel: str = "rbf",
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[SVC, pd.DataFrame, pd.Series]:
     """
     Configure a Support Vector Machine (SVM) classifier (not fitted).
@@ -139,7 +143,7 @@ def create_svm_model(
         kernel=kernel,
         probability=True,
         random_state=random_seed,
-        class_weight='balanced'
+        class_weight=class_weight,
     )
 
     return model, X, y
@@ -150,7 +154,8 @@ def create_logistic_l2_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure a Logistic Regression with L2 penalty (predictive focus).
@@ -159,7 +164,8 @@ def create_logistic_l2_model(
         Tuple of (model, X, y).
     """
     return create_ridge_model(
-        data, dependent_var, independent_vars, C=C, random_state=random_seed
+        data, dependent_var, independent_vars, C=C, random_seed=random_seed,
+        class_weight=class_weight,
     )
 
 
