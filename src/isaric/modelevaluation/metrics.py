@@ -23,6 +23,7 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
     roc_curve,
+    precision_recall_curve,
     log_loss,
     mean_squared_error,
     mean_absolute_error,
@@ -312,18 +313,18 @@ def select_classification_threshold(
         return thresholds[best_idx] if best_idx < len(thresholds) else 0.5
 
     elif method == "f1":
-        # Find threshold that maximizes F1 score
-        best_threshold = 0.5
-        best_f1 = 0.0
-
-        for threshold in thresholds:
-            y_pred = (y_prob >= threshold).astype(int)
-            f1 = f1_score(y_true, y_pred, zero_division=0)
-            if f1 > best_f1:
-                best_f1 = f1
-                best_threshold = threshold
-
-        return best_threshold
+        # Vectorized F1: use precision-recall curve to avoid O(n²) loop.
+        # precision_recall_curve returns one extra point at (p=1, r=0) with no
+        # corresponding threshold, so we slice [:-1] to align arrays.
+        precision, recall, pr_thresholds = precision_recall_curve(y_true, y_prob)
+        precision = precision[:-1]
+        recall = recall[:-1]
+        denom = precision + recall
+        f1_scores = np.where(denom > 0, 2 * precision * recall / denom, 0.0)
+        if len(f1_scores) == 0:
+            return 0.5
+        best_idx = np.argmax(f1_scores)
+        return float(pr_thresholds[best_idx])
 
 
 def _validate_binary(y: np.ndarray) -> None:
