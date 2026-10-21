@@ -88,4 +88,4 @@ Modules:
 | 4 | `_calculate_metrics` evaluates on training data at threshold 0.5 | open |
 | 5 | Undersampling/SMOTE, logistic recalibration not in `fit()` pipeline; bootstrap of test metrics not implemented (bootstrap of coefficients added Oct 2025) | partially open |
 | 6 | `Preprocess`/`onehot_encode`/`standardize` transform the whole dataframe without fit/transform separation | open |
-| 7 | `select_classification_threshold` is O(n²); `summary(table_format="short")` breaks on predictive `result_df`; `import isaric` fails without catboost | open |
+| 7 | `select_classification_threshold` is O(n²); `summary(table_format="short")` breaks on predictive `result_df`; `import isaric` fails without catboost | **FIXED** (64750bb, 6a27e10, af7bef3) |
