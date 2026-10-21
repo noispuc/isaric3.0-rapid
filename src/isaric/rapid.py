@@ -35,6 +35,27 @@ from typing import Any, Dict, List, Optional, Union
 from pandas import DataFrame
 
 
+def _apply_balancing(X_train, y_train, method: str, random_state: int = 42):
+    """Apply undersampling or SMOTE to the training set."""
+    try:
+        if method == "undersample":
+            from imblearn.under_sampling import RandomUnderSampler
+            sampler = RandomUnderSampler(random_state=random_state)
+        else:  # smote
+            from imblearn.over_sampling import SMOTE
+            sampler = SMOTE(random_state=random_state)
+    except ImportError:
+        raise ImportError(
+            f"balancing='{method}' requires imbalanced-learn. "
+            "Install it with: pip install imbalanced-learn"
+        )
+    import pandas as pd
+    X_res, y_res = sampler.fit_resample(X_train, y_train)
+    X_res = pd.DataFrame(X_res, columns=X_train.columns)
+    y_res = pd.Series(y_res, name=y_train.name)
+    return X_res, y_res
+
+
 class RAPID(ABC):
     """
     Abstract base class for all RAPID analytical pipelines.
@@ -257,6 +278,8 @@ class RAPID(ABC):
         bootstrap_type: str = "auto",
         n_iterations: int = 1000,
         threshold: Union[float, str] = 0.5,
+        balancing: Optional[str] = None,
+        recalibrate: bool = False,
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
@@ -307,6 +330,14 @@ class RAPID(ABC):
                 Default "auto".
             n_iterations: Number of bootstrap samples. Only used when
                 bootstrap=True. Default 1000.
+            balancing: Class-balancing strategy applied to the training set
+                before fitting. Options: None (no balancing), "undersample"
+                (random undersampling of the majority class via imblearn),
+                "smote" (SMOTE oversampling via imblearn). Only affects the
+                10 sklearn classification models. Default None.
+            recalibrate: If True, fit a logistic recalibration model on the
+                hold-out test set predictions and add calibration slope and
+                intercept to self.metrics. Default False.
 
         Returns:
             self for method chaining.
@@ -330,6 +361,22 @@ class RAPID(ABC):
         if not grid_search and param_grid is not None:
             grid_search = True
 
+        # Apply class-balancing to X_train/y_train before training
+        _CLASSIFICATION_MODELS = {
+            "lasso", "ridge", "elastic_net", "svm", "logistic_l2",
+            "decision_tree", "random_forest", "xgboost", "lightgbm", "catboost",
+        }
+        if balancing is not None and getattr(self, 'model_type', None) in _CLASSIFICATION_MODELS:
+            if balancing not in ("undersample", "smote"):
+                raise ValueError(
+                    f"balancing must be None, 'undersample', or 'smote'. Got: '{balancing}'"
+                )
+            self.X_train, self.y_train = _apply_balancing(
+                self.X_train, self.y_train, method=balancing,
+                random_state=getattr(self, '_random_seed', 42),
+            )
+        self._balancing = balancing
+
         # Step 3: Modelling - Treina o modelo
         self.fitted_model = self._train_model(
             grid_search=grid_search,
@@ -348,6 +395,16 @@ class RAPID(ABC):
 
         # Step 4: Model Evaluation - Calcula métricas
         self.metrics = self._calculate_metrics(metrics)
+
+        # Logistic recalibration on hold-out test set
+        if recalibrate and getattr(self, 'model_type', None) in _CLASSIFICATION_MODELS:
+            if hasattr(self, 'X_test') and hasattr(self, 'y_test') and hasattr(self, 'fitted_model'):
+                from isaric.validation.external import recalibration as _recalibration
+                y_prob_test = self.fitted_model.predict_proba(self.X_test)[:, 1]
+                calib = _recalibration(self.y_test.values, y_prob_test, method="platt")
+                self.metrics["calibration_slope"]     = calib["slope"]
+                self.metrics["calibration_intercept"] = calib["intercept"]
+        self._recalibrate = recalibrate
 
         # Cross-validation
         if cross_validation:

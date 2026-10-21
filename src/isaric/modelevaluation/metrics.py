@@ -217,7 +217,11 @@ def compute_calibration_metrics(
     n_bins: int = 10
 ) -> Dict[str, float]:
     """
-    Compute calibration metrics (Brier Score and calibration curve).
+    Compute calibration metrics (Brier Score, calibration curve, slope, intercept).
+
+    Calibration slope and intercept are estimated by logistic regression of
+    y_true on log-odds(y_prob) (Platt scaling). A well-calibrated model has
+    slope ≈ 1 and intercept ≈ 0.
 
     Args:
         y_true: True binary labels.
@@ -225,7 +229,7 @@ def compute_calibration_metrics(
         n_bins: Number of bins for calibration curve.
 
     Returns:
-        Dictionary with Brier Score and calibration points.
+        Dictionary with Brier Score, calibration points, slope, and intercept.
     """
     brier = brier_score_loss(y_true, y_prob)
 
@@ -241,9 +245,24 @@ def compute_calibration_metrics(
             mean_true = y_true[mask].mean()
             calib_points.append({'predicted': mean_pred, 'observed': mean_true})
 
+    # Calibration slope and intercept via logistic regression on log-odds
+    from sklearn.linear_model import LogisticRegression as _LR
+    y_true_arr = np.asarray(y_true)
+    y_prob_arr = np.clip(np.asarray(y_prob, dtype=float), 1e-10, 1 - 1e-10)
+    log_odds = np.log(y_prob_arr / (1 - y_prob_arr))
+    try:
+        cal = _LR(C=1e6, solver='lbfgs', max_iter=500)
+        cal.fit(log_odds.reshape(-1, 1), y_true_arr)
+        slope     = float(cal.coef_[0][0])
+        intercept = float(cal.intercept_[0])
+    except Exception:
+        slope, intercept = float("nan"), float("nan")
+
     return {
         'brier_score': brier,
         'calibration_curve': calib_points,
+        'slope': slope,
+        'intercept': intercept,
     }
 
 
