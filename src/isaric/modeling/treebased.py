@@ -30,7 +30,6 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
-from catboost import CatBoostClassifier
 from isaric.rapid import RAPID
 
 
@@ -159,13 +158,20 @@ def create_catboost_model(
     depth: int = 6,
     random_seed=42,
     auto_class_weights=None,
-) -> Tuple[CatBoostClassifier, pd.DataFrame, pd.Series]:
+) -> Tuple:
     """
     Configure a CatBoost classifier (not fitted).
 
     Returns:
         Tuple of (model, X, y).
     """
+    try:
+        from catboost import CatBoostClassifier
+    except ImportError as exc:
+        raise ImportError(
+            "catboost is required for CatBoost models: pip install catboost"
+        ) from exc
+
     X, y = _prepare_data(data, dependent_var, independent_vars)
 
     model = CatBoostClassifier(
