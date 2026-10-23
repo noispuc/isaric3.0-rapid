@@ -122,12 +122,21 @@ def recalibration(
             f"method must be 'platt' or 'isotonic'. Received: {method}"
         )
 
-    # Platt scaling: fit logistic regression on log-odds
-    log_odds = np.log(y_prob / (1 - y_prob + 1e-10))
+    y_true_arr = np.asarray(y_true, dtype=float)
+    y_prob_arr = np.clip(np.asarray(y_prob, dtype=float), 1e-10, 1 - 1e-10)
+
+    if method == "isotonic":
+        from sklearn.isotonic import IsotonicRegression
+        ir = IsotonicRegression(out_of_bounds='clip')
+        calibrated = ir.fit_transform(y_prob_arr, y_true_arr)
+        calibrated = np.clip(calibrated, 1e-10, 1 - 1e-10)
+        log_odds = np.log(calibrated / (1 - calibrated))
+    else:
+        log_odds = np.log(y_prob_arr / (1 - y_prob_arr))
 
     from sklearn.linear_model import LogisticRegression
-    calibrator = LogisticRegression(C=1.0, solver='lbfgs')
-    calibrator.fit(log_odds.reshape(-1, 1), y_true)
+    calibrator = LogisticRegression(C=1e6, solver='lbfgs', max_iter=500)
+    calibrator.fit(log_odds.reshape(-1, 1), y_true_arr)
 
     return {
         'intercept': float(calibrator.intercept_[0]),
