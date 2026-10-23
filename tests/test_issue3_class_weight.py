@@ -26,6 +26,17 @@ from isaric.modeling.treebased import (
 )
 import isaric as isa
 
+try:
+    import catboost  # noqa: F401
+    _CATBOOST_AVAILABLE = True
+except ImportError:
+    _CATBOOST_AVAILABLE = False
+
+_skip_catboost = pytest.mark.skipif(
+    not _CATBOOST_AVAILABLE,
+    reason="catboost not installed",
+)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -71,6 +82,7 @@ def test_treebased_default_class_weight_is_none(small_df, factory, kwargs):
     assert model.class_weight is None
 
 
+@_skip_catboost
 def test_catboost_default_auto_class_weights_is_none(small_df):
     model, _, _ = create_catboost_model(small_df, "outcome", FEATS)
     assert model.get_param("auto_class_weights") is None
@@ -102,6 +114,7 @@ def test_treebased_balanced_forwarded(small_df, factory):
     assert model.class_weight == "balanced"
 
 
+@_skip_catboost
 def test_catboost_balanced_forwarded(small_df):
     model, _, _ = create_catboost_model(
         small_df, "outcome", FEATS, auto_class_weights="Balanced"
