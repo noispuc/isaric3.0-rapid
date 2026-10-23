@@ -367,7 +367,7 @@ class Lasso(RAPID):
             )
 
             self._model = best_model
-            self.C = best_params.get("C", self.C)
+            self.C = best_params.get("C", getattr(self, 'C', None))
             self.grid_results = results_df
             self.best_params = best_params
 
@@ -617,7 +617,7 @@ class Ridge(RAPID):
             )
 
             self._model = best_model
-            self.C = best_params.get("C", self.C)
+            self.C = best_params.get("C", getattr(self, 'C', None))
             self.grid_results = results_df
             self.best_params = best_params
 
@@ -865,8 +865,8 @@ class ElasticNet(RAPID):
             )
 
             self._model = best_model
-            self.C = best_params.get("C", self.C)
-            self.l1_ratio = best_params.get("l1_ratio", self.l1_ratio)
+            self.C = best_params.get("C", getattr(self, 'C', None))
+            self.l1_ratio = best_params.get("l1_ratio", getattr(self, 'l1_ratio', None))
             self.grid_results = results_df
             self.best_params = best_params
 
@@ -1117,8 +1117,8 @@ class SVM(RAPID):
             )
 
             self._model = best_model
-            self.C = best_params.get("C", self.C)
-            self.kernel = best_params.get("kernel", self.kernel)
+            self.C = best_params.get("C", getattr(self, 'C', None))
+            self.kernel = best_params.get("kernel", getattr(self, 'kernel', None))
             self.grid_results = results_df
             self.best_params = best_params
 
@@ -1416,7 +1416,7 @@ class LogisticL2(RAPID):
             )
 
             self._model = best_model
-            self.C = best_params.get("C", self.C)
+            self.C = best_params.get("C", getattr(self, 'C', None))
             self.grid_results = results_df
             self.best_params = best_params
 

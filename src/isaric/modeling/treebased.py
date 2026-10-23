@@ -426,8 +426,8 @@ class DecisionTree(RAPID):
             )
 
             self._model = best_model
-            self.max_depth = best_params.get("max_depth", self.max_depth)
-            self.min_samples_split = best_params.get("min_samples_split", self.min_samples_split)
+            self.max_depth = best_params.get("max_depth", getattr(self, 'max_depth', None))
+            self.min_samples_split = best_params.get("min_samples_split", getattr(self, 'min_samples_split', None))
             self.grid_results = results_df
             self.best_params = best_params
 
@@ -725,8 +725,8 @@ class RandomForest(RAPID):
             )
 
             self._model = best_model
-            self.n_estimators = best_params.get("n_estimators", self.n_estimators)
-            self.max_depth = best_params.get("max_depth", self.max_depth)
+            self.n_estimators = best_params.get("n_estimators", getattr(self, 'n_estimators', None))
+            self.max_depth = best_params.get("max_depth", getattr(self, 'max_depth', None))
             self.grid_results = results_df
             self.best_params = best_params
 
@@ -1015,9 +1015,9 @@ class XGBoost(RAPID):
             )
 
             self._model = best_model
-            self.n_estimators = best_params.get("n_estimators", self.n_estimators)
-            self.learning_rate = best_params.get("learning_rate", self.learning_rate)
-            self.max_depth = best_params.get("max_depth", self.max_depth)
+            self.n_estimators = best_params.get("n_estimators", getattr(self, 'n_estimators', None))
+            self.learning_rate = best_params.get("learning_rate", getattr(self, 'learning_rate', None))
+            self.max_depth = best_params.get("max_depth", getattr(self, 'max_depth', None))
             self.grid_results = results_df
             self.best_params = best_params
 
@@ -1308,8 +1308,8 @@ class LightGBM(RAPID):
             )
 
             self._model = best_model
-            self.n_estimators = best_params.get("n_estimators", self.n_estimators)
-            self.num_leaves = best_params.get("num_leaves", self.num_leaves)
+            self.n_estimators = best_params.get("n_estimators", getattr(self, 'n_estimators', None))
+            self.num_leaves = best_params.get("num_leaves", getattr(self, 'num_leaves', None))
             self.grid_results = results_df
             self.best_params = best_params
 
@@ -1600,8 +1600,8 @@ class CatBoost(RAPID):
             )
 
             self._model = best_model
-            self.iterations = best_params.get("iterations", self.iterations)
-            self.depth = best_params.get("depth", self.depth)
+            self.iterations = best_params.get("iterations", getattr(self, 'iterations', None))
+            self.depth = best_params.get("depth", getattr(self, 'depth', None))
             self.grid_results = results_df
             self.best_params = best_params
 
