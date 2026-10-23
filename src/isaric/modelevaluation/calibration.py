@@ -30,6 +30,64 @@ try:
 except ImportError:
     pass
 
+def calibration_curve_with_ci(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
+    strategy: str = "quantile",
+    n_bootstrap: int = 200,
+    random_state: int = 42,
+    alpha: float = 0.05,
+) -> Dict[str, np.ndarray]:
+    """
+    Calibration curve with per-bin bootstrap percentile confidence intervals.
+
+    Args:
+        y_true: True binary labels.
+        y_prob: Predicted probabilities.
+        n_bins: Number of calibration bins.
+        strategy: Binning strategy ("uniform" or "quantile").
+        n_bootstrap: Number of bootstrap resamples.
+        random_state: Seed for reproducibility.
+        alpha: Significance level (default 0.05 → 95% CI).
+
+    Returns:
+        Dict with 'fraction_positive', 'mean_predicted', 'ci_lower', 'ci_upper'.
+    """
+    y_true_arr = np.asarray(y_true, dtype=float)
+    y_prob_arr = np.asarray(y_prob, dtype=float)
+
+    fp_obs, mp_obs = sklearn_calibration_curve(
+        y_true_arr, y_prob_arr, n_bins=n_bins, strategy=strategy
+    )
+    n_actual = len(fp_obs)
+
+    rng = np.random.default_rng(random_state)
+    n = len(y_true_arr)
+    boot_fp = np.full((n_bootstrap, n_actual), np.nan)
+
+    for b in range(n_bootstrap):
+        idx = rng.integers(0, n, n)
+        try:
+            fp_b, _ = sklearn_calibration_curve(
+                y_true_arr[idx], y_prob_arr[idx], n_bins=n_bins, strategy=strategy
+            )
+            if len(fp_b) == n_actual:
+                boot_fp[b] = fp_b
+        except Exception:
+            pass
+
+    ci_lower = np.clip(np.nanpercentile(boot_fp, alpha / 2 * 100, axis=0), 0, 1)
+    ci_upper = np.clip(np.nanpercentile(boot_fp, (1 - alpha / 2) * 100, axis=0), 0, 1)
+
+    return {
+        'fraction_positive': fp_obs,
+        'mean_predicted': mp_obs,
+        'ci_lower': ci_lower,
+        'ci_upper': ci_upper,
+    }
+
+
 def calibration_curve(
     y_true: np.ndarray,
     y_prob: np.ndarray,

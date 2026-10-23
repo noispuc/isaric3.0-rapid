@@ -609,14 +609,14 @@ class DecisionTree(RAPID):
 
     def _calibration_plot(self, backend="plotly"):
         from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
+        calib = calibration_curve_with_ci(self.y, y_prob)
         data = pd.DataFrame({
             'predicted': calib['mean_predicted'],
             'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
+            'ci_lower': calib['ci_lower'],
+            'ci_upper': calib['ci_upper'],
         })
         return line_with_ci(data=data, x_col='predicted', y_col='observed',
                            ci_lower_col='ci_lower', ci_upper_col='ci_upper',
@@ -898,14 +898,14 @@ class RandomForest(RAPID):
 
     def _calibration_plot(self, backend="plotly"):
         from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
+        calib = calibration_curve_with_ci(self.y, y_prob)
         data = pd.DataFrame({
             'predicted': calib['mean_predicted'],
             'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
+            'ci_lower': calib['ci_lower'],
+            'ci_upper': calib['ci_upper'],
         })
         return line_with_ci(data=data, x_col='predicted', y_col='observed',
                            ci_lower_col='ci_lower', ci_upper_col='ci_upper',
@@ -1192,14 +1192,14 @@ class XGBoost(RAPID):
 
     def _calibration_plot(self, backend="plotly"):
         from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
+        calib = calibration_curve_with_ci(self.y, y_prob)
         data = pd.DataFrame({
             'predicted': calib['mean_predicted'],
             'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
+            'ci_lower': calib['ci_lower'],
+            'ci_upper': calib['ci_upper'],
         })
         return line_with_ci(data=data, x_col='predicted', y_col='observed',
                            ci_lower_col='ci_lower', ci_upper_col='ci_upper',
@@ -1484,14 +1484,14 @@ class LightGBM(RAPID):
 
     def _calibration_plot(self, backend="plotly"):
         from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
+        calib = calibration_curve_with_ci(self.y, y_prob)
         data = pd.DataFrame({
             'predicted': calib['mean_predicted'],
             'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
+            'ci_lower': calib['ci_lower'],
+            'ci_upper': calib['ci_upper'],
         })
         return line_with_ci(data=data, x_col='predicted', y_col='observed',
                            ci_lower_col='ci_lower', ci_upper_col='ci_upper',
@@ -1780,14 +1780,14 @@ class CatBoost(RAPID):
 
     def _calibration_plot(self, backend="plotly"):
         from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
         y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
+        calib = calibration_curve_with_ci(self.y, y_prob)
         data = pd.DataFrame({
             'predicted': calib['mean_predicted'],
             'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
+            'ci_lower': calib['ci_lower'],
+            'ci_upper': calib['ci_upper'],
         })
         return line_with_ci(data=data, x_col='predicted', y_col='observed',
                            ci_lower_col='ci_lower', ci_upper_col='ci_upper',
