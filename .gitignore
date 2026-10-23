@@ -72,9 +72,11 @@ site/
 *.sublime-workspace
 
 # ============================================================================
-# CLAUDE CODE (local dev tooling — não sobe ao GitHub)
+# CLAUDE CODE E DOCS LOCAIS (não sobem ao GitHub)
 # ============================================================================
 CLAUDE.md
+RAPID_issues.md
+RESUMO_SPRINT.md
 
 # ============================================================================
 # SECRETS AND LOCAL CONFIG
