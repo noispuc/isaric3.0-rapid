@@ -475,6 +475,83 @@ def selection_rate_plot(
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
 
 
+
+# ============================================================================
+# BOOTSTRAP METRICS CI PLOT (LCA — consolidated view for all metrics)
+# ============================================================================
+
+def bootstrap_metrics_ci_plot(
+    ci_df: pd.DataFrame,
+    x_col: str = "n_clusters",
+    metrics: Optional[List[str]] = None,
+    xaxis_title: str = "Number of Classes (k)",
+    bootstrap_type_label: str = "Bootstrap",
+    reorder: Optional[dict] = None,
+    height: int = 600,
+    width: int = 950,
+    backend: str = "plotly",
+):
+    """
+    Consolidated bootstrap CI plot for LCA metrics.
+
+    Displays observed values with CI bands for all available metrics
+    (AIC, BIC, CAIC, SABIC, entropy, relative_entropy) in a single
+    figure. Uses distinct colors and shapes for colorblind / B&W
+    accessibility. CI type is included in the plot title.
+
+    Args:
+        ci_df: DataFrame from bootstrap_ci_stepmix. Expected columns:
+            n_clusters (or x_col), metric, theta_hat, ci_low, ci_high.
+        x_col: Column for x-axis (default "n_clusters").
+        metrics: Metrics to include. If None, uses all in ci_df.
+        xaxis_title: X-axis label (default "Number of Classes (k)").
+        bootstrap_type_label: CI type string for title annotation
+            (e.g. "Bias-corrected", "Parametric").
+        reorder: Optional dict {original_class_idx: new_position}.
+            Applied to x-axis when x_col represents class indices.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+    """
+    if metrics is None:
+        if 'metric' in ci_df.columns:
+            metrics = ci_df['metric'].unique().tolist()
+        else:
+            raise ValueError(
+                "ci_df must have a 'metric' column, or pass metrics= explicitly."
+            )
+
+    metrics = [m for m in metrics if m in ci_df['metric'].values]
+    if not metrics:
+        raise ValueError(
+            f"None of the requested metrics found in ci_df. "
+            f"Available: {ci_df['metric'].unique().tolist()}"
+        )
+
+    title = f"Bootstrap CI ({bootstrap_type_label}) — All Metrics"
+
+    if backend == "plotly":
+        return _bootstrap_metrics_ci_plotly(
+            ci_df, x_col, metrics, title, xaxis_title, height, width
+        )
+    elif backend == "matplotlib":
+        return _bootstrap_metrics_ci_matplotlib(
+            ci_df, x_col, metrics, title, xaxis_title, height, width
+        )
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: '{backend}'"
+        )
+
+
+
+
+
+
+
 # ============================================================================
 # PLOTLY BACKEND
 # ============================================================================
@@ -760,6 +837,68 @@ def _selection_rate_plotly(
     return fig
 
 
+def _bootstrap_metrics_ci_plotly(
+    ci_df, x_col, metrics, title, xaxis_title, height, width
+) -> go.Figure:
+    """Build Plotly consolidated bootstrap CI plot."""
+    COLORS  = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261', '#8338ec']
+    SYMBOLS = ['circle', 'square', 'diamond', 'triangle-up', 'cross', 'star']
+
+    fig = go.Figure()
+
+    for i, metric in enumerate(metrics):
+        sub = ci_df[ci_df['metric'] == metric].copy()
+        if sub.empty:
+            continue
+
+        sub = sub.sort_values(x_col)
+        color  = COLORS[i % len(COLORS)]
+        symbol = SYMBOLS[i % len(SYMBOLS)]
+
+        x_vals = sub[x_col].tolist()
+
+        # CI band
+        fig.add_trace(go.Scatter(
+            x=x_vals + x_vals[::-1],
+            y=sub['ci_high'].tolist() + sub['ci_low'].tolist()[::-1],
+            fill='toself',
+            fillcolor=color,
+            opacity=0.15,
+            line=dict(color='rgba(255,255,255,0)'),
+            showlegend=False,
+            hoverinfo='skip',
+        ))
+
+        # Observed line + markers
+        fig.add_trace(go.Scatter(
+            x=x_vals,
+            y=sub['theta_hat'].tolist(),
+            mode='lines+markers',
+            name=metric,
+            line=dict(color=color, width=2),
+            marker=dict(color=color, size=9, symbol=symbol),
+            hovertemplate=(
+                f'{metric}<br>{xaxis_title}: %{{x}}'
+                '<br>Observed: %{y:.3f}<extra></extra>'
+            ),
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title=xaxis_title,
+        yaxis_title='Value',
+        height=height,
+        width=width,
+        template='plotly_white',
+        hovermode='x unified',
+        legend=dict(
+            title='Metric',
+            font=dict(size=10),
+        ),
+    )
+
+    return fig
+
 # ============================================================================
 # MATPLOTLIB BACKEND
 # ============================================================================
@@ -1010,15 +1149,26 @@ def _grid_search_metric_plotly(
     grid_results, metrics, x_col, convergence_col, title,
     xaxis_title, yaxis_title, height, width
 ) -> go.Figure:
-    """Build Plotly grid search metric plot with convergence markers."""
+    """
+    Build Plotly grid search metric plot with convergence markers.
+
+    Uses distinct colors AND shapes per metric for colorblind and
+    black-and-white printing accessibility.
+    Converged points: filled marker. Non-converged: open/x marker.
+    """
     fig = go.Figure()
 
-    colors = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261']
+    # Distinct colors AND shapes per metric (colorblind + B&W safe)
+    COLORS = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261', '#8338ec']
+    SHAPES_CONV  = ['circle', 'square', 'diamond', 'triangle-up', 'cross', 'star']
+    SHAPES_FAIL  = ['circle-open', 'square-open', 'diamond-open',
+                    'triangle-up-open', 'x', 'star-open']
 
     for i, metric in enumerate(metrics):
-        color = colors[i % len(colors)]
+        color       = COLORS[i % len(COLORS)]
+        shape_conv  = SHAPES_CONV[i % len(SHAPES_CONV)]
+        shape_fail  = SHAPES_FAIL[i % len(SHAPES_FAIL)]
 
-        # Linha principal
         fig.add_trace(go.Scatter(
             x=grid_results[x_col],
             y=grid_results[metric],
@@ -1026,48 +1176,50 @@ def _grid_search_metric_plotly(
             name=metric,
             line=dict(color=color, width=2),
             showlegend=True,
-            hovertemplate=f'{metric}<br>{x_col}: %{{x}}<br>Value: %{{y:.2f}}<extra></extra>'
+            hovertemplate=(
+                f'{metric}<br>{x_col}: %{{x}}<br>Value: %{{y:.2f}}'
+                '<extra></extra>'
+            )
         ))
 
-        # Markers de convergência
         if convergence_col and convergence_col in grid_results.columns:
-            # Converte para bool/str para filtrar
-            conv_series = grid_results[convergence_col].astype(str).str.lower()
-
-            # Converte 'true' para True
+            conv_series    = grid_results[convergence_col].astype(str).str.lower()
             conv_true_mask = conv_series.isin(['true', '1', 'yes'])
             conv_false_mask = ~conv_true_mask
 
-            # Convergiu (círculo)
             if conv_true_mask.any():
                 fig.add_trace(go.Scatter(
                     x=grid_results.loc[conv_true_mask, x_col],
                     y=grid_results.loc[conv_true_mask, metric],
                     mode='markers',
-                    marker=dict(color=color, size=10, symbol='circle'),
-                    name=f'{metric} (converged)',
-                    showlegend=False,
-                    hovertemplate=f'{metric} converged<br>{x_col}: %{{x}}<br>Value: %{{y:.2f}}<extra></extra>'
+                    marker=dict(color=color, size=10, symbol=shape_conv),
+                    name=f'{metric} ✓',
+                    showlegend=True,
+                    hovertemplate=(
+                        f'{metric} — converged<br>{x_col}: %{{x}}'
+                        '<br>Value: %{{y:.2f}}<extra></extra>'
+                    )
                 ))
 
-            # Não convergiu (x)
             if conv_false_mask.any():
                 fig.add_trace(go.Scatter(
                     x=grid_results.loc[conv_false_mask, x_col],
                     y=grid_results.loc[conv_false_mask, metric],
                     mode='markers',
-                    marker=dict(color=color, size=10, symbol='x'),
-                    name=f'{metric} (failed)',
-                    showlegend=False,
-                    hovertemplate=f'{metric} failed<br>{x_col}: %{{x}}<br>Value: %{{y:.2f}}<extra></extra>'
+                    marker=dict(color=color, size=10, symbol=shape_fail),
+                    name=f'{metric} ✗',
+                    showlegend=True,
+                    hovertemplate=(
+                        f'{metric} — failed to converge<br>{x_col}: %{{x}}'
+                        '<br>Value: %{{y:.2f}}<extra></extra>'
+                    )
                 ))
         else:
-            # Sem coluna de convergência: só markers
             fig.add_trace(go.Scatter(
                 x=grid_results[x_col],
                 y=grid_results[metric],
                 mode='markers',
-                marker=dict(color=color, size=8),
+                marker=dict(color=color, size=8, symbol=shape_conv),
                 showlegend=False,
                 hoverinfo='skip'
             ))
@@ -1079,7 +1231,11 @@ def _grid_search_metric_plotly(
         height=height,
         width=width,
         template='plotly_white',
-        hovermode='x unified'
+        hovermode='x unified',
+        legend=dict(
+            title='Metric  ✓=converged  ✗=failed',
+            font=dict(size=10),
+        )
     )
 
     return fig
@@ -1092,41 +1248,44 @@ def _grid_search_metric_plot_matplotlib(
     """Build Matplotlib grid search metric plot with convergence markers."""
     fig, ax = plt.subplots(figsize=(width/100, height/100))
 
-    colors = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261']
+    COLORS  = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261', '#8338ec']
+    MARKERS = ['o', 's', 'D', '^', 'P', '*']   # distinct shapes per metric
 
     for i, metric in enumerate(metrics):
-        color = colors[i % len(colors)]
+        color  = COLORS[i % len(COLORS)]
+        marker = MARKERS[i % len(MARKERS)]
 
-        # Linha
         ax.plot(
             grid_results[x_col],
             grid_results[metric],
             color=color,
             linewidth=2,
-            label=metric
+            label=metric,
         )
 
-        # Markers de convergência
         if convergence_col and convergence_col in grid_results.columns:
-            conv_series = grid_results[convergence_col].astype(str).str.lower()
-            conv_true_mask = conv_series.isin(['true', '1', 'yes'])
+            conv_series     = grid_results[convergence_col].astype(str).str.lower()
+            conv_true_mask  = conv_series.isin(['true', '1', 'yes'])
             conv_false_mask = ~conv_true_mask
 
             ax.scatter(
                 grid_results.loc[conv_true_mask, x_col],
                 grid_results.loc[conv_true_mask, metric],
-                color=color, s=80, marker='o', zorder=5
+                color=color, s=80, marker=marker, zorder=5,
+                label=f'{metric} (converged)',
             )
             ax.scatter(
                 grid_results.loc[conv_false_mask, x_col],
                 grid_results.loc[conv_false_mask, metric],
-                color=color, s=80, marker='x', zorder=5
+                facecolors='none', edgecolors=color, s=80,
+                marker=marker, zorder=5,
+                label=f'{metric} (failed)',
             )
         else:
             ax.scatter(
                 grid_results[x_col],
                 grid_results[metric],
-                color=color, s=50, zorder=5
+                color=color, s=50, marker=marker, zorder=5,
             )
 
     ax.set_xlabel(xaxis_title)
@@ -1187,6 +1346,45 @@ def _selection_rate_plot_matplotlib(
     ax.set_ylabel(yaxis_title)
     ax.set_title(title)
     ax.legend()
+    ax.grid(alpha=0.3)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    fig.tight_layout()
+    return fig
+
+def _bootstrap_metrics_ci_matplotlib(
+    ci_df, x_col, metrics, title, xaxis_title, height, width
+) -> plt.Figure:
+    """Build Matplotlib consolidated bootstrap CI plot."""
+    COLORS  = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261', '#8338ec']
+    MARKERS = ['o', 's', 'D', '^', 'P', '*']
+
+    fig, ax = plt.subplots(figsize=(width / 100, height / 100))
+
+    for i, metric in enumerate(metrics):
+        sub = ci_df[ci_df['metric'] == metric].copy()
+        if sub.empty:
+            continue
+
+        sub    = sub.sort_values(x_col)
+        color  = COLORS[i % len(COLORS)]
+        marker = MARKERS[i % len(MARKERS)]
+
+        ax.fill_between(
+            sub[x_col], sub['ci_low'], sub['ci_high'],
+            alpha=0.15, color=color,
+        )
+        ax.plot(
+            sub[x_col], sub['theta_hat'],
+            color=color, linewidth=2, marker=marker,
+            markersize=7, label=metric,
+        )
+
+    ax.set_xlabel(xaxis_title)
+    ax.set_ylabel('Value')
+    ax.set_title(title)
+    ax.legend(title='Metric', fontsize=9)
     ax.grid(alpha=0.3)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)

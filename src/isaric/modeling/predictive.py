@@ -430,10 +430,15 @@ class Lasso(RAPID):
         return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
 
     def _validate_external(self, external_data):
-        from isaric.validation.external import temporal_validation
-        return temporal_validation(self.fitted_model, external_data,
-                                   dependent_var=self.dependent_var,
-                                   independent_vars=self.independent_vars)
+        """Validate on external independent dataset."""
+        from isaric.validation.external import validate_regression_sklearn
+        return validate_regression_sklearn(
+            fitted_model=self.fitted_model,
+            external_data=external_data,
+            dependent_var=self.dependent_var,
+            independent_vars=self.independent_vars,
+            is_classifier=True,
+        )
 
     def _validate_bootstrap(self, n_iterations=1000):
         """
@@ -664,10 +669,15 @@ class Ridge(RAPID):
         return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
 
     def _validate_external(self, external_data):
-        from isaric.validation.external import temporal_validation
-        return temporal_validation(self.fitted_model, external_data,
-                                   dependent_var=self.dependent_var,
-                                   independent_vars=self.independent_vars)
+        """Validate on external independent dataset."""
+        from isaric.validation.external import validate_regression_sklearn
+        return validate_regression_sklearn(
+            fitted_model=self.fitted_model,
+            external_data=external_data,
+            dependent_var=self.dependent_var,
+            independent_vars=self.independent_vars,
+            is_classifier=True,
+        )
 
     def _validate_bootstrap(self, n_iterations=1000):
         """
@@ -904,10 +914,15 @@ class ElasticNet(RAPID):
         return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
 
     def _validate_external(self, external_data):
-        from isaric.validation.external import temporal_validation
-        return temporal_validation(self.fitted_model, external_data,
-                                   dependent_var=self.dependent_var,
-                                   independent_vars=self.independent_vars)
+        """Validate on external independent dataset."""
+        from isaric.validation.external import validate_regression_sklearn
+        return validate_regression_sklearn(
+            fitted_model=self.fitted_model,
+            external_data=external_data,
+            dependent_var=self.dependent_var,
+            independent_vars=self.independent_vars,
+            is_classifier=True,
+        )
 
     def _validate_bootstrap(self, n_iterations=1000):
         """
@@ -1144,10 +1159,15 @@ class SVM(RAPID):
         return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
 
     def _validate_external(self, external_data):
-        from isaric.validation.external import temporal_validation
-        return temporal_validation(self.fitted_model, external_data,
-                                   dependent_var=self.dependent_var,
-                                   independent_vars=self.independent_vars)
+        """Validate SVM on external independent dataset."""
+        from isaric.validation.external import validate_regression_sklearn
+        return validate_regression_sklearn(
+            fitted_model=self.fitted_model,
+            external_data=external_data,
+            dependent_var=self.dependent_var,
+            independent_vars=self.independent_vars,
+            is_classifier=True,
+        )
 
     def _validate_bootstrap(self, n_iterations=1000):
         """
@@ -1420,10 +1440,15 @@ class LogisticL2(RAPID):
         return stratified_holdout(data, target_col=self.dependent_var, test_size=test_size)
 
     def _validate_external(self, external_data):
-        from isaric.validation.external import temporal_validation
-        return temporal_validation(self.fitted_model, external_data,
-                                   dependent_var=self.dependent_var,
-                                   independent_vars=self.independent_vars)
+        """Validate on external independent dataset."""
+        from isaric.validation.external import validate_regression_sklearn
+        return validate_regression_sklearn(
+            fitted_model=self.fitted_model,
+            external_data=external_data,
+            dependent_var=self.dependent_var,
+            independent_vars=self.independent_vars,
+            is_classifier=True,
+        )
 
     def _validate_bootstrap(self, n_iterations=1000):
         """

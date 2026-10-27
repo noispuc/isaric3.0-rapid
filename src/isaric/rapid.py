@@ -4,19 +4,23 @@ RAPID: Reusable Analytical Pipelines for Infectious Diseases.
 This module provides the abstract base class that defines the contract
 for all analytical pipelines in the ISARIC RAPID framework.
 
-The contract establishes the three-phase lifecycle:
-  1. create()  - Configure and instantiate the pipeline
-  2. fit()     - Train the model and compute evaluation metrics
-  3. summary() - Display results and visualizations
+Lifecycle:
+  1. create()     - Configure and instantiate the pipeline
+  2. fit()        - Train the model and compute evaluation metrics
 
-Optional methods:
+Available after fit():
+  - summary()    - Display results and visualizations
   - save()       - Persist the trained model
-  - validation() - Validate with external data
-  - report()     - Generate publication report
-  - decide()     - Select models for the report
+  - validation() - Validate with independent external data
+  - report()     - Generate publication-ready report (classmethod)
+  - decide()     - Document model selection decision
 
-State control ensures the correct execution order:
-  created → fitted → summarized → reported
+State control:
+  created → fitted
+
+  summary(), save(), validation(), decide() require fitted state.
+  report() is a classmethod — validates all models are fitted.
+  fit() can be called again to re-fit (overwrites previous results).
 
 Contract Note:
     Concrete methods access standardized attributes from subclasses.
@@ -49,41 +53,81 @@ class RAPID(ABC):
     # ======================================================================
 
     _STATE_CREATED = "created"
-    _STATE_FITTED = "fitted"
-    _STATE_SUMMARIZED = "summarized"
-    _STATE_REPORTED = "reported"
+    _STATE_FITTED  = "fitted"
+
+    # Model families — used to validate summary(models=[...]) comparisons
+    _FAMILY_MAP = {
+        "logistic":       "inferential",
+        "glm":            "inferential",
+        "survival":       "survival",
+        "lca":            "clustering",
+        "kmeans":         "clustering",
+        "decision_tree":  "tree_based",
+        "random_forest":  "tree_based",
+        "xgboost":        "tree_based",
+        "lightgbm":       "tree_based",
+        "catboost":       "tree_based",
+        "lasso":          "predictive",
+        "ridge":          "predictive",
+        "elastic_net":    "predictive",
+        "svm":            "predictive",
+        "logistic_l2":    "predictive",
+        "descriptive":    "descriptive",
+    }
 
     # ======================================================================
     # CONSTRUCTOR (INHERITED BY SUBCLASSES)
     # ======================================================================
 
     def __init__(self):
-        """Initialize with the initial state."""
+        """
+        Initialize pipeline with created state.
+
+        Attributes set here are inherited by all subclasses.
+        model_id is set by create() after instantiation.
+        """
         self._state = self._STATE_CREATED
         self._libraries_used = {}
         self._fit_at = None
-        self._random_seed = 42  # default; subclasses podem sobrescrever
+        self._random_seed = 42      # default; subclasses podem sobrescrever
+        self.model_id = None        # set by create() — auto-generated
+        self._validation_log = []   # accumulates each validation() call
+        self._decision = None       # set by decide() — documents selection
+        self._displayed_plots = []  # set by summary() — used by report()
 
     # ======================================================================
     # STATE CONTROL (INHERITED BY SUBCLASSES)
     # ======================================================================
 
-    def _check_state(self, required_state: str, method_name: str) -> None:
+    def _check_state(
+        self,
+        required_state,
+        method_name: str,
+    ) -> None:
         """
         Validate that the pipeline is in the correct state.
 
         Args:
-            required_state: The state required to call the method.
+            required_state: A single state string or a list of accepted
+                state strings.
             method_name: Name of the method being called.
 
         Raises:
             ValueError: If the pipeline is not in the required state.
         """
-        if self._state != required_state:
-            raise ValueError(
-                f"Cannot call {method_name}() in state '{self._state}'. "
-                f"Required state: '{required_state}'."
-            )
+        if isinstance(required_state, list):
+            if self._state not in required_state:
+                accepted = "', '".join(required_state)
+                raise ValueError(
+                    f"Cannot call {method_name}() in state '{self._state}'. "
+                    f"Required state: one of '{accepted}'."
+                )
+        else:
+            if self._state != required_state:
+                raise ValueError(
+                    f"Cannot call {method_name}() in state '{self._state}'. "
+                    f"Required state: '{required_state}'."
+                )
 
     def _transition_to(self, new_state: str) -> None:
         """
@@ -112,7 +156,660 @@ class RAPID(ABC):
             version = importlib.metadata.version(library_name)
             self._libraries_used[library_name] = version
         except importlib.metadata.PackageNotFoundError:
-            self._libraries_used[library_name] = "not_installed"    
+            self._libraries_used[library_name] = "not_installed" 
+
+    # ======================================================================
+    # COMPARE MODELS (INHERITED BY SUBCLASSES)
+    # ======================================================================
+    def _summary_comparative(
+        self,
+        models: List["RAPID"],
+    ) -> None:
+        """
+        Display comparative table for models of the same family.
+
+        Called by summary(compare=[...]) with self as the first model.
+        Shows common metrics and common variables/features across models.
+
+        Args:
+            models: List of RAPID instances — self is always first.
+        """
+        import pandas as pd
+
+        model_ids = [m.model_id for m in models]
+        width = 80
+
+        print("=" * width)
+        print("RAPID — MODEL COMPARISON")
+        print(f"Reference : {model_ids[0]}")
+        print(f"Comparing : {', '.join(model_ids[1:])}")
+        print("=" * width)
+        print()
+
+        # ── Metrics ───────────────────────────────────────────────────────
+        print("-" * width)
+        print("METRICS")
+        print("-" * width)
+
+        all_metric_keys = []
+        for m in models:
+            if hasattr(m, 'metrics') and m.metrics:
+                for k, v in m.metrics.items():
+                    if isinstance(v, (int, float)) and k not in all_metric_keys:
+                        all_metric_keys.append(k)
+
+        if all_metric_keys:
+            rows = []
+            for key in all_metric_keys:
+                row = {"Metric": key}
+                for m in models:
+                    val = (m.metrics or {}).get(key, None)
+                    row[m.model_id] = (
+                        f"{val:.4f}" if isinstance(val, float)
+                        else str(val) if val is not None
+                        else "—"
+                    )
+                rows.append(row)
+
+            metrics_df = pd.DataFrame(rows).set_index("Metric")
+            print(metrics_df.to_string())
+            print()
+
+        # ── Common variables / coefficients ───────────────────────────────
+        common_vars = None
+        var_col_used = None
+
+        for m in models:
+            if hasattr(m, 'result_df') and m.result_df is not None:
+                var_col = next(
+                    (c for c in ['Variable', 'Feature', 'feature']
+                     if c in m.result_df.columns),
+                    None
+                )
+                if var_col:
+                    var_col_used = var_col
+                    vars_m = set(m.result_df[var_col].tolist())
+                    common_vars = (
+                        vars_m if common_vars is None
+                        else common_vars & vars_m
+                    )
+
+        if common_vars:
+            print("-" * width)
+            print(f"COMMON VARIABLES ({len(common_vars)} shared)")
+            print("-" * width)
+
+            coef_candidates = [
+                'Coefficient', 'OddsRatio', 'HazardRatio',
+                'Importance', 'Effect',
+            ]
+
+            rows = []
+            for var in sorted(common_vars):
+                row = {"Variable": var}
+                for m in models:
+                    if hasattr(m, 'result_df') and m.result_df is not None:
+                        vc = next(
+                            (c for c in ['Variable', 'Feature', 'feature']
+                             if c in m.result_df.columns),
+                            None
+                        )
+                        cc = next(
+                            (c for c in coef_candidates
+                             if c in m.result_df.columns),
+                            None
+                        )
+                        if vc and cc:
+                            match = m.result_df[m.result_df[vc] == var]
+                            val = match.iloc[0][cc] if not match.empty else None
+                            row[m.model_id] = (
+                                f"{val:.4f}" if isinstance(val, float)
+                                else str(val) if val is not None
+                                else "—"
+                            )
+                        else:
+                            row[m.model_id] = "—"
+                rows.append(row)
+
+            if rows:
+                coef_df = pd.DataFrame(rows).set_index("Variable")
+                print(coef_df.to_string())
+                print()
+
+        print("=" * width)
+        print(
+            "ℹ️  Call model.summary() individually for full details, "
+            "plots and grid results."
+        )
+        print("=" * width)
+
+    # ======================================================================
+    # STATIC METHOD: PDF REPORT GENERATION (INHERITED BY SUBCLASSES)
+    # ======================================================================
+    @staticmethod
+    def _generate_pdf_report(
+        models: List["RAPID"],
+        pdf_filename: str,
+    ) -> None:
+        """
+        Generate consolidated PDF report using ReportLab.
+
+        Called internally by report(). Not intended for direct use.
+
+        Args:
+            models: List of fitted RAPID instances.
+            pdf_filename: Output PDF file path.
+
+        Raises:
+            ImportError: If reportlab is not installed.
+        """
+        try:
+            from reportlab.platypus import (
+                SimpleDocTemplate, Paragraph, Spacer, Table,
+                TableStyle, PageBreak, HRFlowable, Image,
+            )
+            from reportlab.lib.styles import (
+                getSampleStyleSheet, ParagraphStyle,
+            )
+            from reportlab.lib import colors
+            from reportlab.lib.units import inch
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.enums import TA_CENTER
+        except ImportError:
+            raise ImportError(
+                "ReportLab is required for PDF generation. "
+                "Install with: pip install reportlab"
+            )
+
+        import os
+        import tempfile
+        import isaric
+        from datetime import datetime
+
+        PAGE_W, PAGE_H = A4
+
+        # ── Colours ───────────────────────────────────────────────────────
+        BLUE      = colors.HexColor('#003366')
+        LIGHT     = colors.HexColor('#e8f0f8')
+        GRAY      = colors.HexColor('#cccccc')
+        DARK      = colors.HexColor('#222222')
+
+        # ── Styles ────────────────────────────────────────────────────────
+        SS = getSampleStyleSheet()
+
+        s_cover_title = ParagraphStyle(
+            'CoverTitle', parent=SS['Title'],
+            fontSize=22, textColor=BLUE,
+            spaceAfter=12, fontName='Helvetica-Bold',
+            alignment=TA_CENTER,
+        )
+        s_cover_sub = ParagraphStyle(
+            'CoverSub', parent=SS['Normal'],
+            fontSize=11, textColor=DARK,
+            spaceAfter=6, alignment=TA_CENTER,
+        )
+        s_h1 = ParagraphStyle(
+            'H1', parent=SS['Heading1'],
+            fontSize=14, textColor=BLUE,
+            spaceBefore=16, spaceAfter=6,
+            fontName='Helvetica-Bold',
+        )
+        s_h2 = ParagraphStyle(
+            'H2', parent=SS['Heading2'],
+            fontSize=11, textColor=BLUE,
+            spaceBefore=10, spaceAfter=4,
+            fontName='Helvetica-Bold',
+        )
+        s_body = ParagraphStyle(
+            'Body', parent=SS['Normal'],
+            fontSize=9, leading=13, textColor=DARK,
+        )
+        s_note = ParagraphStyle(
+            'Note', parent=SS['Normal'],
+            fontSize=8, textColor=colors.HexColor('#666666'),
+            fontName='Helvetica-Oblique',
+        )
+
+        # ── Table style helper ────────────────────────────────────────────
+        def _tbl_style():
+            return TableStyle([
+                ('BACKGROUND',    (0, 0), (-1, 0),  BLUE),
+                ('TEXTCOLOR',     (0, 0), (-1, 0),  colors.white),
+                ('FONTNAME',      (0, 0), (-1, 0),  'Helvetica-Bold'),
+                ('FONTSIZE',      (0, 0), (-1, -1), 8),
+                ('ROWBACKGROUNDS',(0, 1), (-1, -1),  [colors.white, LIGHT]),
+                ('GRID',          (0, 0), (-1, -1),  0.25, GRAY),
+                ('TOPPADDING',    (0, 0), (-1, -1),  3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1),  3),
+            ])
+
+        # ── Header / footer ───────────────────────────────────────────────
+        def _hf(canvas, doc):
+            canvas.saveState()
+            canvas.setStrokeColor(BLUE)
+            canvas.setLineWidth(1.5)
+            canvas.line(inch, PAGE_H - 0.6*inch, PAGE_W - inch, PAGE_H - 0.6*inch)
+            canvas.setFont('Helvetica-Bold', 8)
+            canvas.setFillColor(BLUE)
+            canvas.drawString(inch, PAGE_H - 0.5*inch,
+                              "ISARIC CLINICAL EPIDEMIOLOGY PLATFORM")
+            canvas.drawRightString(PAGE_W - inch, PAGE_H - 0.5*inch,
+                                   f"RAPID v{isaric.__version__}")
+            canvas.setStrokeColor(GRAY)
+            canvas.setLineWidth(0.5)
+            canvas.line(inch, 0.6*inch, PAGE_W - inch, 0.6*inch)
+            canvas.setFont('Helvetica', 7)
+            canvas.setFillColor(colors.HexColor('#666666'))
+            canvas.drawString(inch, 0.4*inch,
+                              datetime.now().strftime('%Y-%m-%d'))
+            canvas.drawCentredString(
+                PAGE_W / 2, 0.4*inch,
+                "RAPID — Reusable Analytics Pipeline for Infectious Disease"
+            )
+            canvas.drawRightString(PAGE_W - inch, 0.4*inch,
+                                   f"Page {doc.page}")
+            canvas.restoreState()
+
+        # ── Story ─────────────────────────────────────────────────────────
+        story = []
+
+        # Cover
+        story.append(Spacer(1, 2*inch))
+        story.append(Paragraph(
+            "ISARIC CLINICAL EPIDEMIOLOGY PLATFORM", s_cover_title
+        ))
+        story.append(Spacer(1, 0.2*inch))
+        story.append(Paragraph("RAPID — Analytical Report", s_cover_sub))
+        story.append(HRFlowable(
+            width="80%", thickness=2, color=BLUE, spaceAfter=12
+        ))
+        story.append(Spacer(1, 0.2*inch))
+        story.append(Paragraph(
+            f"Models: {', '.join(m.model_id for m in models)}", s_cover_sub
+        ))
+        story.append(Paragraph(
+            f"Generated: {datetime.now().strftime('%B %d, %Y %H:%M')}",
+            s_cover_sub
+        ))
+        story.append(Paragraph(
+            f"RAPID version: {isaric.__version__}", s_cover_sub
+        ))
+        story.append(PageBreak())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+
+            for model in models:
+
+                # ── Model header ──────────────────────────────────────────
+                story.append(Paragraph(f"Model: {model.model_id}", s_h1))
+                story.append(Paragraph(
+                    f"Type: {model.model_type} | "
+                    f"Family: {RAPID._FAMILY_MAP.get(model.model_type, 'unknown')}",
+                    s_body
+                ))
+                story.append(HRFlowable(
+                    width="100%", thickness=0.5, color=GRAY, spaceAfter=6
+                ))
+
+                # ── Execution context ─────────────────────────────────────
+                story.append(Paragraph("Execution Context", s_h2))
+                ctx = [["Parameter", "Value"]]
+                ctx.append(["model_id",    str(model.model_id)])
+                ctx.append(["fit_at",      str(getattr(model, '_fit_at', 'Unknown'))])
+                ctx.append(["random_seed", str(getattr(model, '_random_seed', '—'))])
+                if hasattr(model, 'model_info') and model.model_info:
+                    for k in ['framework', 'method', 'N_observations',
+                               'N_events', 'N_features']:
+                        if k in model.model_info:
+                            ctx.append([k, str(model.model_info[k])])
+                t = Table(ctx, colWidths=[2.5*inch, 3.5*inch])
+                t.setStyle(_tbl_style())
+                story.append(t)
+                story.append(Spacer(1, 0.15*inch))
+
+                # ── Fit metrics ───────────────────────────────────────────
+                if hasattr(model, 'metrics') and model.metrics:
+                    story.append(Paragraph("Fit Metrics", s_h2))
+                    met = [["Metric", "Value"]]
+                    for k, v in model.metrics.items():
+                        if k == 'confusion_matrix':
+                            continue
+                        met.append([
+                            k,
+                            f"{v:.4f}" if isinstance(v, float) else str(v)
+                        ])
+                    t = Table(met, colWidths=[3*inch, 3*inch])
+                    t.setStyle(_tbl_style())
+                    story.append(t)
+                    story.append(Spacer(1, 0.15*inch))
+
+                # ── Parameter table ───────────────────────────────────────
+                if hasattr(model, 'result_df') and model.result_df is not None:
+                    story.append(Paragraph("Parameter Table", s_h2))
+                    df = model.result_df.reset_index(drop=True)
+                    rows = [list(df.columns)]
+                    for _, row in df.iterrows():
+                        rows.append([
+                            f"{v:.4f}" if isinstance(v, float) else str(v)
+                            for v in row
+                        ])
+                    col_w = (PAGE_W - 2*inch) / len(rows[0])
+                    t = Table(rows, colWidths=[col_w] * len(rows[0]))
+                    t.setStyle(_tbl_style())
+                    story.append(t)
+                    story.append(Spacer(1, 0.15*inch))
+
+                # ── Grid results (LCA / clustering) ──────────────────────────
+                if hasattr(model, 'grid_results') and model.grid_results is not None:
+                    story.append(Paragraph("Class Enumeration Results", s_h2))
+                    gdf = model.grid_results.reset_index(drop=True)
+                    # Select most relevant columns for the report
+                    show_cols = [c for c in [
+                        'n_clusters', 'LL', 'AIC', 'BIC', 'CAIC', 'SABIC',
+                        'entropy', 'relative_entropy', 'convergence_rate',
+                        'ave_pp_min', 'min_class_perc',
+                    ] if c in gdf.columns]
+                    gdf_show = gdf[show_cols] if show_cols else gdf
+                    rows = [list(gdf_show.columns)]
+                    for _, row in gdf_show.iterrows():
+                        rows.append([
+                            f"{v:.3f}" if isinstance(v, float) else str(v)
+                            for v in row
+                        ])
+                    col_w = (PAGE_W - 2*inch) / max(len(rows[0]), 1)
+                    t = Table(rows, colWidths=[col_w] * len(rows[0]))
+                    t.setStyle(_tbl_style())
+                    story.append(t)
+                    story.append(Spacer(1, 0.15*inch))
+
+                # ── Nested LRT ────────────────────────────────────────────────
+                if (hasattr(model, 'nested_models_lrt')
+                        and model.nested_models_lrt is not None
+                        and not model.nested_models_lrt.empty):
+                    story.append(Paragraph("Nested LRT (Chi-square)", s_h2))
+                    ndf = model.nested_models_lrt.reset_index(drop=True)
+                    rows = [list(ndf.columns)]
+                    for _, row in ndf.iterrows():
+                        rows.append([
+                            f"{v:.4f}" if isinstance(v, float) else str(v)
+                            for v in row
+                        ])
+                    col_w = (PAGE_W - 2*inch) / max(len(rows[0]), 1)
+                    t = Table(rows, colWidths=[col_w] * len(rows[0]))
+                    t.setStyle(_tbl_style())
+                    story.append(t)
+                    story.append(Spacer(1, 0.15*inch))
+
+                # ── Class diagnostics (LCA) ───────────────────────────────────
+                if hasattr(model, 'DiagClass') and model.DiagClass:
+                    story.append(Paragraph("Class Diagnostics", s_h2))
+
+                    # Class sizes/proportions
+                    try:
+                        weights = model.fitted_model.weights_
+                        n_classes = len(weights)
+                        class_labels = (
+                            model.class_names
+                            if hasattr(model, 'class_names')
+                                and model.class_names
+                                and len(model.class_names) == n_classes
+                            else [f"Class_{i+1}" for i in range(n_classes)]
+                        )
+                        sizes_data = [["Class", "Proportion", "N (est.)"]]
+                        n_obs = len(model.X)
+                        for lbl, w in zip(class_labels, weights):
+                            sizes_data.append([
+                                lbl,
+                                f"{w:.4f}",
+                                f"{int(round(w * n_obs))}",
+                            ])
+                        t = Table(sizes_data, colWidths=[2.5*inch, 1.5*inch, 1.5*inch])
+                        t.setStyle(_tbl_style())
+                        story.append(Paragraph("Class Sizes", s_body))
+                        story.append(t)
+                        story.append(Spacer(1, 0.1*inch))
+                    except Exception:
+                        pass
+
+                    # Average Posterior Probabilities
+                    ave_pp = model.DiagClass.get('ave_pp')
+                    if ave_pp is not None and not ave_pp.empty:
+                        story.append(Paragraph(
+                            "Average Posterior Probabilities (AvePP)", s_body
+                        ))
+                        rows = [["k"] + list(ave_pp.columns)]
+                        for idx, row in ave_pp.iterrows():
+                            rows.append(
+                                [str(idx)] + [
+                                    f"{v:.4f}" if isinstance(v, float) else str(v)
+                                    for v in row
+                                ]
+                            )
+                        col_w = (PAGE_W - 2*inch) / max(len(rows[0]), 1)
+                        t = Table(rows, colWidths=[col_w] * len(rows[0]))
+                        t.setStyle(_tbl_style())
+                        story.append(t)
+                        story.append(Spacer(1, 0.1*inch))
+
+                    # OCC ratios
+                    occ = model.DiagClass.get('occ_ratios')
+                    if occ is not None and not occ.empty:
+                        story.append(Paragraph(
+                            "Odds of Correct Classification (OCC)", s_body
+                        ))
+                        rows = [["k"] + list(occ.columns)]
+                        for idx, row in occ.iterrows():
+                            rows.append(
+                                [str(idx)] + [
+                                    f"{v:.4f}" if isinstance(v, float) else str(v)
+                                    for v in row
+                                ]
+                            )
+                        col_w = (PAGE_W - 2*inch) / max(len(rows[0]), 1)
+                        t = Table(rows, colWidths=[col_w] * len(rows[0]))
+                        t.setStyle(_tbl_style())
+                        story.append(t)
+                        story.append(Spacer(1, 0.1*inch))
+
+                # ── Outcome crosstab ──────────────────────────────────────────
+                if (hasattr(model, 'outcome_crosstab_df')
+                        and model.outcome_crosstab_df is not None):
+                    outcome_name = getattr(model, 'outcome', 'outcome')
+                    story.append(Paragraph(
+                        f"Outcome by Class — {outcome_name}", s_h2
+                    ))
+                    ct = model.outcome_crosstab_df.reset_index()
+                    rows = [list(ct.columns)]
+                    for _, row in ct.iterrows():
+                        rows.append([
+                            f"{v:.4f}" if isinstance(v, float) else str(v)
+                            for v in row
+                        ])
+                    col_w = (PAGE_W - 2*inch) / max(len(rows[0]), 1)
+                    t = Table(rows, colWidths=[col_w] * len(rows[0]))
+                    t.setStyle(_tbl_style())
+                    story.append(t)
+                    if (hasattr(model, 'outcome_test_result')
+                            and model.outcome_test_result):
+                        tr = model.outcome_test_result
+                        story.append(Paragraph(
+                            f"{tr.get('test', '')}: "
+                            f"stat={tr.get('statistic', float('nan')):.4f}, "
+                            f"p={tr.get('p_value', float('nan')):.4f}",
+                            s_note
+                        ))
+                    story.append(Spacer(1, 0.15*inch))
+
+                # ── Validation log ────────────────────────────────────────────
+                if model._validation_log:
+                    story.append(Paragraph("Validation Log", s_h2))
+                    for i, entry in enumerate(model._validation_log, 1):
+                        story.append(Paragraph(
+                            f"Validation {i} — {entry.get('timestamp', '')}",
+                            s_body
+                        ))
+                        for k, v in entry.get('results', {}).items():
+                            story.append(Paragraph(
+                                f"  {k}: {str(v)[:300]}", s_note
+                            ))
+                    story.append(Spacer(1, 0.1*inch))
+
+                # ── Decision ──────────────────────────────────────────────
+                if model._decision:
+                    story.append(Paragraph("Decision", s_h2))
+                    story.append(Paragraph(
+                        f"Selected: {model._decision.get('selected', '—')}",
+                        s_body
+                    ))
+                    if model._decision.get('reason'):
+                        story.append(Paragraph(
+                            f"Reason: {model._decision['reason']}", s_body
+                        ))
+                    story.append(Spacer(1, 0.1*inch))
+
+                # ── Figures ───────────────────────────────────────────────
+                plots_to_use = (
+                    model._displayed_plots
+                    if model._displayed_plots
+                    else list(model.plots_map.keys())
+                )
+                if plots_to_use:
+                    story.append(Paragraph("Figures", s_h2))
+                    for plot_name in plots_to_use:
+                        if plot_name not in model.plots_map:
+                            continue
+                        try:
+                            import matplotlib
+                            matplotlib.use('Agg')
+                            import matplotlib.pyplot as plt
+                            fig = model.plots_map[plot_name](
+                                backend="matplotlib"
+                            )
+                            figs = fig if isinstance(fig, list) else [fig]
+                            for idx, f in enumerate(figs):
+                                png = os.path.join(
+                                    tmpdir,
+                                    f"{model.model_id}_{plot_name}_{idx}.png"
+                                )
+                                f.savefig(png, bbox_inches='tight', dpi=150)
+                                plt.close(f)
+                                img_w = PAGE_W - 2*inch
+                                story.append(Image(
+                                    png,
+                                    width=img_w,
+                                    height=img_w * 0.6
+                                ))
+                                story.append(Spacer(1, 0.1*inch))
+                        except Exception as e:
+                            story.append(Paragraph(
+                                f"[Figure '{plot_name}' unavailable: {e}]",
+                                s_note
+                            ))
+
+                story.append(PageBreak())
+
+            # ── Comparison section (multiple models) ──────────────────────
+            if len(models) > 1:
+                story.append(Paragraph("Model Comparison", s_h1))
+                story.append(HRFlowable(
+                    width="100%", thickness=0.5, color=GRAY, spaceAfter=6
+                ))
+
+                # Metrics
+                all_keys = []
+                for m in models:
+                    if hasattr(m, 'metrics') and m.metrics:
+                        for k, v in m.metrics.items():
+                            if isinstance(v, (int, float)) and k not in all_keys:
+                                all_keys.append(k)
+
+                if all_keys:
+                    story.append(Paragraph("Metrics", s_h2))
+                    hdr = ["Metric"] + [m.model_id for m in models]
+                    rows = [hdr]
+                    for key in all_keys:
+                        row = [key]
+                        for m in models:
+                            v = (m.metrics or {}).get(key, None)
+                            row.append(
+                                f"{v:.4f}" if isinstance(v, float)
+                                else str(v) if v is not None else "—"
+                            )
+                        rows.append(row)
+                    col_w = (PAGE_W - 2*inch) / len(hdr)
+                    t = Table(rows, colWidths=[col_w] * len(hdr))
+                    t.setStyle(_tbl_style())
+                    story.append(t)
+                    story.append(Spacer(1, 0.2*inch))
+
+                # Common variables
+                common_vars = None
+                for m in models:
+                    if hasattr(m, 'result_df') and m.result_df is not None:
+                        vc = next(
+                            (c for c in ['Variable', 'Feature', 'feature']
+                             if c in m.result_df.columns), None
+                        )
+                        if vc:
+                            vars_m = set(m.result_df[vc].tolist())
+                            common_vars = (
+                                vars_m if common_vars is None
+                                else common_vars & vars_m
+                            )
+
+                if common_vars:
+                    story.append(Paragraph(
+                        f"Common Variables ({len(common_vars)} shared)", s_h2
+                    ))
+                    coef_cands = [
+                        'Coefficient', 'OddsRatio', 'HazardRatio',
+                        'Importance', 'Effect',
+                    ]
+                    hdr = ["Variable"] + [m.model_id for m in models]
+                    rows = [hdr]
+                    for var in sorted(common_vars):
+                        row = [var]
+                        for m in models:
+                            if hasattr(m, 'result_df') and m.result_df is not None:
+                                vc = next(
+                                    (c for c in ['Variable', 'Feature', 'feature']
+                                     if c in m.result_df.columns), None
+                                )
+                                cc = next(
+                                    (c for c in coef_cands
+                                     if c in m.result_df.columns), None
+                                )
+                                if vc and cc:
+                                    match = m.result_df[m.result_df[vc] == var]
+                                    v = match.iloc[0][cc] if not match.empty else None
+                                    row.append(
+                                        f"{v:.4f}" if isinstance(v, float)
+                                        else str(v) if v is not None else "—"
+                                    )
+                                else:
+                                    row.append("—")
+                            else:
+                                row.append("—")
+                        rows.append(row)
+                    col_w = (PAGE_W - 2*inch) / len(hdr)
+                    t = Table(rows, colWidths=[col_w] * len(hdr))
+                    t.setStyle(_tbl_style())
+                    story.append(t)
+
+            # ── Build ─────────────────────────────────────────────────────
+            doc = SimpleDocTemplate(
+                pdf_filename,
+                pagesize=A4,
+                rightMargin=inch,
+                leftMargin=inch,
+                topMargin=0.8*inch,
+                bottomMargin=0.8*inch,
+            )
+            doc.build(
+                story,
+                onFirstPage=_hf,
+                onLaterPages=_hf,
+            )   
 
     # ======================================================================
     # ABSTRACT CONTRACT
@@ -150,7 +847,7 @@ class RAPID(ABC):
         """
         # Imports lazy - evitam circular import
         from isaric.modeling.regression import LogisticRegression, GLM
-        from isaric.modeling.survival import SurvivalCox, KaplanMeier
+        from isaric.modeling.survival import Survival
         from isaric.modeling.clustering import LCA, KMeans
         from isaric.modeling.descriptive import Descriptive
         from isaric.modeling.treebased import DecisionTree, RandomForest, XGBoost, LightGBM, CatBoost
@@ -160,8 +857,7 @@ class RAPID(ABC):
         registry = {
             "logistic": LogisticRegression,
             "glm": GLM,
-            "survival_cox": SurvivalCox,
-            "survival_km": KaplanMeier,
+            "survival": Survival,
             "lca": LCA,
             "kmeans": KMeans,
             "descriptive": Descriptive,
@@ -209,6 +905,12 @@ class RAPID(ABC):
         elif model == "catboost":
             instance._register_library("catboost")
 
+        # Gera model_id automático — sobrescrevível pelo usuário
+        from datetime import datetime
+        instance.model_id = (
+            f"{model}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        )
+
         return instance
 
 
@@ -225,7 +927,6 @@ class RAPID(ABC):
         grid_search: bool = False,
         param_grid: Optional[Dict[str, List[Any]]] = None,
         selection_metric: str = "auto",
-        bootstrap_likelihood: bool = False,
         bootstrap: bool = False,
         bootstrap_type: str = "auto",
         n_iterations: int = 1000,
@@ -261,10 +962,6 @@ class RAPID(ABC):
                 If None, uses model-specific default.
             selection_metric: Metric to optimize during grid search.
                 "auto" uses model-specific default.
-            bootstrap_likelihood: Enable Bootstrapped Likelihood Ratio Test
-                (BLRT). Only applicable to LCA models. Computationally
-                expensive — runs one bootstrap per consecutive pair (k-1, k).
-                Default False.
             bootstrap: Enable bootstrap confidence intervals. When True,
                 calls _run_bootstrap() after model training. Default False.
             bootstrap_type: Type of bootstrap CI to compute.
@@ -286,12 +983,25 @@ class RAPID(ABC):
         Raises:
             ValueError: If parameters are invalid or state is incorrect.
         """
-        self._check_state(self._STATE_CREATED, "fit")
+        import warnings
+
+        # Aceita CREATED (primeiro fit) ou FITTED (re-fit)
+        if self._state == self._STATE_FITTED:
+            warnings.warn(
+                f"[{self.model_id}] Re-fitting model. "
+                f"Previous fitted_model, metrics, result_df and "
+                f"bootstrap_results will be overwritten. "
+                f"To compare models, create a new instance with RAPID.create().",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif self._state != self._STATE_CREATED:
+            raise ValueError(
+                f"Cannot call fit() in state '{self._state}'. "
+                f"Required state: '{self._STATE_CREATED}' or '{self._STATE_FITTED}'."
+            )
 
         from datetime import datetime
-
-        # Store bootstrap_likelihood flag for subclasses that need it (e.g. LCA)
-        self._bootstrap_likelihood = bootstrap_likelihood
 
         # Store bootstrap params for _run_bootstrap()
         self._bootstrap = bootstrap
@@ -330,51 +1040,95 @@ class RAPID(ABC):
         if assumptions:
             self.assumptions = self._check_assumptions()
 
-                # Train/Test
+        # Train/Test
         if train_test:
             self.train_test = self._train_test_split(test_size)
 
-                # Bootstrap CIs
+        # Bootstrap CIs
         if bootstrap:
             self.bootstrap_results = self._validate_bootstrap(n_iterations)
 
         self._transition_to(self._STATE_FITTED)
         return self
 
+    
     def summary(
         self,
         table_format: str = "full",
-        plots: Optional[List[str]] = None
+        plots: Optional[List[str]] = None,
+        compare: Optional[List["RAPID"]] = None,
+        reorder: Optional[Dict] = None,
     ) -> None:
         """
         Display results in tabular and graphical format.
 
-        This method implements Step 6 (Visualization) of the RAPID
-        methodology.
-
-        Subclasses MUST have:
-        - self.result_df (results DataFrame)
-        - self.plots_map (dict: plot_name → plot_function)
-
-        Subclasses MAY have:
-        - self.model_info (dict: model information and metrics)
-        - self.grid_results (DataFrame: grid search results)
-        - self.best_params (dict: best parameters from grid search)
+        When called without compare=, displays this instance's results.
+        When called with compare=[m2, m3], displays a comparative table
+        with self as reference (first column) against the listed models.
+        All models must be from the same family.
 
         Args:
-            table_format: "full" (complete) or "short" (summarized).
-            plots: List of plot names to generate.
-
-        Returns:
-            None (displays in screen).
+            table_format: "full" or "short". Ignored in compare mode.
+            plots: List of plot names. Ignored in compare mode.
+            compare: Optional list of additional RAPID instances to
+                compare against self. Self is always the reference.
+                All models must be fitted and from the same family.
 
         Raises:
-            ValueError: If table_format is invalid or state is incorrect.
+            ValueError: If state is incorrect, models are from different
+                families, or any compared model is not fitted.
         """
-        self._check_state(self._STATE_FITTED, "summary")
+        
+        # ── Comparative mode ──────────────────────────────────────────────
+        if compare is not None:
+            all_models = [self] + list(compare)
 
-        # Guarda os plots solicitados
-        self._displayed_plots = plots if plots else list(self.plots_map.keys())
+            # Validate all models are fitted
+            not_fitted = [
+                m.model_id for m in all_models
+                if m._state != self._STATE_FITTED
+            ]
+            if not_fitted:
+                raise ValueError(
+                    f"All models must be fitted before comparison. "
+                    f"Not fitted: {not_fitted}. Call fit() first."
+                )
+
+            # Validate same family
+            families = {
+                self._FAMILY_MAP.get(m.model_type, 'unknown')
+                for m in all_models
+            }
+            if len(families) > 1:
+                details = [
+                    f"{m.model_id} ({m.model_type})"
+                    for m in all_models
+                ]
+                raise ValueError(
+                    f"summary(compare=[...]) requires all models to be "
+                    f"from the same family. "
+                    f"Found families: {sorted(families)}. "
+                    f"Models: {details}."
+                )
+
+            self._summary_comparative(all_models)
+            return
+
+        # Store reorder mapping for display (plots and tables)
+        if reorder is not None:
+            self._display_reorder = reorder
+
+        # Store displayed plots for report()
+        # Priority: explicit plots > model _default_plots > all plots_map keys
+        if plots is not None:
+            self._displayed_plots = plots
+        elif hasattr(self, '_default_plots') and self._default_plots:
+            self._displayed_plots = [
+                p for p in self._default_plots
+                if p in self.plots_map
+            ]
+        else:
+            self._displayed_plots = list(self.plots_map.keys())
 
         # ======================================================================
         # 1. MODEL INFORMATION
@@ -411,23 +1165,86 @@ class RAPID(ABC):
         if table_format == "full":
             print(self.result_df.to_string(index=False))
         elif table_format == "short":
-            # Pega as colunas disponíveis (varia por modelo)
-            display_cols = [
-                c for c in ['Variable', 'Effect', 'OddsRatio',
-                            'HazardRatio', 'Coefficient', 'Importance',
-                            'p-value']
-                if c in self.result_df.columns
-            ]
-            if display_cols:
-                print(self.result_df[display_cols].to_string(index=False))
-            else:
-                print(self.result_df.to_string(index=False))
+            # Short: ratio columns take priority over raw Coefficient.
+            # Shows: Variable + main effect + CI + p-value.
+            ratio_cols = ['OddsRatio', 'HazardRatio', 'MeanRatio']
+            has_ratio  = any(c in self.result_df.columns for c in ratio_cols)
+
+            priority = ['Variable']
+            priority += [c for c in ratio_cols if c in self.result_df.columns]
+            if not has_ratio and 'Coefficient' in self.result_df.columns:
+                priority.append('Coefficient')
+            if 'Importance' in self.result_df.columns:
+                priority.append('Importance')
+            for c in ['LowerCI', 'UpperCI', 'p-value']:
+                if c in self.result_df.columns:
+                    priority.append(c)
+
+            display_cols = [c for c in priority if c in self.result_df.columns]
+            print(
+                self.result_df[display_cols].to_string(index=False)
+                if display_cols
+                else self.result_df.to_string(index=False)
+            )
         else:
             raise ValueError(
                 f"table_format must be 'full' or 'short'. "
-                f"Received: {table_format}"
+                f"Received: '{table_format}'"
             )
         print()
+
+        # ======================================================================
+        # 2b. BOOTSTRAP CONFIDENCE INTERVALS (when bootstrap=True in fit())
+        # ======================================================================
+        if (hasattr(self, 'bootstrap_results')
+                and self.bootstrap_results is not None):
+            btype = self.bootstrap_results.get('bootstrap_type', 'unknown')
+            n_it  = self.bootstrap_results.get('n_iterations', '?')
+            print("=" * 80)
+            print(
+                f"BOOTSTRAP CONFIDENCE INTERVALS"
+                f" — {btype.upper()} (n={n_it})"
+            )
+            print("=" * 80)
+
+            # Regression / Predictive — coefficients
+            boot_df = self.bootstrap_results.get('coefficients')
+            if boot_df is not None and not boot_df.empty:
+                show_cols = [
+                    c for c in [
+                        'variable', 'observed', 'bootstrap_mean',
+                        'bootstrap_se', 'ci_lower', 'ci_upper',
+                        'bootstrap_p_value',
+                    ]
+                    if c in boot_df.columns
+                ]
+                print(boot_df[show_cols].to_string(index=False))
+
+            # Survival — hazard ratios
+            elif self.bootstrap_results.get('hazard_ratios') is not None:
+                boot_df = self.bootstrap_results['hazard_ratios']
+                show_cols = [
+                    c for c in [
+                        'variable', 'observed_hr', 'hr_ci_lower',
+                        'hr_ci_upper', 'bootstrap_p_value',
+                    ]
+                    if c in boot_df.columns
+                ]
+                print(boot_df[show_cols].to_string(index=False))
+
+            # Tree-based — feature importances
+            elif self.bootstrap_results.get('importances') is not None:
+                boot_df = self.bootstrap_results['importances']
+                show_cols = [
+                    c for c in [
+                        'Feature', 'observed_importance',
+                        'ci_lower', 'ci_upper',
+                    ]
+                    if c in boot_df.columns
+                ]
+                print(boot_df[show_cols].to_string(index=False))
+
+            print()
 
         # ======================================================================
         # 3. GRID SEARCH RESULTS
@@ -440,6 +1257,26 @@ class RAPID(ABC):
 
             if hasattr(self, 'best_params') and self.best_params:
                 print(f"\nBest parameters: {self.best_params}")
+            print()
+
+        # ======================================================================
+        # 3b. OUTCOME CROSSTAB (when outcome was provided in create())
+        # ======================================================================
+        if (hasattr(self, 'outcome_crosstab_df')
+                and self.outcome_crosstab_df is not None):
+            outcome_name = getattr(self, 'outcome', 'outcome')
+            print("=" * 80)
+            print(f"OUTCOME BY CLASS — {outcome_name}")
+            print("=" * 80)
+            print(self.outcome_crosstab_df.to_string())
+            if (hasattr(self, 'outcome_test_result')
+                    and self.outcome_test_result):
+                t = self.outcome_test_result
+                print(
+                    f"\n  {t.get('test', '')}: "
+                    f"statistic={t.get('statistic', float('nan')):.4f}, "
+                    f"p-value={t.get('p_value', float('nan')):.4f}"
+                )
             print()
 
         # ======================================================================
@@ -463,7 +1300,14 @@ class RAPID(ABC):
         """
         Persist the trained model to disk.
 
-        Saves a ZIP file containing JSON metadata + pickle object.
+        Saves a ZIP file containing:
+        - metadata.json: model name, type, model_id, creation timestamp,
+          RAPID version, library versions, key metrics, validation log,
+          and decision (if decide() was called).
+        - model.pkl: serialized fitted model (pickle).
+
+        Can be called any time after fit(). Does not require summary()
+        to have been called first.
 
         Subclasses MUST have:
         - self.model_type (str)
@@ -474,9 +1318,9 @@ class RAPID(ABC):
             self for method chaining.
 
         Raises:
-            ValueError: If state is incorrect.
+            ValueError: If model has not been fitted yet.
         """
-        self._check_state(self._STATE_SUMMARIZED, "save")
+        self._check_state(self._STATE_FITTED, "save")
 
         import json
         import pickle
@@ -485,27 +1329,53 @@ class RAPID(ABC):
         import isaric
 
         filename = (
-            f"{self.model_type}-"
+            f"{self.model_id}-"
             f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.rapid"
         )
 
+        # Serialise validation log — convert DataFrames to dicts
+        validation_log_serialisable = []
+        for entry in self._validation_log:
+            entry_copy = {}
+            for k, v in entry.items():
+                try:
+                    import pandas as pd
+                    if isinstance(v, pd.DataFrame):
+                        entry_copy[k] = v.to_dict(orient='records')
+                    elif isinstance(v, dict):
+                        entry_copy[k] = {
+                            str(kk): (
+                                vv.to_dict(orient='records')
+                                if isinstance(vv, pd.DataFrame)
+                                else vv
+                            )
+                            for kk, vv in v.items()
+                        }
+                    else:
+                        entry_copy[k] = v
+                except Exception:
+                    entry_copy[k] = str(v)
+            validation_log_serialisable.append(entry_copy)
+
         metadata = {
-            "model_name": self.model_type,
-            "model_type": self.model_type,
-            "created_at": datetime.now().isoformat(),
-            "rapid_version": isaric.__version__,  # ← lê versão do pacote
+            "model_id":        self.model_id,
+            "model_name":      self.model_type,
+            "model_type":      self.model_type,
+            "created_at":      datetime.now().isoformat(),
+            "fit_at":          self._fit_at,
+            "rapid_version":   isaric.__version__,
             "library_versions": self._libraries_used,
-            "key_metrics": self.metrics
+            "key_metrics":     self.metrics,
+            "validation_log":  validation_log_serialisable,
+            "decision":        self._decision,
         }
 
         with zipfile.ZipFile(filename, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Grava metadata.json
             zf.writestr('metadata.json', json.dumps(metadata, indent=2))
-
-            # Grava model.pkl
             zf.writestr('model.pkl', pickle.dumps(self.fitted_model))
 
         self.saved_filename = filename
+        print(f"✅ Model saved: {filename}")
         return self
 
     def validation(
@@ -518,13 +1388,18 @@ class RAPID(ABC):
         """
         Validate the trained model using independent external data.
 
-        This method implements Step 5 (Validation) of the RAPID
-        methodology. It is reserved for performance assessment on
-        independent datasets — analogous to a TEST set in ML
-        (TRAIN / VALIDATION / TEST split).
+        Reserved for performance assessment on independent datasets —
+        analogous to a TEST set in ML (TRAIN / VALIDATION / TEST split).
+
+        Each call is accumulated in self._validation_log, allowing
+        multiple validations (different datasets, different parameters)
+        to be recorded and included in report().
 
         Bootstrap confidence intervals are computed during fit()
         via bootstrap=True, not here.
+
+        Can be called any time after fit(). Does not require summary()
+        to have been called first.
 
         Subclasses MUST have:
         - self.fitted_model (trained model)
@@ -532,26 +1407,29 @@ class RAPID(ABC):
         Args:
             external_data: Independent dataset for external validation
                 (e.g. data from another site, a held-out time period,
-                or data collected subsequently). Required for external
-                validation metrics to be computed.
+                or data collected subsequently).
             sensitivity: Enable sensitivity analysis.
             subgroups: Dictionary defining subgroups for stratified
                 performance assessment.
             net_benefit: Enable Decision Curve Analysis (DCA).
 
         Returns:
-            Dictionary with validation results.
+            Dictionary with validation results for this call.
 
         Raises:
-            ValueError: If state is incorrect.
+            ValueError: If model has not been fitted yet.
         """
-        self._check_state(self._STATE_SUMMARIZED, "validation")
+        self._check_state(self._STATE_FITTED, "validation")
+
+        from datetime import datetime
 
         validation_results = {}
 
         # External validation — independent dataset
         if external_data is not None:
-            validation_results['external'] = self._validate_external(external_data)
+            validation_results['external'] = self._validate_external(
+                external_data
+            )
 
         # Sensitivity
         if sensitivity:
@@ -559,343 +1437,286 @@ class RAPID(ABC):
 
         # Subgroups
         if subgroups:
-            validation_results['subgroups'] = self._validate_subgroups(subgroups)
+            validation_results['subgroups'] = self._validate_subgroups(
+                subgroups
+            )
 
         # Net benefit
         if net_benefit:
             validation_results['net_benefit'] = self._validate_net_benefit()
 
+        # Accumulate in validation log
+        log_entry = {
+            'timestamp':     datetime.now().isoformat(),
+            'external_data': str(type(external_data).__name__) if external_data is not None else None,
+            'sensitivity':   sensitivity,
+            'subgroups':     str(subgroups) if subgroups else None,
+            'net_benefit':   net_benefit,
+            'results':       validation_results,
+        }
+        self._validation_log.append(log_entry)
+
         return validation_results
 
+    @classmethod
     def report(
-        self,
-        format: Optional[List[str]] = None
+        cls,
+        models: List["RAPID"],
+        format: Optional[List[str]] = None,
     ) -> None:
         """
-        Generate a publication report.
+        Generate a publication-ready report for one or more fitted models.
 
-        Layout (page 1):
-        - Header: ISARIC platform identification
-        - Pipeline identification
-        - Model execution context (time, version, seed)
-        - Parameters used
-        - Fit metrics
-        - Parameter table
-        - Data size
+        Classmethod — not tied to any single instance. Accepts a list
+        of fitted RAPID instances. When multiple models are passed they
+        must belong to the same family; a comparison section is added
+        at the end of the PDF.
 
-        Pages 2+: plots and assumptions.
+        CSV and PNG exports are generated per model. The PDF is
+        consolidated across all models.
 
         Args:
-            format: List of output formats.
-                Accepted Values:
-                    - None (generates all formats: pdf, png, csv)
-                    - ["pdf"], ["png"], ["csv"]
-                    - ["pdf", "png"], ["pdf", "csv"], ["png", "csv"]
-                    - ["pdf", "png", "csv"]
-
-        Returns:
-            None (generates files to disk).
+            models: List of fitted RAPID instances to include.
+                Single model: RAPID.report(models=[model])
+                Multiple:     RAPID.report(models=[m1, m2, m3])
+            format: List of output formats. Options: "pdf", "csv", "png".
+                Default ["pdf"].
 
         Raises:
-            ValueError: If state is incorrect or format is invalid.
+            ValueError: If any model is not fitted, models list is empty,
+                or models are from different families.
         """
-        self._check_state(self._STATE_SUMMARIZED, "report")
-
-        import matplotlib.pyplot as plt
+        import os
         import isaric
         from datetime import datetime
 
-        # Valida formatos aceitos
-        if format is None:
-            format = ["pdf", "png", "csv"]
-
-        valid_formats = ["pdf", "png", "csv"]
-        for fmt in format:
-            if fmt not in valid_formats:
-                raise ValueError(
-                    f"Invalid format: {fmt}. "
-                    f"Accepted values: None, {valid_formats}"
-                )
-
-        plots_to_report = getattr(
-            self, '_displayed_plots', list(self.plots_map.keys())
-        )
-
-        # ==================================================================
-        # CSV - resultados + ARD (CDISC)
-        # ==================================================================
-        if "csv" in format:
-            self.result_df.to_csv("results.csv", index=False)
-            print("✅ CSV gerado: results.csv")
-
-            # ARD (Analysis Results Dataset) - CDISC
-            ard_rows = []
-            for _, row in self.result_df.iterrows():
-                variable = row.get('Variable', '')
-                for col in self.result_df.columns:
-                    if col == 'Variable':
-                        continue
-                    ard_rows.append({
-                        'stat_name': col,
-                        'stat': row[col],
-                        'variable': variable,
-                    })
-            if ard_rows:
-                import pandas as pd
-                ard_df = pd.DataFrame(ard_rows)
-                ard_df.to_csv("results_ard.csv", index=False)
-                print("✅ ARD gerado: results_ard.csv")
-
-        # ==================================================================
-        # PNG - plots
-        # ==================================================================
-        if "png" in format:
-            for plot_name in plots_to_report:
-                if plot_name not in self.plots_map:
-                    continue
-
-                fig = self.plots_map[plot_name](backend="matplotlib")
-
-                if isinstance(fig, list):
-                    for i, f in enumerate(fig):
-                        f.savefig(
-                            f"{plot_name}_{i}.png",
-                            dpi=300,
-                            bbox_inches='tight'
-                        )
-                        plt.close(f)
-                        print(f"✅ PNG gerado: {plot_name}_{i}.png")
-                else:
-                    fig.savefig(
-                        f"{plot_name}.png",
-                        dpi=300,
-                        bbox_inches='tight'
-                    )
-                    plt.close(fig)
-                    print(f"✅ PNG gerado: {plot_name}.png")
-
-        # ==================================================================
-        # PDF - relatório consolidado
-        # ==================================================================
-        if "pdf" in format:
-            from matplotlib.backends.backend_pdf import PdfPages
-
-            pdf_filename = (
-                f"{self.model_type}-report-"
-                f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+        if not models:
+            raise ValueError(
+                "models list is empty. "
+                "Pass at least one fitted RAPID instance."
             )
 
-            with PdfPages(pdf_filename) as pdf:
-                # ==========================================================
-                # Página 1 - Cabeçalho + Contexto + Parâmetros + Métricas
-                # ==========================================================
-                fig, ax = plt.subplots(figsize=(11, 8.5))
-                ax.axis('off')
+        # Validate all models are fitted
+        not_fitted = [
+            m.model_id for m in models
+            if m._state != cls._STATE_FITTED
+        ]
+        if not_fitted:
+            raise ValueError(
+                f"All models must be fitted before report(). "
+                f"Not fitted: {not_fitted}. Call fit() first."
+            )
 
-                lines = []
-                sep = "=" * 70
-                thin = "-" * 70
-
-                # Header
-                lines.append(sep)
-                lines.append("ISARIC CLINICAL EPIDEMIOLOGY PLATFORM")
-                lines.append("RAPID - Reusable Analytics Pipeline for Infectious Disease")
-                lines.append(sep)
-                lines.append("")
-                lines.append(f"PIPELINE: {self.model_type}")
-
-                # Model summary
-                method = "Unknown"
-                framework = "Unknown"
-                if hasattr(self, 'model_info') and self.model_info:
-                    method = self.model_info.get('method', 'Unknown')
-                    framework = self.model_info.get('framework', 'Unknown')
-
-                lines.append(f"MODEL SUMMARY: {method.upper()}")
-                lines.append(f"Framework: {framework}")
-                lines.append(sep)
-                lines.append("")
-
-                # Model execution context
-                lines.append("MODEL EXECUTION CONTEXT")
-                lines.append(thin)
-                lines.append(f"  time_fit_was_run: {self._fit_at or 'Unknown'}")
-                lines.append(f"  rapid_version: {isaric.__version__}")
-                lines.append(f"  random_seed: {self._random_seed}")
-                lines.append("")
-
-                # Parameters
-                if hasattr(self, 'model_info') and self.model_info.get('parameters'):
-                    lines.append("PARAMETERS")
-                    lines.append(thin)
-                    for key, value in self.model_info['parameters'].items():
-                        if isinstance(value, float):
-                            value_str = f"{value:.4f}"
-                        else:
-                            value_str = str(value)
-                        lines.append(f"  {key:<25} {value_str}")
-                    lines.append("")
-
-                # Fit metrics
-                if self.metrics:
-                    lines.append("FIT METRICS")
-                    lines.append(thin)
-                    for key, value in self.metrics.items():
-                        if key == 'confusion_matrix':
-                            continue
-                        if isinstance(value, float):
-                            value_str = f"{value:.4f}"
-                        else:
-                            value_str = str(value)
-                        lines.append(f"  {key:<25} {value_str}")
-                    lines.append("")
-
-                # Data size
-                if hasattr(self, 'model_info') and self.model_info:
-                    lines.append("DATA")
-                    lines.append(thin)
-                    for key in ['N_observations', 'N_events', 'N_censored',
-                                'N_features', 'N_variables', 'N_non_events']:
-                        if key in self.model_info:
-                            lines.append(
-                                f"  {key:<25} {self.model_info[key]}"
-                            )
-                    lines.append("")
-
-                text = "\n".join(lines)
-                ax.text(
-                    0.03, 0.97, text,
-                    fontsize=8, va='top', ha='left',
-                    fontfamily='monospace',
-                    transform=ax.transAxes
+        # Validate same family when multiple models
+        if len(models) > 1:
+            families = {
+                cls._FAMILY_MAP.get(m.model_type, 'unknown')
+                for m in models
+            }
+            if len(families) > 1:
+                details = [
+                    f"{m.model_id} ({m.model_type})" for m in models
+                ]
+                raise ValueError(
+                    f"report() requires all models to be from the same "
+                    f"family when comparing. "
+                    f"Found families: {sorted(families)}. "
+                    f"Models: {details}."
                 )
-                pdf.savefig(fig, bbox_inches='tight')
-                plt.close(fig)
 
-                # ==========================================================
-                # Página 2 - Parameter table
-                # ==========================================================
-                fig, ax = plt.subplots(figsize=(11, 8.5))
-                ax.axis('off')
+        format_list = format if format else ["pdf"]
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
-                lines = []
-                lines.append(sep)
-                lines.append("PARAMETER TABLE")
-                lines.append(sep)
-                lines.append("")
+        # ── CSV export — one file per model ──────────────────────────────
+        if "csv" in format_list:
+            for model in models:
+                prefix = f"{model.model_id}-{timestamp}"
 
-                # Formata result_df como texto
-                result_str = self.result_df.to_string(index=False)
-                lines.append(result_str)
+                def _add_context(df) -> 'DataFrame':
+                    """Add model context columns to exported DataFrame."""
+                    df = df.reset_index(drop=True).copy()
+                    df.insert(0, 'exported_at', timestamp)
+                    df.insert(0, 'model_type',  model.model_type)
+                    df.insert(0, 'model_id',    model.model_id)
+                    return df
 
-                text = "\n".join(lines)
-                ax.text(
-                    0.03, 0.97, text,
-                    fontsize=7, va='top', ha='left',
-                    fontfamily='monospace',
-                    transform=ax.transAxes
+                if hasattr(model, 'result_df') and model.result_df is not None:
+                    csv_file = f"{prefix}_results.csv"
+                    _add_context(model.result_df).to_csv(csv_file, index=False)
+                    print(f"✅ CSV saved: {csv_file}")
+
+                if hasattr(model, 'grid_results') and model.grid_results is not None:
+                    csv_grid = f"{prefix}_grid_results.csv"
+                    _add_context(model.grid_results).to_csv(csv_grid, index=False)
+                    print(f"✅ CSV saved: {csv_grid}")
+
+                # Additional exports for LCA
+                if (hasattr(model, 'outcome_crosstab_df')
+                        and model.outcome_crosstab_df is not None):
+                    csv_ct = f"{prefix}_outcome_crosstab.csv"
+                    _add_context(
+                        model.outcome_crosstab_df.reset_index()
+                    ).to_csv(csv_ct, index=False)
+                    print(f"✅ CSV saved: {csv_ct}")
+
+                if hasattr(model, 'DiagClass') and model.DiagClass:
+                    ave_pp = model.DiagClass.get('ave_pp')
+                    if ave_pp is not None and not ave_pp.empty:
+                        csv_pp = f"{prefix}_ave_pp.csv"
+                        _add_context(
+                            ave_pp.reset_index()
+                        ).to_csv(csv_pp, index=False)
+                        print(f"✅ CSV saved: {csv_pp}")
+
+        # ── PNG export — one file per model per plot ──────────────────────
+        if "png" in format_list:
+            for model in models:
+                prefix = f"{model.model_id}-{timestamp}"
+                plots_to_export = (
+                    model._displayed_plots
+                    if model._displayed_plots
+                    else list(model.plots_map.keys())
                 )
-                pdf.savefig(fig, bbox_inches='tight')
-                plt.close(fig)
-
-                # ==========================================================
-                # Página 3 - Assumptions (se disponível)
-                # ==========================================================
-                if hasattr(self, 'assumptions') and self.assumptions:
-                    fig, ax = plt.subplots(figsize=(11, 8.5))
-                    ax.axis('off')
-
-                    lines = []
-                    lines.append(sep)
-                    lines.append("ASSUMPTION TESTS")
-                    lines.append(sep)
-                    lines.append("")
-
-                    def _fmt_assumption(v, indent=0):
-                        prefix = "  " * indent
-                        if isinstance(v, dict):
-                            out = []
-                            for k, val in v.items():
-                                if isinstance(val, (dict, list)):
-                                    out.append(f"{prefix}{k}:")
-                                    out.append(_fmt_assumption(val, indent + 1))
-                                else:
-                                    out.append(f"{prefix}{k}: {val}")
-                            return "\n".join(out)
-                        else:
-                            return f"{prefix}{v}"
-
-                    for key, value in self.assumptions.items():
-                        lines.append(f"{key}:")
-                        lines.append(_fmt_assumption(value, indent=1))
-                        lines.append("")
-
-                    text = "\n".join(lines)
-                    ax.text(
-                        0.03, 0.97, text,
-                        fontsize=8, va='top', ha='left',
-                        fontfamily='monospace',
-                        transform=ax.transAxes
-                    )
-                    pdf.savefig(fig, bbox_inches='tight')
-                    plt.close(fig)
-
-                # ==========================================================
-                # Páginas 4+ - plots
-                # ==========================================================
-                for plot_name in plots_to_report:
-                    if plot_name not in self.plots_map:
+                for plot_name in plots_to_export:
+                    if plot_name not in model.plots_map:
                         continue
-
-                    fig = self.plots_map[plot_name](backend="matplotlib")
-
-                    if isinstance(fig, list):
-                        for i, f in enumerate(fig):
-                            pdf.savefig(f, bbox_inches='tight')
+                    try:
+                        import matplotlib
+                        matplotlib.use('Agg')
+                        fig = model.plots_map[plot_name](backend="matplotlib")
+                        figs = fig if isinstance(fig, list) else [fig]
+                        for idx, f in enumerate(figs):
+                            png_file = f"{prefix}_{plot_name}_{idx}.png"
+                            f.savefig(png_file, bbox_inches='tight', dpi=150)
+                            import matplotlib.pyplot as plt
                             plt.close(f)
-                            print(f"✅ Plot adicionado ao PDF: {plot_name}_{i}")
-                    else:
-                        pdf.savefig(fig, bbox_inches='tight')
-                        plt.close(fig)
-                        print(f"✅ Plot adicionado ao PDF: {plot_name}")
+                            print(f"✅ PNG saved: {png_file}")
+                    except Exception as e:
+                        print(f"⚠️  Plot '{plot_name}' skipped: {e}")
 
-            print(f"✅ PDF consolidado: {pdf_filename}")
-
-        self._transition_to(self._STATE_REPORTED)
+        # ── PDF export — consolidated across all models ───────────────────
+        if "pdf" in format_list:
+            model_ids = "_".join(m.model_id for m in models[:3])
+            if len(models) > 3:
+                model_ids += f"_and_{len(models) - 3}_more"
+            pdf_filename = f"RAPID_report_{model_ids}-{timestamp}.pdf"
+            cls._generate_pdf_report(models, pdf_filename)
+            print(f"✅ PDF saved: {pdf_filename}")
 
     def decide(
         self,
-        include: Optional[List[str]] = None,
-        exclude: Optional[List[str]] = None
-    ) -> None:
+        selected: bool = True,
+        reason: Optional[str] = None,
+        k: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> "RAPID":
         """
-        Select which trained models to include in the report.
+        Document the model selection decision for scientific traceability.
+
+        Records whether this model was selected, the reason for the
+        decision, and any additional notes. The decision is stored in
+        self._decision and included in save() metadata and report() PDF.
+
+        This method is about documentation and reproducibility, not
+        about controlling which files go into a report. The report
+        is controlled by passing models to RAPID.report(models=[...]).
+
+        Can be called any time after fit(). Calling decide() multiple
+        times overwrites the previous decision.
+
+        For LCA: pass k= to document which number of classes was chosen
+        after reviewing class enumeration results.
 
         Args:
-            include: List of model names TO include.
-            exclude: List of model names TO exclude.
+            selected: Whether this model was selected for the final
+                analysis. Default True.
+            reason: Scientific rationale for the selection or rejection.
+                Good practice to include metrics, clinical considerations,
+                and validation results that informed the decision.
+                Example: "k=3 selected. BIC elbow at k=3, entropy=0.82,
+                AvePP > 0.85 across all classes. Clinically validated
+                with infectiologist team on 2026-10-21."
+            k: For LCA only — the number of classes selected after
+                reviewing class enumeration results. Has no effect on
+                other model types.
+            notes: Optional free-text notes for additional context
+                (caveats, limitations, follow-up actions, etc.).
 
         Returns:
-            None.
+            self for method chaining.
 
         Raises:
-            ValueError: If state is incorrect or parameters are invalid.
+            ValueError: If model has not been fitted yet.
+
+        Example:
+            # Single model
+            model.decide(
+                selected=True,
+                reason="Best AUC (0.847) with fewest variables. "
+                       "Externally validated in Centro A (AUC 0.821)."
+            )
+
+            # LCA — document chosen k
+            lca.decide(
+                selected=True,
+                k=3,
+                reason="k=3: entropy=0.82, all AvePP > 0.85, "
+                       "clinically interpretable profiles."
+            )
+
+            # Rejected model — document why
+            model_b.decide(
+                selected=False,
+                reason="Lower AUC than model_a. Higher complexity "
+                       "without clinical benefit."
+            )
         """
-        self._check_state(self._STATE_REPORTED, "decide")
+        self._check_state(self._STATE_FITTED, "decide")
 
-        # Lista modelos disponíveis
-        import os
-        available_models = [
-            f for f in os.listdir('.') if f.endswith('.rapid')
-        ]
+        from datetime import datetime
 
-        # Seleciona modelos
-        if include is not None:
-            selected = [m for m in available_models if m in include]
-        elif exclude is not None:
-            selected = [m for m in available_models if m not in exclude]
-        else:
-            selected = available_models
+        # Validate k for LCA
+        if k is not None:
+            if self.model_type not in ('lca', 'kmeans'):
+                import warnings
+                warnings.warn(
+                    f"k= is only meaningful for clustering models "
+                    f"(lca, kmeans). Ignored for model_type='{self.model_type}'.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                k = None
+            elif (hasattr(self, 'model_objects')
+                  and self.model_objects
+                  and k not in self.model_objects):
+                raise ValueError(
+                    f"k={k} was not in the class enumeration range. "
+                    f"Available k: {sorted(self.model_objects.keys())}. "
+                    f"Re-run fit() with a param_grid that includes k={k}."
+                )
 
-        self.selected_models = selected
-        print(f"Selected models: {selected}")
+        self._decision = {
+            'selected':   bool(selected),
+            'reason':     reason,
+            'k':          k,
+            'notes':      notes,
+            'timestamp':  datetime.now().isoformat(),
+            'model_id':   self.model_id,
+            'model_type': self.model_type,
+        }
+
+        # Confirmation message
+        status = "✅ SELECTED" if selected else "❌ NOT SELECTED"
+        print(f"{status} — {self.model_id}")
+        if k is not None:
+            print(f"  k selected: {k}")
+        if reason:
+            print(f"  Reason: {reason}")
+        if notes:
+            print(f"  Notes: {notes}")
+        print(
+            f"  Decision recorded at {self._decision['timestamp']}. "
+            f"Included in save() and RAPID.report()."
+        )
+
+        return self

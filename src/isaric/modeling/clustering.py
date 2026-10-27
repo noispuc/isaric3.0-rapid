@@ -262,19 +262,31 @@ class LCA(RAPID):
         Configure base plots available for LCA.
 
         Bootstrap plots are excluded here — they are added by
-        _update_plots_map_after_fit() only when bootstrap_likelihood=True
-        was passed to fit().
+        _update_plots_map_after_fit() only when bootstrap data is available.
+
+        _default_plots defines which plots are included in report() when
+        summary() was called without explicit plots= argument.
+        Information criteria plots are always the default for LCA.
         """
         self.plots_map = {
-            "profile_heatmap": self._profile_heatmap,
+            "profile_heatmap":      self._profile_heatmap,
             "cluster_distribution": self._cluster_distribution,
-            "radar_plot": self._radar_plot,
+            "radar_plot":           self._radar_plot,
             "information_criteria": self._information_criteria,
-            "ll_curve": self._ll_curve,
-            "entropy_curve": self._entropy_curve,
+            "ll_curve":             self._ll_curve,
+            "entropy_curve":        self._entropy_curve,
             "relative_entropy_curve": self._relative_entropy_curve,
-            "crosstab": self._crosstab,
+            "crosstab":             self._crosstab,
         }
+
+        # Default plots for report() when summary() is called without plots=
+        # User decides which additional plots to include explicitly
+        self._default_plots = [
+            "information_criteria",
+            "ll_curve",
+            "entropy_curve",
+            "relative_entropy_curve",
+        ]
 
     def _update_plots_map_after_fit(self):
         """
@@ -282,23 +294,38 @@ class LCA(RAPID):
 
         Called at the end of _calculate_metrics() so the state is known.
         - crosstab: only when outcome was provided in create().
-        - bootstrap plots: only when bootstrap_likelihood=True was used.
+        - bootstrap_metrics_ci: replaces individual CI plots; available
+          when bootstrap data is present (bootstrap=True or
+          bootstrap_likelihood=True).
+        - selection_rate: available when bootstrap data is present.
+
+        Also updates _default_plots to include bootstrap plots when
+        bootstrap data is available.
         """
         # Crosstab only when outcome was provided
         if self.outcome is None or self.outcome_data is None:
             self.plots_map.pop("crosstab", None)
 
-        # Bootstrap plots only when BLRT was executed
-        blrt_available = (
-            hasattr(self, 'lrt_results')
-            and self.lrt_results is not None
-            and self.lrt_results.get('blrt') is not None
-            and not self.lrt_results['blrt'].empty
+        # Check bootstrap availability (from bootstrap=True OR bootstrap_likelihood=True)
+        ci_bootstrap = None
+        if hasattr(self, 'lrt_results') and self.lrt_results is not None:
+            ci_bootstrap = self.lrt_results.get('ci_bootstrap')
+
+        bootstrap_available = (
+            ci_bootstrap is not None
+            and not (hasattr(ci_bootstrap, 'empty') and ci_bootstrap.empty)
         )
-        if blrt_available:
-            self.plots_map["bootstrap_bic_ci"] = self._bootstrap_bic_ci
-            self.plots_map["bootstrap_entropy_ci"] = self._bootstrap_entropy_ci
-            self.plots_map["selection_rate"] = self._selection_rate
+
+        if bootstrap_available:
+            # Single consolidated CI plot (replaces individual BIC/entropy plots)
+            self.plots_map["bootstrap_metrics_ci"] = self._bootstrap_metrics_ci
+            self.plots_map["selection_rate"]        = self._selection_rate
+
+            # Add to default plots for report()
+            if "bootstrap_metrics_ci" not in self._default_plots:
+                self._default_plots.append("bootstrap_metrics_ci")
+            if "selection_rate" not in self._default_plots:
+                self._default_plots.append("selection_rate")
 
     @classmethod
     def create(
@@ -310,26 +337,32 @@ class LCA(RAPID):
         n_init: int = 5,
         max_iter: int = 500,
         random_seed: int = 42,
-        class_names: Optional[List[str]] = None,
         outcome: Optional[str] = None,
         **params
     ) -> "LCA":
         """
         Configure and instantiate the LCA pipeline.
 
+        class_names is not accepted at create() — class order is not
+        guaranteed across runs, computers, or package versions. Set
+        class_names after fit() when classes are determined:
+            model.class_names = ["Mild", "Moderate", "Severe"]
+
         Args:
             data: Input DataFrame in ARC format.
             model: Model type identifier (must be "lca").
             measurement_vars: Binary variable names.
-            n_clusters: Number of latent classes.
-            n_init: Number of random initializations.
-            max_iter: Maximum EM iterations.
-            random_seed: Seed for reproducibility.
-            class_names: Optional display names for the classes.
-            outcome: Optional name of an outcome column for crosstab.
+            n_clusters: Reference number of latent classes. Used as
+                fitted_model pointer after enumeration. Actual range
+                tested is defined via param_grid in fit().
+            n_init: Number of random initializations (default 5).
+            max_iter: Maximum EM iterations (default 500).
+            random_seed: Seed for reproducibility (default 42).
+            outcome: Optional outcome column for post-hoc crosstab
+                with latent classes.
 
         Returns:
-            LCA instance ready for training.
+            LCA instance ready for fit().
         """
         model_config, X, outcome_series = create_lca_model(
             data=data,
@@ -346,7 +379,6 @@ class LCA(RAPID):
             X=X,
             measurement_vars=measurement_vars,
             n_clusters=n_clusters,
-            class_names=class_names,
             outcome=outcome,
             outcome_data=outcome_series,
             **params
@@ -370,9 +402,9 @@ class LCA(RAPID):
         for every k tested. No automatic k selection is performed — the user
         decides k after reviewing grid_results.
 
-        The Bootstrapped LRT (BLRT) only runs when bootstrap_likelihood=True
-        was passed to fit(). The nested LRT (chi-square approximation) always
-        runs.
+        The Bootstrapped LRT (BLRT) + CI bootstrap + selection rate run in
+        a single pass when bootstrap=True is passed to fit().
+        The nested LRT (chi-square approximation) always runs.
 
         Args:
             grid_search: Ignored for LCA — class enumeration always runs.
@@ -390,9 +422,9 @@ class LCA(RAPID):
         from scipy import stats
 
         # Read flags set by create() and fit()
-        bootstrap_likelihood = getattr(self, '_bootstrap_likelihood', False)
-        n_init = getattr(self, '_n_init', 5)
-        max_iter = getattr(self, '_max_iter', 500)
+        bootstrap = getattr(self, '_bootstrap', False)
+        n_init    = getattr(self, '_n_init', 5)
+        max_iter  = getattr(self, '_max_iter', 500)
 
         # ── Default param_grid ────────────────────────────────────────────
         if param_grid is None:
@@ -408,10 +440,14 @@ class LCA(RAPID):
 
         # ── Parameter transparency ────────────────────────────────────────
         k_values = param_grid.get("n_clusters", [self.n_clusters])
+        bootstrap_note = (
+            " Bootstrap (BLRT + CIs) will run after enumeration."
+            if bootstrap else ""
+        )
         warnings.warn(
             f"[LCA] Class enumeration: k = {k_values}. "
             f"Parameters: n_init={n_init}, max_iter={max_iter}, "
-            f"random_state={self._random_seed}. "
+            f"random_state={self._random_seed}.{bootstrap_note} "
             f"Adjust via create(n_init=..., max_iter=..., random_seed=...).",
             UserWarning,
             stacklevel=3,
@@ -505,21 +541,22 @@ class LCA(RAPID):
             min_class_perc = float(model.weights_.min() * 100)
 
             results.append({
-                'n_clusters': k,
-                'LL': ll,
-                'AIC': aic,
-                'BIC': bic,
-                'CAIC': caic,
-                'SABIC': sabic,
-                'entropy': entropy,
+                'n_clusters':       k,
+                'LL':               ll,
+                'AIC':              aic,
+                'BIC':              bic,
+                'CAIC':             caic,
+                'SABIC':            sabic,
+                'entropy':          entropy,
                 'relative_entropy': relentropy,
-                'ave_pp_min': float(np.nanmin(ave_pp)) if len(ave_pp) > 0 else np.nan,
-                'occ_k_min': float(np.nanmin(occ_ratios)) if len(occ_ratios) > 0 else np.nan,
-                'min_mm_f': min_mm_f,
-                'min_class_perc': min_class_perc,
-                'n_par': int(npar),
-                'dof': int(dof),
-                'converged': bool(model.converged_),
+                'ave_pp_min':       float(np.nanmin(ave_pp)) if len(ave_pp) > 0 else np.nan,
+                'occ_k_min':        float(np.nanmin(occ_ratios)) if len(occ_ratios) > 0 else np.nan,
+                'min_mm_f':         min_mm_f,
+                'min_class_perc':   min_class_perc,
+                'n_par':            int(npar),
+                'dof':              int(dof),
+                'converged':        bool(model.converged_),
+                'convergence_rate': 1.0 if model.converged_ else 0.0,
             })
 
             model_objects[k] = model
@@ -605,21 +642,25 @@ class LCA(RAPID):
             pd.DataFrame(nested_rows) if nested_rows else pd.DataFrame()
         )
 
-        # ── Bootstrapped LRT (only if bootstrap_likelihood=True) ──────────
-        if bootstrap_likelihood:
+        # ── Bootstrapped LRT (only if bootstrap=True in fit()) ────────────
+        # When bootstrap=True, _run_lrt() runs in a single pass:
+        # BLRT + CI bootstrap + selection rate. _validate_bootstrap()
+        # will reuse these results without re-computing.
+        if bootstrap:
+            n_iterations = getattr(self, '_n_iterations', 1000)
             self.lrt_results = self._run_lrt(
                 k_values=k_values,
-                n_bootstraps=50,
+                n_bootstraps=n_iterations,
             )
             if not self.nested_models_lrt.empty:
                 self.lrt_results['nested'] = self.nested_models_lrt
         else:
             self.lrt_results = {
-                'nested': self.nested_models_lrt,
-                'blrt': None,
-                'ci_bootstrap': None,
+                'nested':          self.nested_models_lrt,
+                'blrt':            None,
+                'ci_bootstrap':    None,
                 'bootstrap_stats': None,
-                'selection_rate': None,
+                'selection_rate':  None,
             }
 
         return model_objects[ref_k]
@@ -677,21 +718,26 @@ class LCA(RAPID):
                             else row[col]
                         )
 
-        # ============ CROSSTAB COM OUTCOME EXTERNO (Fase 3.2) ============
+        # ── Outcome crosstab (when outcome was provided in create()) ───────
+        self.outcome_crosstab_df  = None
+        self.outcome_test_result  = None
+
         if self.outcome is not None and self.outcome_data is not None:
             try:
-                pred = self.fitted_model.predict(self.X)
-                df_ct = pd.DataFrame({
-                    'class': [f"Class_{int(c)+1}" for c in pred],
-                    'outcome': self.outcome_data.values,
-                })
-                ct = pd.crosstab(
-                    df_ct['class'], df_ct['outcome'], normalize='index'
-                )
-
-                # Teste estatístico
                 from scipy import stats as sps
+
+                pred   = self.fitted_model.predict(self.X)
+                labels = getattr(self, 'class_names', None)
+
+                if labels and len(labels) == self.fitted_model.n_components:
+                    class_labels = [labels[int(c)] for c in pred]
+                else:
+                    class_labels = [f"Class_{int(c)+1}" for c in pred]
+
+                df_ct     = pd.DataFrame({'class': class_labels, 'outcome': self.outcome_data.values})
+                ct        = pd.crosstab(df_ct['class'], df_ct['outcome'], normalize='index').round(4)
                 ct_counts = pd.crosstab(df_ct['class'], df_ct['outcome'])
+
                 outcome_is_categorical = (
                     not pd.api.types.is_numeric_dtype(self.outcome_data)
                     or self.outcome_data.nunique() <= 10
@@ -700,10 +746,10 @@ class LCA(RAPID):
                 if outcome_is_categorical:
                     chi2, p, dof, _ = sps.chi2_contingency(ct_counts)
                     test_result = {
-                        'test': 'chi-square',
+                        'test':      'chi-square',
                         'statistic': float(chi2),
-                        'p_value': float(p),
-                        'dof': int(dof),
+                        'p_value':   float(p),
+                        'dof':       int(dof),
                     }
                 else:
                     groups = [
@@ -712,16 +758,21 @@ class LCA(RAPID):
                     ]
                     f_stat, p = sps.f_oneway(*groups)
                     test_result = {
-                        'test': 'ANOVA',
+                        'test':      'ANOVA',
                         'statistic': float(f_stat),
-                        'p_value': float(p),
+                        'p_value':   float(p),
                     }
 
-                info["outcome"] = {
-                    "name": self.outcome,
-                    "crosstab": ct.round(4).to_dict(),
-                    "test": test_result,
-                }
+                self.outcome_crosstab_df = ct
+                self.outcome_test_result = test_result
+
+                # Keep light reference in model_info
+                info["outcome_test"] = (
+                    f"{test_result['test']}: "
+                    f"stat={test_result['statistic']:.4f}, "
+                    f"p={test_result['p_value']:.4f}"
+                )
+
             except Exception as e:
                 info["outcome_error"] = str(e)
 
@@ -783,16 +834,17 @@ class LCA(RAPID):
         """
         Bootstrap confidence intervals for LCA metrics by k.
 
-        Runs parametric bootstrap (bootstrap_stepmix) for each k tested
-        during class enumeration. Computes bias-corrected CIs for AIC,
-        BIC, SABIC, entropy, relative_entropy, and selection rates.
+        When bootstrap=True was passed to fit(), _run_lrt() already
+        computed BLRT + CIs + selection rate in a single pass inside
+        _train_model(). This method reuses those results without
+        re-computing to avoid redundant computation.
 
-        Results are also stored in lrt_results['ci_bootstrap'] so that
-        CI plots (_bootstrap_bic_ci, _bootstrap_entropy_ci, _selection_rate)
-        become available in summary() even without bootstrap_likelihood=True.
+        If for any reason lrt_results is missing or incomplete, falls
+        back to running bootstrap_stepmix per k.
 
         Args:
-            n_iterations: Number of bootstrap samples per k.
+            n_iterations: Number of bootstrap samples. Only used as
+                fallback when lrt_results is not already available.
 
         Returns:
             Dictionary with ci_by_k, selection_rate, bootstrap_stats,
@@ -801,6 +853,28 @@ class LCA(RAPID):
         if not hasattr(self, 'model_objects') or not self.model_objects:
             return None
 
+        # Reuse results already computed by _run_lrt() in _train_model()
+        # when bootstrap=True — no re-computation needed
+        if (hasattr(self, 'lrt_results')
+                and self.lrt_results is not None
+                and self.lrt_results.get('ci_bootstrap') is not None):
+
+            ci_df    = self.lrt_results.get('ci_bootstrap')
+            sel_rate = self.lrt_results.get('selection_rate')
+            stats_df = self.lrt_results.get('bootstrap_stats')
+
+            self._update_plots_map_after_fit()
+
+            return {
+                'ci_by_k':          ci_df,
+                'selection_rate':   sel_rate,
+                'bootstrap_stats':  stats_df,
+                'n_bootstraps':     n_iterations,
+                'bootstrap_type':   'parametric',
+                'source':           'lrt_results',
+            }
+
+        # Fallback: run bootstrap independently (e.g. if called directly)
         from isaric.modelevaluation.gridsearch import (
             bootstrap_stepmix,
             bootstrap_ci_stepmix,
@@ -1045,38 +1119,49 @@ class LCA(RAPID):
 
         return results
 
-    def _bootstrap_bic_ci(self, backend="plotly"):
-        """Plot BIC with bootstrap CI."""
-        from isaric.visualization.lineplots import bootstrap_ci_plot
+    def _bootstrap_metrics_ci(self, backend="plotly"):
+        """
+        Consolidated bootstrap CI plot for all available LCA metrics.
+
+        Shows observed values with bias-corrected CI bands for AIC, BIC,
+        CAIC, SABIC, entropy, and relative_entropy. CI type is labelled
+        in the plot title.
+
+        Requires bootstrap=True or bootstrap_likelihood=True in fit().
+        """
+        from isaric.visualization.lineplots import bootstrap_metrics_ci_plot
 
         if not hasattr(self, 'lrt_results') or not self.lrt_results:
-            raise ValueError("Run fit(grid_search=True) first.")
+            raise ValueError(
+                "No bootstrap results available. "
+                "Run fit(bootstrap=True) or fit(bootstrap_likelihood=True)."
+            )
+
         ci_df = self.lrt_results.get('ci_bootstrap')
-        if ci_df is None or ci_df.empty:
-            raise ValueError("No bootstrap CI results available.")
+        if ci_df is None or (hasattr(ci_df, 'empty') and ci_df.empty):
+            raise ValueError(
+                "No bootstrap CI data found in lrt_results. "
+                "Run fit(bootstrap=True) or fit(bootstrap_likelihood=True)."
+            )
 
-        return bootstrap_ci_plot(
+        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
+        type_label = {
+            'parametric':     'Parametric',
+            'bias_corrected': 'Bias-corrected',
+            'percentile':     'Percentile',
+            'bca':            'BCa',
+            'auto':           'Parametric',
+        }.get(bootstrap_type, bootstrap_type.title())
+
+        reorder = getattr(self, '_display_reorder', None)
+
+        return bootstrap_metrics_ci_plot(
             ci_df=ci_df,
-            metric="BIC",
-            x_col="n_clusters",
-            backend=backend
-        )
-
-    def _bootstrap_entropy_ci(self, backend="plotly"):
-        """Plot entropy with bootstrap CI."""
-        from isaric.visualization.lineplots import bootstrap_ci_plot
-
-        if not hasattr(self, 'lrt_results') or not self.lrt_results:
-            raise ValueError("Run fit(grid_search=True) first.")
-        ci_df = self.lrt_results.get('ci_bootstrap')
-        if ci_df is None or ci_df.empty:
-            raise ValueError("No bootstrap CI results available.")
-
-        return bootstrap_ci_plot(
-            ci_df=ci_df,
-            metric="entropy",
-            x_col="n_clusters",
-            backend=backend
+            x_col='n_clusters',
+            xaxis_title='Number of Classes (k)',
+            bootstrap_type_label=type_label,
+            reorder=reorder,
+            backend=backend,
         )
 
     def _selection_rate(self, backend="plotly"):
@@ -1093,8 +1178,8 @@ class LCA(RAPID):
         return selection_rate_plot(
             selection_rate_df=sel_rate,
             x_col="n_clusters",
-            title="Bootstrap Selection Rate",
-            xaxis_title="Number of Clusters (k)",
+            title="Bootstrap Selection Rate by Number of Classes",
+            xaxis_title="Number of Classes (k)",
             yaxis_title="Selection Rate (%)",
             backend=backend
         )
@@ -1112,14 +1197,18 @@ class LCA(RAPID):
         # Predict classes para o modelo ativo
         pred = self.fitted_model.predict(self.X)
 
-        # Constrói crosstab (contagens)
+        labels = getattr(self, 'class_names', None)
+        k = self.fitted_model.n_components
+        if labels and len(labels) == k:
+            class_labels = [labels[int(c)] for c in pred]
+        else:
+            class_labels = [f"Class_{int(c)+1}" for c in pred]
+
         df = pd.DataFrame({
-            'class': [f"Class_{int(c)+1}" for c in pred],
+            'class':   class_labels,
             'outcome': self.outcome_data.values,
         })
         ct = pd.crosstab(df['class'], df['outcome'])
-
-        # Reordena classes para ter Class_1, Class_2, ...
         ct = ct.sort_index()
 
         return crosstab_heatmap(
@@ -1190,8 +1279,8 @@ class LCA(RAPID):
             metrics=["AIC", "BIC", "CAIC", "SABIC"],
             x_col="n_clusters",
             convergence_col="converged",
-            title="Information Criteria by Number of Components",
-            xaxis_title="Number of Components (k)",
+            title="Information Criteria by Number of Classes",
+            xaxis_title="Number of Classes (k)",
             yaxis_title="Information Criteria Value",
             backend=backend
         )
@@ -1211,8 +1300,8 @@ class LCA(RAPID):
             metrics=["LL"],
             x_col="n_clusters",
             convergence_col="converged",
-            title="Log-Likelihood by Number of Clusters",
-            xaxis_title="Number of Clusters (k)",
+            title="Log-Likelihood by Number of Classes",
+            xaxis_title="Number of Classes (k)",
             yaxis_title="Log-Likelihood",
             backend=backend
         )
@@ -1232,8 +1321,8 @@ class LCA(RAPID):
             metrics=["entropy"],
             x_col="n_clusters",
             convergence_col="converged",
-            title="Entropy by Number of Clusters",
-            xaxis_title="Number of Clusters (k)",
+            title="Entropy by Number of Classes",
+            xaxis_title="Number of Classes (k)",
             yaxis_title="Entropy",
             backend=backend
         )
@@ -1253,8 +1342,8 @@ class LCA(RAPID):
             metrics=["relative_entropy"],
             x_col="n_clusters",
             convergence_col="converged",
-            title="Relative Entropy by Number of Clusters",
-            xaxis_title="Number of Clusters (k)",
+            title="Relative Entropy by Number of Classes",
+            xaxis_title="Number of Classes (k)",
             yaxis_title="Relative Entropy",
             backend=backend
         )

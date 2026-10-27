@@ -383,36 +383,44 @@ def bootstrap_coefficients(
     alpha: float = 0.05,
     random_state: int = 42,
     variable_names: Optional[List[str]] = None,
-) -> pd.DataFrame:
+    collect_metrics: bool = False,
+):
     """
     Bootstrap confidence intervals and p-values for model coefficients.
 
     Repeatedly resamples (X, y) with replacement, fits the model via
     fit_func, and collects coefficient estimates. Computes CIs of the
-    requested type and bootstrapped p-values (proportion of bootstrap
-    estimates with opposite sign to the observed estimate — equivalent
-    to a two-sided bootstrap test).
+    requested type and bootstrapped p-values.
+
+    fit_func can return:
+    - np.ndarray of shape (p,): coefficients only (default behaviour).
+    - Tuple (np.ndarray, dict): coefficients + metrics dict. When a
+      tuple is returned and collect_metrics=True, metrics are collected
+      across all iterations and returned as a separate DataFrame.
 
     Args:
         X: Predictor matrix (n_samples, n_features).
         y: Outcome vector (n_samples,).
-        fit_func: Callable(X_boot, y_boot) → np.ndarray of shape (p,).
-            Must return one coefficient per variable in the same order
-            as variable_names. Return np.full(p, np.nan) on failure.
+        fit_func: Callable(X_boot, y_boot) → np.ndarray or
+            Tuple[np.ndarray, dict].
         n_iterations: Number of bootstrap samples (default 1000).
         bootstrap_type: CI type: "percentile", "bias_corrected", "bca".
             Default "bias_corrected".
         alpha: Significance level (default 0.05 → 95% CI).
         random_state: Seed for reproducibility.
-        variable_names: Variable names. If None, uses X.columns when
-            X is a DataFrame, else ['var_0', 'var_1', ...].
+        variable_names: Variable names. If None, uses X.columns.
+        collect_metrics: If True and fit_func returns a tuple, collects
+            metrics across iterations and returns (coef_df, metrics_df).
+            Default False — returns coef_df only.
 
     Returns:
-        DataFrame with columns: variable, observed, bootstrap_mean,
-        bootstrap_se, ci_lower, ci_upper, bootstrap_p_value,
-        bootstrap_type, n_iterations.
-        bootstrap_p_value: two-sided p-value — proportion of bootstrap
-        estimates with opposite sign to observed (× 2, clipped to 1.0).
+        When collect_metrics=False (default):
+            DataFrame with columns: variable, observed, bootstrap_mean,
+            bootstrap_se, ci_lower, ci_upper, bootstrap_p_value,
+            bootstrap_type, n_iterations.
+        When collect_metrics=True and fit_func returns tuple:
+            Tuple (coef_df, metrics_df) where metrics_df has one row
+            per iteration with all metric keys from the fit_func dict.
     """
     if variable_names is None:
         if hasattr(X, 'columns'):
@@ -422,30 +430,33 @@ def bootstrap_coefficients(
             variable_names = [f"var_{i}" for i in range(n_vars)]
 
     # Observed estimates
-    if isinstance(X, pd.DataFrame):
-        X_arr = X.values
-    else:
-        X_arr = np.asarray(X)
+    X_arr = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
+    y_arr = y.values if isinstance(y, pd.Series) else np.asarray(y)
 
-    if isinstance(y, pd.Series):
-        y_arr = y.values
+    observed_result = fit_func(X, y)
+    if isinstance(observed_result, tuple):
+        observed = np.asarray(observed_result[0], dtype=float)
     else:
-        y_arr = np.asarray(y)
-
-    observed = fit_func(X, y)
-    observed = np.asarray(observed, dtype=float)
+        observed = np.asarray(observed_result, dtype=float)
     p = len(observed)
 
     rng = np.random.default_rng(random_state)
     n_samples = X_arr.shape[0]
-    boot_estimates = np.full((n_iterations, p), np.nan)
+    boot_estimates  = np.full((n_iterations, p), np.nan)
+    boot_metrics_list = []   # populated when fit_func returns tuple
 
     for i in range(n_iterations):
-        idx = rng.integers(0, n_samples, n_samples)
+        idx    = rng.integers(0, n_samples, n_samples)
         X_boot = X.iloc[idx].reset_index(drop=True) if isinstance(X, pd.DataFrame) else X_arr[idx]
         y_boot = y.iloc[idx].reset_index(drop=True) if isinstance(y, pd.Series) else y_arr[idx]
         try:
-            est = fit_func(X_boot, y_boot)
+            result = fit_func(X_boot, y_boot)
+            if isinstance(result, tuple):
+                est, iter_metrics = result[0], result[1]
+                if collect_metrics and isinstance(iter_metrics, dict):
+                    boot_metrics_list.append(iter_metrics)
+            else:
+                est = result
             boot_estimates[i] = np.asarray(est, dtype=float)
         except Exception:
             pass
@@ -455,20 +466,23 @@ def bootstrap_coefficients(
     if bootstrap_type == "bca":
         jackknife = np.full((n_samples, p), np.nan)
         for i in range(n_samples):
-            idx = np.delete(np.arange(n_samples), i)
+            idx  = np.delete(np.arange(n_samples), i)
             X_jk = X.iloc[idx].reset_index(drop=True) if isinstance(X, pd.DataFrame) else X_arr[idx]
             y_jk = y.iloc[idx].reset_index(drop=True) if isinstance(y, pd.Series) else y_arr[idx]
             try:
-                jackknife[i] = np.asarray(fit_func(X_jk, y_jk), dtype=float)
+                jk_result = fit_func(X_jk, y_jk)
+                est_jk = jk_result[0] if isinstance(jk_result, tuple) else jk_result
+                jackknife[i] = np.asarray(est_jk, dtype=float)
             except Exception:
                 pass
 
+    # Build coefficient DataFrame
     rows = []
     for j, var in enumerate(variable_names):
         boot_j = boot_estimates[:, j]
         boot_j = boot_j[~np.isnan(boot_j)]
-        obs_j = float(observed[j])
-        jk_j = jackknife[:, j] if jackknife is not None else None
+        obs_j  = float(observed[j])
+        jk_j   = jackknife[:, j] if jackknife is not None else None
 
         ci_lo, ci_hi = confidence_interval(
             values=boot_j,
@@ -478,29 +492,32 @@ def bootstrap_coefficients(
             jackknife_values=jk_j,
         )
 
-        # Bootstrapped two-sided p-value
         if len(boot_j) > 0 and not np.isnan(obs_j):
-            if obs_j >= 0:
-                p_val = float(np.mean(boot_j <= 0)) * 2
-            else:
-                p_val = float(np.mean(boot_j >= 0)) * 2
+            p_val = float(np.mean(boot_j <= 0) if obs_j >= 0 else np.mean(boot_j >= 0)) * 2
             p_val = min(p_val, 1.0)
         else:
             p_val = np.nan
 
         rows.append({
-            'variable': var,
-            'observed': obs_j,
-            'bootstrap_mean': float(np.mean(boot_j)) if len(boot_j) > 0 else np.nan,
-            'bootstrap_se': float(np.std(boot_j, ddof=1)) if len(boot_j) > 1 else np.nan,
-            'ci_lower': ci_lo,
-            'ci_upper': ci_hi,
+            'variable':          var,
+            'observed':          obs_j,
+            'bootstrap_mean':    float(np.mean(boot_j)) if len(boot_j) > 0 else np.nan,
+            'bootstrap_se':      float(np.std(boot_j, ddof=1)) if len(boot_j) > 1 else np.nan,
+            'ci_lower':          ci_lo,
+            'ci_upper':          ci_hi,
             'bootstrap_p_value': p_val,
-            'bootstrap_type': bootstrap_type,
-            'n_iterations': n_iterations,
+            'bootstrap_type':    bootstrap_type,
+            'n_iterations':      n_iterations,
         })
 
-    return pd.DataFrame(rows)
+    coef_df = pd.DataFrame(rows)
+
+    # Return with metrics if requested and available
+    if collect_metrics and boot_metrics_list:
+        metrics_df = pd.DataFrame(boot_metrics_list)
+        return coef_df, metrics_df
+
+    return coef_df
 
 
 def bootstrap_hazard_ratios(
@@ -513,6 +530,7 @@ def bootstrap_hazard_ratios(
     alpha: float = 0.05,
     random_state: int = 42,
     penalizer: float = 0.0,
+    formula: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Bootstrap confidence intervals for Cox proportional hazard ratios.
@@ -532,6 +550,7 @@ def bootstrap_hazard_ratios(
         alpha: Significance level (default 0.05 → 95% CI).
         random_state: Seed for reproducibility.
         penalizer: Ridge penalizer for CoxPHFitter (default 0.0).
+        formula: Formula for the Cox model (default None).
 
     Returns:
         DataFrame with columns: variable, observed_hr, observed_log_hr,
@@ -564,11 +583,19 @@ def bootstrap_hazard_ratios(
         data_boot = data_fit.iloc[idx].reset_index(drop=True)
         try:
             cph_boot = CoxPHFitter(penalizer=penalizer)
-            cph_boot.fit(
-                data_boot,
-                duration_col=duration_var,
-                event_col=event_var,
-            )
+            if formula is not None:
+                cph_boot.fit(
+                    data_boot,
+                    duration_col=duration_var,
+                    event_col=event_var,
+                    formula=formula,
+                )
+            else:
+                cph_boot.fit(
+                    data_boot,
+                    duration_col=duration_var,
+                    event_col=event_var,
+                )
             boot_log_hrs[i] = cph_boot.params_.loc[covariates].values.astype(float)
         except Exception:
             pass
@@ -582,11 +609,19 @@ def bootstrap_hazard_ratios(
             data_jk = data_fit.iloc[idx].reset_index(drop=True)
             try:
                 cph_jk = CoxPHFitter(penalizer=penalizer)
-                cph_jk.fit(
-                    data_jk,
-                    duration_col=duration_var,
-                    event_col=event_var,
-                )
+                if formula is not None:
+                    cph_jk.fit(
+                        data_jk,
+                        duration_col=duration_var,
+                        event_col=event_var,
+                        formula=formula,
+                    )
+                else:
+                    cph_jk.fit(
+                        data_jk,
+                        duration_col=duration_var,
+                        event_col=event_var,
+                    )
                 jackknife[i] = cph_jk.params_.loc[covariates].values.astype(float)
             except Exception:
                 pass

@@ -118,7 +118,7 @@ from isaric.preprocessing.temporalencoding import (
 # ============================================================================
 
 from isaric.modeling.regression import LogisticRegression, GLM
-from isaric.modeling.survival import SurvivalCox, KaplanMeier
+from isaric.modeling.survival import Survival
 from isaric.modeling.clustering import LCA, KMeans
 from isaric.modeling.descriptive import Descriptive
 from isaric.modeling.treebased import (
@@ -345,8 +345,7 @@ __all__ = [
     # Modeling - Subclasses
     "LogisticRegression",
     "GLM",
-    "SurvivalCox",
-    "KaplanMeier",
+    "Survival",
     "LCA",
     "KMeans",
     "Descriptive",

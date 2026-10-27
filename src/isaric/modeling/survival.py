@@ -1,21 +1,19 @@
 """
 Survival analysis for the RAPID methodology.
 
-This module provides functions to configure survival models and
-concrete pipeline classes for Cox Proportional Hazards and
-Kaplan-Meier analysis.
+This module provides the unified Survival pipeline (Cox PH + Kaplan-Meier)
+and supporting helper functions.
 
 Functions (Configuration):
-- create_survival_model: Configure a Cox PH model (not fitted).
+- create_survival_model:    Configure a Cox PH model (not fitted).
 - create_kaplan_meier_model: Configure a Kaplan-Meier model (not fitted).
 
-Subclasses (Pipelines):
-- SurvivalCox: Concrete pipeline for Cox Proportional Hazards.
-- KaplanMeier: Concrete pipeline for Kaplan-Meier survival analysis.
+Subclasses (Pipeline):
+- Survival: Unified pipeline — Cox PH + Kaplan-Meier + optional Log-rank.
 
 Helper Functions:
 - _prepare_model_data: Prepare data for CoxPHFitter.
-- _build_result_df: Build Hazard Ratios DataFrame.
+- _build_result_df:    Build Hazard Ratios DataFrame from fitted Cox model.
 """
 
 import pandas as pd
@@ -43,23 +41,37 @@ def create_survival_model(
     """
     Configure a Cox Proportional Hazards model (not fitted).
 
-    ...
+    Supports CDISC ADTTE conventions. Handles censoring_var → event_var
+    conversion automatically.
 
     Args:
-        ...
-        target_time: Time point for time-dependent metrics (Brier Score, ROC,
-            calibration). If None, uses the median of the duration_var.
+        data: Input DataFrame.
+        duration_var: Time-to-event column (default "AVAL").
+        event_var: Event indicator (1=event). Computed from censoring_var
+            if not provided.
+        censoring_var: Censoring indicator (1=censored, CDISC CNSR).
+        independent_vars: Covariate columns for Cox.
+        formula: Patsy formula for Cox. If None, built from independent_vars.
+        avalu_var: Time unit column (default "AVALU").
+        penalizer: Ridge penalizer for CoxPHFitter (default 0.1).
+        target_time: Time point for time-dependent metrics. If None,
+            uses median of duration_var.
 
     Returns:
-        Tuple of (model, model_data, time_unit, formula, event_var, target_time).
+        Tuple of (model, model_data, time_unit, formula, event_var,
+        target_time).
     """
     if penalizer < 0:
-        raise ValueError(f"penalizer must be non-negative. Received: {penalizer}")
+        raise ValueError(
+            f"penalizer must be non-negative. Received: {penalizer}"
+        )
 
-    # Computa event_var a partir de censoring_var
+    # Compute event_var from censoring_var if needed
     if censoring_var is not None and event_var is None:
         if censoring_var not in data.columns:
-            raise ValueError(f"Column '{censoring_var}' not found in DataFrame.")
+            raise ValueError(
+                f"Column '{censoring_var}' not found in DataFrame."
+            )
         event_var = "_event_computed"
         data = data.copy()
         data[event_var] = 1 - data[censoring_var]
@@ -69,20 +81,19 @@ def create_survival_model(
     if event_var is None:
         event_var = "event"
 
-    # Constrói formula se não fornecida
+    # Build formula if not provided
     if formula is None and independent_vars:
         formula = ' + '.join(independent_vars)
 
-    # Extrai unidade de tempo
+    # Extract time unit
     time_unit = "Time"
     if avalu_var and avalu_var in data.columns:
         units = data[avalu_var].dropna().unique()
         if len(units) > 0:
             time_unit = str(units[0])
 
-    # Prepara model_data
+    # Prepare model_data
     if formula is not None:
-        # Formula-based: precisa das colunas da fórmula + duration + event
         required_cols = [duration_var, event_var]
         for col in required_cols:
             if col not in data.columns:
@@ -93,7 +104,7 @@ def create_survival_model(
             data, duration_var, event_var, independent_vars or []
         )
 
-    # Deriva target_time da mediana do seguimento se não fornecido
+    # Derive target_time from median if not provided
     if target_time is None:
         target_time = float(model_data[duration_var].median())
 
@@ -114,13 +125,21 @@ def create_kaplan_meier_model(
 
     Supports CDISC ADTTE conventions.
 
+    Args:
+        data: Input DataFrame.
+        duration_var: Time-to-event column (default "AVAL").
+        event_var: Event indicator (1=event).
+        censoring_var: Censoring indicator (1=censored).
+        avalu_var: Time unit column (default "AVALU").
+
     Returns:
         Tuple of (model, model_data, time_unit, event_var).
     """
-    # Se censoring_var fornecido e event_var não, computa event_var
     if censoring_var is not None and event_var is None:
         if censoring_var not in data.columns:
-            raise ValueError(f"Column '{censoring_var}' not found in DataFrame.")
+            raise ValueError(
+                f"Column '{censoring_var}' not found in DataFrame."
+            )
         event_var = "_event_computed"
         data = data.copy()
         data[event_var] = 1 - data[censoring_var]
@@ -129,7 +148,6 @@ def create_kaplan_meier_model(
         if col not in data.columns:
             raise ValueError(f"Column '{col}' not found in DataFrame.")
 
-    # Extrai unidade de tempo
     time_unit = "Time"
     if avalu_var and avalu_var in data.columns:
         units = data[avalu_var].dropna().unique()
@@ -153,9 +171,7 @@ def _prepare_model_data(
     independent_vars: List[str],
     formula: Optional[str] = None
 ) -> pd.DataFrame:
-    """
-    Prepare model data for CoxPHFitter.
-    """
+    """Prepare model data for CoxPHFitter."""
     if formula:
         required_cols = [duration_var, event_var]
         for col in required_cols:
@@ -168,276 +184,450 @@ def _prepare_model_data(
         if col not in data.columns:
             raise ValueError(f"Column '{col}' not found in DataFrame.")
 
-    model_data = data[required_cols].dropna().copy()
-    return model_data
+    return data[required_cols].dropna().copy()
 
 
 def _build_result_df(
     fitted_model: CoxPHFitter,
     labels: Optional[Dict[str, str]] = None
 ) -> pd.DataFrame:
-    """
-    Build Hazard Ratios DataFrame from fitted Cox model.
-    """
+    """Build Hazard Ratios DataFrame from fitted Cox model."""
     summary = fitted_model.summary.copy()
 
     summary['HazardRatio'] = np.exp(summary['coef'])
-    summary['LowerCI'] = np.exp(summary['coef'] - 1.96 * summary['se(coef)'])
-    summary['UpperCI'] = np.exp(summary['coef'] + 1.96 * summary['se(coef)'])
-    summary['p-value'] = summary['p'].apply(
+    summary['LowerCI']     = np.exp(summary['coef'] - 1.96 * summary['se(coef)'])
+    summary['UpperCI']     = np.exp(summary['coef'] + 1.96 * summary['se(coef)'])
+    summary['p-value']     = summary['p'].apply(
         lambda p: "<0.001" if p < 0.001 else f"{p:.3f}"
     )
 
-    result_df = summary[['HazardRatio', 'LowerCI', 'UpperCI', 'p-value']].reset_index()
-    result_df = result_df.rename(columns={result_df.columns[0]: 'Variable'})
+    result_df = summary[
+        ['HazardRatio', 'LowerCI', 'UpperCI', 'p-value']
+    ].reset_index()
+    result_df = result_df.rename(
+        columns={result_df.columns[0]: 'Variable'}
+    )
 
     if labels:
-        result_df['Variable'] = result_df['Variable'].map(labels).fillna(
-            result_df['Variable']
+        result_df['Variable'] = (
+            result_df['Variable'].map(labels).fillna(result_df['Variable'])
         )
 
     return result_df
 
 
 # ============================================================================
-# SUBCLASSES (INHERIT FROM RAPID)
+# UNIFIED SURVIVAL PIPELINE
 # ============================================================================
 
-class SurvivalCox(RAPID):
+class Survival(RAPID):
     """
-    Concrete pipeline for Cox Proportional Hazards.
+    Unified survival analysis pipeline — Cox PH + Kaplan-Meier.
 
-    Implements create() (abstract from RAPID). Inherits concrete methods:
-    fit(), summary(), save(), validation(), report(), decide().
+    Runs both Cox Proportional Hazards and Kaplan-Meier in a single
+    pipeline. Optionally runs Log-rank test when group_var is provided.
+
+    Cox is the primary model — fitted_model points to the fitted
+    CoxPHFitter. KM is secondary — km_model stores the fitted
+    KaplanMeierFitter.
+
+    Usage:
+        model = RAPID.create(data, model='survival',
+                             duration_var='AVAL',
+                             event_var='event',
+                             independent_vars=['age', 'sex'])
+        model.fit(cross_validation=True, assumptions=True)
+        model.summary(plots=['forest_plot', 'survival_curve'])
     """
 
     def __init__(
-    self,
-    model: CoxPHFitter,
-    model_data: pd.DataFrame,
-    duration_var: str,
-    event_var: str,
-    independent_vars: List[str],
-    labels: Optional[Dict[str, str]] = None,
-    time_unit: str = "Time",
-    formula: Optional[str] = None,
-    target_time: float = None,
-    **kwargs
+        self,
+        cox_model: CoxPHFitter,
+        km_model_config: KaplanMeierFitter,
+        model_data: pd.DataFrame,
+        duration_var: str,
+        event_var: str,
+        independent_vars: List[str],
+        labels: Optional[Dict[str, str]] = None,
+        time_unit: str = "Time",
+        formula: Optional[str] = None,
+        target_time: Optional[float] = None,
+        group_var: Optional[str] = None,
+        **kwargs
     ):
-        """
-        Initialize SurvivalCox with configured model and data.
-        """
-        self._model = model
-        self.model_data = model_data
-        self.duration_var = duration_var
-        self.event_var = event_var
+        # Cox (primary)
+        self._model         = cox_model
+        # KM config (secondary)
+        self._km_model_config = km_model_config
+
+        self.model_data       = model_data
+        self.duration_var     = duration_var
+        self.event_var        = event_var
         self.independent_vars = independent_vars
-        self.labels = labels
-        self.time_unit = time_unit
-        self.formula = formula
-        self.target_time = target_time
-        self.model_type = "survival_cox"
-        self.X = model_data[independent_vars]
+        self.labels           = labels
+        self.time_unit        = time_unit
+        self.formula          = formula
+        self.target_time      = target_time
+        self.group_var        = group_var
+
+        self.model_type = "survival"
+
+        # Data matrices — X includes covariates for Cox
+        covariate_cols = [
+            c for c in (independent_vars or [])
+            if c in model_data.columns
+        ]
+        self.X = (
+            model_data[[duration_var] + covariate_cols]
+            if covariate_cols
+            else model_data[[duration_var]]
+        )
         self.y = model_data[event_var]
-        self.fitted_model = None
-        self.result_df = None
-        self.metrics = None
-        self.plots_map = {}
+
+        # Results
+        self.fitted_model    = None   # Cox (primary)
+        self.km_model        = None   # KM (secondary)
+        self.result_df       = None   # Cox HRs
+        self.km_result_df    = None   # KM summary
+        self.metrics         = None
+        self.plots_map       = {}
+        self.logrank_results = None
 
         self._setup_plots_map()
-
         super().__init__()
 
+    # ======================================================================
+    # PLOTS MAP
+    # ======================================================================
+
     def _setup_plots_map(self):
-        """Configure available plots for SurvivalCox."""
+        """Configure available plots for unified Survival pipeline."""
         self.plots_map = {
-            "forest_plot": self._forest_plot,
-            "survival_curve": self._survival_curve,
+            "forest_plot":          self._forest_plot,
+            "survival_curve":       self._survival_curve,
             "schoenfeld_residuals": self._schoenfeld_residuals,
             "martingale_residuals": self._martingale_residuals,
-            "deviance_residuals": self._deviance_residuals,
-            "brier_score": self._brier_score,
-            "roc_time_dependent": self._roc_time_dependent,
-            "calibration_plot": self._calibration_plot,
+            "deviance_residuals":   self._deviance_residuals,
+            "brier_score":          self._brier_score,
+            "roc_time_dependent":   self._roc_time_dependent,
+            "calibration_plot":     self._calibration_plot,
         }
+        if self.group_var:
+            self.plots_map["compare_survival_curves"] = \
+                self._compare_survival_curves
+
+    # ======================================================================
+    # CREATE
+    # ======================================================================
 
     @classmethod
     def create(
         cls,
         data: pd.DataFrame,
-        model: str = "survival_cox",
+        model: str = "survival",
         duration_var: str = "AVAL",
         event_var: Optional[str] = None,
-        target_time: Optional[float] = None,
         censoring_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         formula: Optional[str] = None,
         avalu_var: str = "AVALU",
         penalizer: float = 0.1,
+        target_time: Optional[float] = None,
         labels: Optional[Dict[str, str]] = None,
+        group_var: Optional[str] = None,
         **params
-    ) -> "SurvivalCox":
-        model_config, model_data, time_unit, formula, event_var, target_time = create_survival_model(
-            data=data,
-            duration_var=duration_var,
-            event_var=event_var,
-            censoring_var=censoring_var,
-            independent_vars=independent_vars,
-            formula=formula,
-            avalu_var=avalu_var,
-            penalizer=penalizer,
-            target_time=target_time
-        )
+    ) -> "Survival":
+        """
+        Create unified Survival pipeline (Cox PH + Kaplan-Meier).
+
+        Args:
+            data: Input DataFrame in ARC format.
+            model: Must be "survival".
+            duration_var: Time-to-event column (default "AVAL").
+            event_var: Event indicator (1=event). Computed from
+                censoring_var if not provided.
+            censoring_var: Censoring indicator (1=censored, CDISC CNSR).
+            independent_vars: Covariate columns for Cox PH model.
+            formula: Patsy formula for Cox. If None, built from
+                independent_vars.
+            avalu_var: Time unit column (CDISC ADTTE, default "AVALU").
+            penalizer: Ridge penalizer for CoxPHFitter (default 0.1).
+            target_time: Time point for time-dependent metrics. If None,
+                uses median of duration_var.
+            labels: Optional display labels for variable names.
+            group_var: Optional grouping variable for KM group comparison
+                and Log-rank test.
+
+        Returns:
+            Configured Survival instance ready for fit().
+        """
+        cox_model, model_data, time_unit, formula_used, event_var_used, \
+            target_time_used = create_survival_model(
+                data=data,
+                duration_var=duration_var,
+                event_var=event_var,
+                censoring_var=censoring_var,
+                independent_vars=independent_vars,
+                formula=formula,
+                avalu_var=avalu_var,
+                penalizer=penalizer,
+                target_time=target_time,
+            )
+
+        km_model_config = KaplanMeierFitter()
 
         return cls(
-            model=model_config,
+            cox_model=cox_model,
+            km_model_config=km_model_config,
             model_data=model_data,
             duration_var=duration_var,
-            event_var=event_var,
+            event_var=event_var_used,
             independent_vars=independent_vars or [],
             labels=labels,
             time_unit=time_unit,
-            formula=formula,
-            target_time=target_time, 
-            **params
+            formula=formula_used,
+            target_time=target_time_used,
+            group_var=group_var,
         )
-    
+
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
     # ======================================================================
 
-    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
-        """Train the Cox PH model."""
+    def _train_model(
+        self,
+        grid_search=False,
+        param_grid=None,
+        selection_metric="auto"
+    ):
+        """
+        Train Cox PH (primary) and Kaplan-Meier (secondary).
+
+        Optionally runs Log-rank test if group_var was provided.
+
+        Returns:
+            Fitted CoxPHFitter (primary fitted_model).
+        """
+        # ── 1. Fit Cox (primary) ──────────────────────────────────────────
         if self.formula is not None:
-            # Formula-based fit (lifelines lida com categóricos)
-            return self._model.fit(
+            cox_fitted = self._model.fit(
                 self.model_data,
                 duration_col=self.duration_var,
                 formula=self.formula,
-                event_col=self.event_var
+                event_col=self.event_var,
             )
         else:
-            # Matrix-based fit
-            return self._model.fit(
+            cox_fitted = self._model.fit(
                 self.model_data,
                 duration_col=self.duration_var,
-                event_col=self.event_var
+                event_col=self.event_var,
             )
 
-    def _build_result_df(self):
-        """Build Hazard Ratios DataFrame."""
-        return _build_result_df(
-            fitted_model=self.fitted_model,
-            labels=self.labels
+        # ── 2. Fit KM overall (secondary) ─────────────────────────────────
+        km_fitted = KaplanMeierFitter()
+        km_fitted.fit(
+            self.model_data[self.duration_var],
+            event_observed=self.model_data[self.event_var],
+            label="Overall",
         )
+        self.km_model = km_fitted
+
+        # ── 3. KM by group (if group_var provided) ────────────────────────
+        if self.group_var and self.group_var in self.model_data.columns:
+            self.km_by_group = {}
+            for grp, grp_df in self.model_data.groupby(self.group_var):
+                km_grp = KaplanMeierFitter()
+                km_grp.fit(
+                    grp_df[self.duration_var],
+                    event_observed=grp_df[self.event_var],
+                    label=str(grp),
+                )
+                self.km_by_group[str(grp)] = km_grp
+
+        # ── 4. Log-rank test (optional) ───────────────────────────────────
+        if self.group_var and self.group_var in self.model_data.columns:
+            try:
+                from lifelines.statistics import multivariate_logrank_test
+                logrank = multivariate_logrank_test(
+                    self.model_data[self.duration_var],
+                    self.model_data[self.group_var],
+                    self.model_data[self.event_var],
+                )
+                self.logrank_results = {
+                    'test_statistic': float(logrank.test_statistic),
+                    'p_value':        float(logrank.p_value),
+                    'groups': sorted(
+                        self.model_data[self.group_var]
+                            .dropna().unique().tolist()
+                    ),
+                }
+            except Exception as e:
+                self.logrank_results = {'error': str(e)}
+
+        return cox_fitted
+
+    def _build_result_df(self):
+        """
+        Build Cox HR DataFrame (primary result_df).
+
+        Also populates self.km_result_df with KM summary.
+        """
+        # Cox HRs (primary)
+        result_df = _build_result_df(self.fitted_model, self.labels)
+
+        # KM summary (secondary)
+        if self.km_model is not None:
+            self.km_result_df = pd.DataFrame([
+                {
+                    'Variable': 'Median_Survival',
+                    'Value':    self.km_model.median_survival_time_,
+                },
+                {
+                    'Variable': 'N_Events',
+                    'Value':    int(
+                        self.km_model.event_table['observed'].sum()
+                    ),
+                },
+                {
+                    'Variable': 'N_Censored',
+                    'Value':    int(
+                        self.km_model.event_table['censored'].sum()
+                    ),
+                },
+            ])
+
+        return result_df
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate survival metrics."""
+        """
+        Calculate Cox and KM metrics.
+
+        Cox (primary): C-index, AIC, partial log-likelihood, LRT.
+        KM (secondary): median survival, n_events, n_censored.
+        Log-rank (if group_var): test_statistic, p_value.
+        """
         from isaric.modelevaluation.metrics import compute_survival_metrics
 
         result = compute_survival_metrics(
             self.fitted_model,
             self.model_data,
             duration_var=self.duration_var,
-            event_var=self.event_var
+            event_var=self.event_var,
         )
 
-        # ============ MODEL INFO ============
-        info = {
-            "model_type": self.model_type,
-            "framework": "lifelines",
-            "method": "Cox Proportional Hazards",
-            "random_seed": self._random_seed,
+        # KM metrics
+        if self.km_model is not None:
+            result['median_survival'] = float(
+                self.km_model.median_survival_time_
+            )
+            result['km_n_events'] = int(
+                self.km_model.event_table['observed'].sum()
+            )
+            result['km_n_censored'] = int(
+                self.km_model.event_table['censored'].sum()
+            )
+
+        # Log-rank metrics
+        if (self.logrank_results
+                and 'error' not in self.logrank_results):
+            result['logrank_statistic'] = (
+                self.logrank_results['test_statistic']
+            )
+            result['logrank_p_value'] = self.logrank_results['p_value']
+
+        # Model info
+        n_events = int(self.y.sum())
+        self.model_info = {
+            "model_type":     self.model_type,
+            "framework":      "lifelines",
+            "method":         "Cox PH + Kaplan-Meier",
+            "random_seed":    self._random_seed,
             "N_observations": len(self.y),
-            "N_events": int(self.y.sum()),
-            "N_censored": int((1 - self.y).sum()),
-            "N_features": self.X.shape[1],
-            "time_unit": self.time_unit,
+            "N_events":       n_events,
+            "N_censored":     len(self.y) - n_events,
+            "N_features":     len(self.independent_vars),
+            "time_unit":      self.time_unit,
             "parameters": {
-                "duration_var": self.duration_var,
-                "event_var": self.event_var,
-                "formula": self.formula if self.formula else "(matrix-based)",
-                "penalizer": float(self._model.penalizer),
-                "target_time": self.target_time,
+                "duration_var":     self.duration_var,
+                "event_var":        self.event_var,
+                "independent_vars": self.independent_vars,
+                "formula":          self.formula or "(matrix-based)",
+                "penalizer":        float(self._model.penalizer)
+                                    if hasattr(self._model, 'penalizer')
+                                    else None,
+                "target_time":      self.target_time,
+                "group_var":        self.group_var,
             },
         }
 
         if 'c_index' in result:
-            info["c_index"] = result['c_index']
-        if 'aic' in result:
-            info["aic"] = result['aic']
-        if 'bic' in result:
-            info["bic"] = result['bic']
+            self.model_info["c_index"] = result['c_index']
         if 'lrt_statistic' in result:
-            info["lrt_statistic"] = result['lrt_statistic']
+            self.model_info["lrt_statistic"] = result['lrt_statistic']
         if 'lrt_p_value' in result:
-            info["lrt_p_value"] = result['lrt_p_value']
-
-        self.model_info = info
+            self.model_info["lrt_p_value"] = result['lrt_p_value']
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         """
-        Cross-validation for Cox model using Concordance Index.
+        K-fold cross-validation for Cox using Concordance Index.
 
-        Performs k-fold cross-validation manually because lifelines
-        CoxPHFitter does not follow sklearn's estimator API.
-
-        Uses the same formula as the main model (if formula was provided),
-        or the same duration/event/independent_vars.
+        Uses formula-based fitting when formula is available, ensuring
+        correct handling of categorical variables and censoring_var.
         """
         from sklearn.model_selection import KFold
-        from lifelines import CoxPHFitter
-        import numpy as np
 
         kf = KFold(n_splits=k_folds, shuffle=True, random_state=42)
         cv_c_indices = []
 
-        # Colunas necessárias para o fold
+        # Columns needed for each fold
         if self.formula is not None:
-            # Formula-based: precisa das colunas da fórmula + duration + event
-            required_cols = [self.duration_var, self.event_var] + self.independent_vars
-            required_cols = [c for c in required_cols if c in self.model_data.columns]
-            fold_data = self.model_data[required_cols].copy()
+            required_cols = [self.duration_var, self.event_var] + \
+                            self.independent_vars
+            required_cols = [
+                c for c in required_cols if c in self.model_data.columns
+            ]
         else:
-            # Matrix-based
-            fold_data = self.model_data[
+            required_cols = (
                 [self.duration_var, self.event_var] + self.independent_vars
-            ].copy()
+            )
+
+        fold_data = self.model_data[required_cols].copy()
 
         for train_idx, test_idx in kf.split(fold_data):
             train_df = fold_data.iloc[train_idx].reset_index(drop=True)
-            test_df = fold_data.iloc[test_idx].reset_index(drop=True)
+            test_df  = fold_data.iloc[test_idx].reset_index(drop=True)
 
             model_fold = CoxPHFitter(penalizer=self._model.penalizer)
 
-            if self.formula is not None:
-                # Mesma fórmula do modelo principal
-                model_fold.fit(
-                    train_df,
-                    duration_col=self.duration_var,
-                    event_col=self.event_var,
-                    formula=self.formula
-                )
-            else:
-                model_fold.fit(
-                    train_df,
-                    duration_col=self.duration_var,
-                    event_col=self.event_var
-                )
+            try:
+                if self.formula is not None:
+                    model_fold.fit(
+                        train_df,
+                        duration_col=self.duration_var,
+                        event_col=self.event_var,
+                        formula=self.formula,
+                    )
+                else:
+                    model_fold.fit(
+                        train_df,
+                        duration_col=self.duration_var,
+                        event_col=self.event_var,
+                    )
 
-            # C-index no fold de teste
-            c_index = model_fold.score(
-                test_df,
-                scoring_method="concordance_index"
-            )
-            cv_c_indices.append(c_index)
+                c_index = model_fold.score(
+                    test_df,
+                    scoring_method="concordance_index",
+                )
+                cv_c_indices.append(c_index)
+            except Exception:
+                pass
 
         return {
-            'scores': np.array(cv_c_indices),
+            'scores':     np.array(cv_c_indices),
             'mean_score': float(np.mean(cv_c_indices)),
-            'std_score': float(np.std(cv_c_indices))
+            'std_score':  float(np.std(cv_c_indices)),
         }
 
     def _calibration_curve(self):
@@ -446,7 +636,7 @@ class SurvivalCox(RAPID):
         from isaric.modelevaluation.calibration import (
             survival_calibration,
             survival_brier_score,
-            survival_roc
+            survival_roc,
         )
 
         result = {}
@@ -457,7 +647,7 @@ class SurvivalCox(RAPID):
                 self.model_data,
                 duration_var=self.duration_var,
                 event_var=self.event_var,
-                target_time=self.target_time
+                target_time=self.target_time,
             )
         except Exception as e:
             warnings.warn(f"Calibration failed: {e}")
@@ -468,7 +658,7 @@ class SurvivalCox(RAPID):
                 self.model_data,
                 duration_var=self.duration_var,
                 event_var=self.event_var,
-                target_time=self.target_time
+                target_time=self.target_time,
             )
         except Exception as e:
             warnings.warn(f"Brier score failed: {e}")
@@ -479,7 +669,7 @@ class SurvivalCox(RAPID):
                 self.model_data,
                 duration_var=self.duration_var,
                 event_var=self.event_var,
-                target_time=self.target_time
+                target_time=self.target_time,
             )
         except Exception as e:
             warnings.warn(f"ROC failed: {e}")
@@ -487,50 +677,46 @@ class SurvivalCox(RAPID):
         return result
 
     def _check_assumptions(self):
-        """Check Proportional Hazards assumption."""
+        """Check Proportional Hazards assumption (Schoenfeld residuals)."""
         from isaric.modelevaluation.assumptions import test_proportional_hazards
         return {
             'proportional_hazards': test_proportional_hazards(
                 self.fitted_model,
-                self.model_data
+                self.model_data,
             )
         }
 
     def _train_test_split(self, test_size=0.2):
-        """Split data chronologically."""
+        """Temporal holdout validation for Cox."""
         from isaric.modelevaluation.traintest import temporal_holdout
         return temporal_holdout(
             self.model_data,
             date_col=self.duration_var,
-            test_size=test_size
+            test_size=test_size,
         )
 
     def _validate_external(self, external_data):
-        """Validate on external dataset."""
-        from isaric.validation.external import temporal_validation
-        return temporal_validation(
-            self.fitted_model,
-            external_data,
-            dependent_var=self.event_var,
-            independent_vars=self.independent_vars
+        """Validate Cox model on external independent dataset."""
+        from isaric.validation.external import validate_survival
+        return validate_survival(
+            fitted_model=self.fitted_model,
+            external_data=external_data,
+            duration_var=self.duration_var,
+            event_var=self.event_var,
+            target_time=self.target_time,
         )
 
     def _validate_bootstrap(self, n_iterations=1000):
         """
-        Bootstrap confidence intervals for Cox hazard ratios.
+        Bootstrap CIs for Cox hazard ratios.
 
-        Uses bootstrap_hazard_ratios() with the type configured in fit()
-        via bootstrap_type= (default bias_corrected for survival).
-        Computes CIs on the log-HR scale and exponentiates for HR bounds.
+        Passes formula to bootstrap_hazard_ratios() so formula-based
+        models (including those built from censoring_var) are correctly
+        handled in each bootstrap iteration.
 
         Returns:
-            Dictionary with:
-            - 'hazard_ratios': DataFrame with variable, observed_hr,
-              observed_log_hr, bootstrap_mean_log_hr, bootstrap_se_log_hr,
-              hr_ci_lower, hr_ci_upper, bootstrap_p_value,
-              bootstrap_type, n_iterations.
-            - 'bootstrap_type': type used.
-            - 'n_iterations': number of iterations.
+            Dictionary with hazard_ratios DataFrame, bootstrap_type,
+            n_iterations.
         """
         from isaric.modelevaluation.bootstrap import bootstrap_hazard_ratios
 
@@ -538,7 +724,10 @@ class SurvivalCox(RAPID):
         if bootstrap_type == 'auto':
             bootstrap_type = 'bias_corrected'
 
-        penalizer = float(self._model.penalizer) if hasattr(self._model, 'penalizer') else 0.0
+        penalizer = (
+            float(self._model.penalizer)
+            if hasattr(self._model, 'penalizer') else 0.0
+        )
 
         df = bootstrap_hazard_ratios(
             data=self.model_data,
@@ -549,32 +738,41 @@ class SurvivalCox(RAPID):
             bootstrap_type=bootstrap_type,
             random_state=getattr(self, '_random_seed', 42),
             penalizer=penalizer,
+            formula=self.formula,
         )
 
         return {
-            'hazard_ratios': df,
+            'hazard_ratios':  df,
             'bootstrap_type': bootstrap_type,
-            'n_iterations': n_iterations,
+            'n_iterations':   n_iterations,
         }
 
     def _validate_sensitivity(self):
         """Sensitivity analysis."""
-        from isaric.validation.sensitivity import alternative_missing_handling
-        return alternative_missing_handling(
-            self.model_data,
-            self.event_var,
-            self.independent_vars
-        )
+        try:
+            from isaric.validation.sensitivity import (
+                alternative_missing_handling,
+            )
+            return alternative_missing_handling(
+                self.model_data,
+                self.event_var,
+                self.independent_vars,
+            )
+        except Exception:
+            return None
 
     def _validate_subgroups(self, subgroups):
         """Subgroup analysis."""
-        from isaric.validation.subgroup import stratified_metrics
-        return stratified_metrics(
-            self.fitted_model,
-            self.X,
-            self.y,
-            subgroups
-        )
+        try:
+            from isaric.validation.subgroup import stratified_metrics
+            return stratified_metrics(
+                self.fitted_model,
+                self.X,
+                self.y,
+                subgroups,
+            )
+        except Exception:
+            return None
 
     def _validate_net_benefit(self):
         """Not applicable for survival."""
@@ -585,70 +783,76 @@ class SurvivalCox(RAPID):
     # ======================================================================
 
     def _forest_plot(self, backend="plotly"):
-        """Generate forest plot for Hazard Ratios."""
+        """Forest plot of Cox hazard ratios."""
         from isaric.visualization.forestplots import hazard_ratio_plot
-
         return hazard_ratio_plot(
             self.result_df,
             effect_col='HazardRatio',
             lower_col='LowerCI',
             upper_col='UpperCI',
-            title="Forest Plot - Hazard Ratios (Cox PH)",
-            backend=backend
+            title="Forest Plot — Hazard Ratios (Cox PH)",
+            backend=backend,
         )
 
     def _survival_curve(self, backend="plotly"):
-        """Generate baseline survival curve with time unit."""
-        from isaric.visualization.survivalcurves import baseline_survival_curve
-
-        return baseline_survival_curve(
-            self.fitted_model,
-            title="Baseline Survival Curve (Cox Model)",
+        """Overall Kaplan-Meier survival curve."""
+        from isaric.visualization.survivalcurves import kaplan_meier_curve
+        return kaplan_meier_curve(
+            self.model_data,
+            duration_var=self.duration_var,
+            event_var=self.event_var,
+            title="Kaplan-Meier Survival Curve",
             xaxis_title=f"Time ({self.time_unit})",
-            backend=backend
+            backend=backend,
+        )
+
+    def _compare_survival_curves(self, backend="plotly"):
+        """KM survival curves by group with log-rank annotation."""
+        from isaric.visualization.survivalcurves import compare_survival_curves
+        return compare_survival_curves(
+            self.model_data,
+            duration_var=self.duration_var,
+            event_var=self.event_var,
+            group_var=self.group_var,
+            logrank_results=self.logrank_results,
+            title="Survival by Group",
+            xaxis_title=f"Time ({self.time_unit})",
+            backend=backend,
         )
 
     def _schoenfeld_residuals(self, backend="plotly"):
-        """Generate Schoenfeld residuals plots for all covariates."""
+        """Schoenfeld residuals for PH assumption check."""
         from isaric.visualization.survivalcurves import schoenfeld_residuals_plot
 
         residuals = self.fitted_model.compute_residuals(
             self.model_data, 'schoenfeld'
         )
-
         figs = []
         for col in residuals.columns:
             fig = schoenfeld_residuals_plot(
                 residuals=residuals[col].values,
                 times=residuals.index.values,
                 covariate_name=col,
-                backend=backend
+                backend=backend,
             )
             figs.append(fig)
-
-        return figs  # Retorna lista de figuras (uma por covariável)
-
+        return figs
 
     def _martingale_residuals(self, backend="plotly"):
-        """Generate Martingale residuals plots for model covariates only."""
+        """Martingale residuals for model covariates."""
         from isaric.visualization.survivalcurves import martingale_residuals_plot
 
         residuals = self.fitted_model.compute_residuals(
             self.model_data, 'martingale'
         )
-
-        # Covariáveis: apenas as usadas no modelo (independent_vars)
         cols_to_plot = [
-            c for c in self.independent_vars if c in self.model_data.columns
+            c for c in self.independent_vars
+            if c in self.model_data.columns
         ]
-
-        # Fallback: extrair covariáveis da fórmula se independent_vars estiver vazio
         if not cols_to_plot and self.formula:
             cols_to_plot = [
                 c.strip() for c in self.formula.split('+')
-            ]
-            cols_to_plot = [
-                c for c in cols_to_plot if c in self.model_data.columns
+                if c.strip() in self.model_data.columns
             ]
 
         figs = []
@@ -658,33 +862,26 @@ class SurvivalCox(RAPID):
                 covariate=self.model_data[col].values,
                 covariate_name=col,
                 add_smoother=True,
-                backend=backend
+                backend=backend,
             )
             figs.append(fig)
-
         return figs
 
-
     def _deviance_residuals(self, backend="plotly"):
-        """Generate Deviance residuals plots for model covariates only."""
+        """Deviance residuals for model covariates."""
         from isaric.visualization.survivalcurves import deviance_residuals_plot
 
         residuals = self.fitted_model.compute_residuals(
             self.model_data, 'deviance'
         )
-
-        # Covariáveis: apenas as usadas no modelo (independent_vars)
         cols_to_plot = [
-            c for c in self.independent_vars if c in self.model_data.columns
+            c for c in self.independent_vars
+            if c in self.model_data.columns
         ]
-
-        # Fallback: extrair covariáveis da fórmula se independent_vars estiver vazio
         if not cols_to_plot and self.formula:
             cols_to_plot = [
                 c.strip() for c in self.formula.split('+')
-            ]
-            cols_to_plot = [
-                c for c in cols_to_plot if c in self.model_data.columns
+                if c.strip() in self.model_data.columns
             ]
 
         figs = []
@@ -693,14 +890,13 @@ class SurvivalCox(RAPID):
                 residuals=residuals['deviance'].values,
                 covariate=self.model_data[col].values,
                 covariate_name=col,
-                backend=backend
+                backend=backend,
             )
             figs.append(fig)
-
         return figs
 
     def _brier_score(self, backend="plotly"):
-        """Generate Brier Score plot."""
+        """Time-dependent Brier score plot."""
         from isaric.visualization.survivalcurves import brier_score_plot
         from isaric.modelevaluation.calibration import survival_brier_score
 
@@ -709,18 +905,17 @@ class SurvivalCox(RAPID):
             self.model_data,
             duration_var=self.duration_var,
             event_var=self.event_var,
-            target_time=self.target_time
+            target_time=self.target_time,
         )
         return brier_score_plot(
             time_points=data['time_points'],
             brier_scores=data['brier_scores'],
             target_time=self.target_time,
-            backend=backend
+            backend=backend,
         )
 
-
     def _roc_time_dependent(self, backend="plotly"):
-        """Generate time-dependent ROC plot."""
+        """Time-dependent ROC curve."""
         from isaric.visualization.survivalcurves import roc_time_dependent_plot
         from isaric.modelevaluation.calibration import survival_roc
 
@@ -729,19 +924,18 @@ class SurvivalCox(RAPID):
             self.model_data,
             duration_var=self.duration_var,
             event_var=self.event_var,
-            target_time=self.target_time
+            target_time=self.target_time,
         )
         return roc_time_dependent_plot(
             fpr=data['fpr'],
             tpr=data['tpr'],
             auc=data['auc'],
             target_time=self.target_time,
-            backend=backend
+            backend=backend,
         )
 
-
     def _calibration_plot(self, backend="plotly"):
-        """Generate calibration plot for survival."""
+        """Calibration plot for Cox at target_time."""
         from isaric.visualization.survivalcurves import calibration_plot
         from isaric.modelevaluation.calibration import survival_calibration
 
@@ -750,243 +944,11 @@ class SurvivalCox(RAPID):
             self.model_data,
             duration_var=self.duration_var,
             event_var=self.event_var,
-            target_time=self.target_time
+            target_time=self.target_time,
         )
         return calibration_plot(
             predicted_survival=data['predicted_survival'],
             observed_survival=data['observed_survival'],
             target_time=self.target_time,
-            backend=backend
-        )
-
-class KaplanMeier(RAPID):
-    """
-    Concrete pipeline for Kaplan-Meier survival analysis.
-
-    Implements create() (abstract from RAPID). Inherits concrete methods:
-    fit(), summary(), save(), validation(), report(), decide().
-    """
-
-    def __init__(
-        self,
-        model: KaplanMeierFitter,
-        model_data: pd.DataFrame,
-        duration_var: str,
-        event_var: str,
-        time_unit: str = "Time",
-        **kwargs
-    ):
-        """
-        Initialize KaplanMeier with configured model and data.
-        """
-        self._model = model
-        self.model_data = model_data
-        self.duration_var = duration_var
-        self.event_var = event_var
-        self.time_unit = time_unit
-        self.model_type = "survival_km"
-        self.X = model_data[[duration_var]]
-        self.y = model_data[event_var]
-        self.fitted_model = None
-        self.result_df = None
-        self.metrics = None
-        self.plots_map = {}
-
-        self._setup_plots_map()
-
-        super().__init__()
-
-    def _setup_plots_map(self):
-        """Configure available plots for KaplanMeier."""
-        self.plots_map = {
-            "survival_curve": self._survival_curve,
-        }
-
-    @classmethod
-    def create(
-        cls,
-        data: pd.DataFrame,
-        model: str = "survival_km",
-        duration_var: str = "AVAL",
-        event_var: Optional[str] = None,
-        censoring_var: Optional[str] = None,
-        avalu_var: str = "AVALU",
-        **params
-    ) -> "KaplanMeier":
-        model_config, model_data, time_unit, event_var = create_kaplan_meier_model(
-            data=data,
-            duration_var=duration_var,
-            event_var=event_var,
-            censoring_var=censoring_var,
-            avalu_var=avalu_var
-        )
-        return cls(
-            model=model_config,
-            model_data=model_data,
-            duration_var=duration_var,
-            event_var=event_var,
-            time_unit=time_unit,
-            **params
-        )
-
-    # ======================================================================
-    # PRIVATE METHODS (CALLED BY fit() AND validation())
-    # ======================================================================
-
-    def _train_model(self, grid_search=False, param_grid=None, selection_metric="auto"):
-        """Train the Kaplan-Meier model."""
-        return self._model.fit(
-            self.model_data[self.duration_var],
-            event_observed=self.model_data[self.event_var]
-        )
-
-    def _build_result_df(self):
-        """Build results DataFrame."""
-        return pd.DataFrame({
-            'Variable': ['Median_Survival', 'N_Events', 'N_Censored'],
-            'Value': [
-                self.fitted_model.median_survival_time_,
-                self.fitted_model.event_table['observed'].sum(),
-                self.fitted_model.event_table['censored'].sum()
-            ]
-        })
-
-    def _calculate_metrics(self, metrics=None):
-        """Calculate survival metrics."""
-        result = {
-            'median_survival': self.fitted_model.median_survival_time_,
-            'n_events': int(self.fitted_model.event_table['observed'].sum()),
-            'n_censored': int(self.fitted_model.event_table['censored'].sum()),
-        }
-
-        # ============ MODEL INFO ============
-        info = {
-            "model_type": self.model_type,
-            "framework": "lifelines",
-            "method": "Kaplan-Meier",
-            "random_seed": self._random_seed,
-            "N_observations": len(self.y),
-            "N_events": int(self.y.sum()),
-            "N_censored": int((1 - self.y).sum()),
-            "time_unit": self.time_unit,
-            "parameters": {
-                "duration_var": self.duration_var,
-                "event_var": self.event_var,
-            },
-        }
-
-        self.model_info = info
-
-        return result
-
-    def _cross_validate(self, k_folds=5, repetitions=1):
-        """Not applicable for Kaplan-Meier."""
-        return None
-
-    def _calibration_curve(self):
-        """Not applicable for Kaplan-Meier."""
-        return None
-
-    def _check_assumptions(self):
-        """Not applicable for Kaplan-Meier."""
-        return None
-
-    def _train_test_split(self, test_size=0.2):
-        """Not applicable for Kaplan-Meier."""
-        return None
-
-    def _validate_external(self, external_data):
-        """Not applicable for Kaplan-Meier."""
-        return None
-
-    def _validate_bootstrap(self, n_iterations=1000):
-        """
-        Bootstrap confidence interval for Kaplan-Meier median survival time.
-
-        Resamples the survival data with replacement, refits KaplanMeierFitter,
-        and collects median survival times. CI type is read from fit()
-        via bootstrap_type= (default percentile for KM).
-
-        Returns:
-            Dictionary with:
-            - 'metric': 'median_survival_time'
-            - 'observed': observed median from fitted model
-            - 'values': array of bootstrap estimates
-            - 'mean': mean of bootstrap estimates
-            - 'ci_lower': lower CI bound
-            - 'ci_upper': upper CI bound
-            - 'bootstrap_type': type used
-            - 'n_iterations': number of iterations
-        """
-        from lifelines import KaplanMeierFitter
-        from isaric.modelevaluation.bootstrap import confidence_interval
-
-        bootstrap_type = getattr(self, '_bootstrap_type', 'auto')
-        if bootstrap_type == 'auto':
-            bootstrap_type = 'percentile'
-
-        rng = np.random.default_rng(getattr(self, '_random_seed', 42))
-        n_samples = len(self.model_data)
-        bootstrap_values = []
-
-        for _ in range(n_iterations):
-            indices = rng.integers(0, n_samples, n_samples)
-            data_boot = self.model_data.iloc[indices].reset_index(drop=True)
-
-            kmf = KaplanMeierFitter()
-            try:
-                kmf.fit(
-                    data_boot[self.duration_var],
-                    event_observed=data_boot[self.event_var]
-                )
-                bootstrap_values.append(kmf.median_survival_time_)
-            except Exception:
-                pass
-
-        values = np.array(bootstrap_values)
-        observed = float(self.fitted_model.median_survival_time_)
-
-        ci_lower, ci_upper = confidence_interval(
-            values=values,
-            bootstrap_type=bootstrap_type,
-            observed=observed,
-        )
-
-        return {
-            'metric': 'median_survival_time',
-            'observed': observed,
-            'values': values,
-            'mean': float(np.mean(values)),
-            'ci_lower': ci_lower,
-            'ci_upper': ci_upper,
-            'bootstrap_type': bootstrap_type,
-            'n_iterations': n_iterations,
-        }
-
-    def _validate_sensitivity(self):
-        """Not applicable for Kaplan-Meier."""
-        return None
-
-    def _validate_subgroups(self, subgroups):
-        """Not applicable for Kaplan-Meier."""
-        return None
-
-    def _validate_net_benefit(self):
-        """Not applicable for Kaplan-Meier."""
-        return None
-
-    # ======================================================================
-    # PLOT METHODS (CALLED BY plots_map)
-    # ======================================================================
-
-    def _survival_curve(self, backend="plotly"):
-        """Generate Kaplan-Meier survival curve with time unit."""
-        from isaric.visualization.survivalcurves import kaplan_meier_curve
-        return kaplan_meier_curve(
-            self.model_data,
-            duration_var=self.duration_var,
-            event_var=self.event_var,
-            title="Kaplan-Meier Survival Curve",
-            xaxis_title=f"Time ({self.time_unit})",
-            backend=backend
+            backend=backend,
         )

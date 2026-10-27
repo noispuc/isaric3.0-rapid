@@ -248,59 +248,83 @@ def _build_result_df(
     """
     Build a formatted results DataFrame from the fitted model.
 
-    For logistic regression, returns Odds Ratios with confidence
-    intervals. For GLM, returns coefficients (or exponentiated
-    coefficients if using a log link).
+    Always includes raw Coefficient (log-OR for logistic), std_error,
+    z_value, analytical LowerCI, UpperCI and p-value.
+
+    For logistic regression also includes OddsRatio (exp(Coefficient)).
+    For GLM with log-link also includes MeanRatio (exp(Coefficient)).
+
+    full format: all columns.
+    short format (controlled by summary()): Variable, main effect, p-value.
 
     Args:
         fitted_model: Fitted statsmodels GLM.
         X: Predictor matrix.
         y: Outcome vector.
         labels: Dictionary mapping variable names to display labels.
-        is_logistic: If True, exponentiates coefficients to Odds Ratios.
+        is_logistic: If True, adds OddsRatio column.
 
     Returns:
-        DataFrame with columns: Variable, Effect, LowerCI, UpperCI, p-value.
+        DataFrame with columns: Variable, Coefficient, [OddsRatio],
+        std_error, z_value, LowerCI, UpperCI, p-value.
     """
     summary_table = fitted_model.summary2().tables[1]
 
-    # Determine p-value column
+    # Determine column names (vary slightly across statsmodels versions)
     p_value_col = 'P>|z|' if 'P>|z|' in summary_table.columns else 'P>|t|'
+    z_col       = 'z'     if 'z'     in summary_table.columns else 't'
 
-    # Build result DataFrame
-    result_df = summary_table[['Coef.', '[0.025', '0.975]', p_value_col]].reset_index()
+    result_df = summary_table[
+        ['Coef.', 'Std.Err.', z_col, '[0.025', '0.975]', p_value_col]
+    ].reset_index()
+
     result_df = result_df.rename(columns={
-        'index': 'Variable',
-        'Coef.': 'Coefficient',
-        '[0.025': 'LowerCI',
-        '0.975]': 'UpperCI',
-        p_value_col: 'p-value'
+        'index':     'Variable',
+        'Coef.':     'Coefficient',
+        'Std.Err.':  'std_error',
+        z_col:       'z_value',
+        '[0.025':    'LowerCI',
+        '0.975]':    'UpperCI',
+        p_value_col: 'p-value',
     })
 
-    # Exponentiate for logistic or log-link
+    # Logistic: add OddsRatio; CIs on OR scale; keep raw Coefficient (log-OR)
     if is_logistic:
-        result_df[['Coefficient', 'LowerCI', 'UpperCI']] = np.exp(
-            result_df[['Coefficient', 'LowerCI', 'UpperCI']]
-        )
-        result_df = result_df.rename(columns={'Coefficient': 'OddsRatio'})
+        result_df['OddsRatio'] = np.exp(result_df['Coefficient'])
+        result_df['LowerCI']   = np.exp(result_df['LowerCI'])
+        result_df['UpperCI']   = np.exp(result_df['UpperCI'])
+        result_df = result_df[[
+            'Variable', 'Coefficient', 'OddsRatio',
+            'std_error', 'z_value', 'LowerCI', 'UpperCI', 'p-value',
+        ]]
     else:
-        # Check if log link (for Gamma, Poisson, etc.)
+        # GLM with log-link: add MeanRatio
         if isinstance(fitted_model.family.link, sm.families.links.Log):
-            result_df[['Coefficient', 'LowerCI', 'UpperCI']] = np.exp(
-                result_df[['Coefficient', 'LowerCI', 'UpperCI']]
-            )
-            result_df = result_df.rename(columns={'Coefficient': 'MeanRatio'})
+            result_df['MeanRatio'] = np.exp(result_df['Coefficient'])
+            result_df['LowerCI']   = np.exp(result_df['LowerCI'])
+            result_df['UpperCI']   = np.exp(result_df['UpperCI'])
+            result_df = result_df[[
+                'Variable', 'Coefficient', 'MeanRatio',
+                'std_error', 'z_value', 'LowerCI', 'UpperCI', 'p-value',
+            ]]
+        else:
+            result_df = result_df[[
+                'Variable', 'Coefficient',
+                'std_error', 'z_value', 'LowerCI', 'UpperCI', 'p-value',
+            ]]
 
-    # Apply labels if provided
+    # Apply labels
     if labels:
         result_df['Variable'] = result_df['Variable'].apply(
             lambda x: _parse_variable_name(x, labels)
         )
 
-    # Filter intercept
+    # Filter intercept/const
     result_df = result_df[
-        ~result_df['Variable'].str.lower().isin(['intercept', 'const', 'constant'])
-    ]
+        ~result_df['Variable'].str.lower().isin(
+            ['intercept', 'const', 'constant']
+        )
+    ].reset_index(drop=True)
 
     return result_df
 
@@ -791,14 +815,14 @@ class LogisticRegression(RAPID):
         )
 
     def _validate_external(self, external_data):
-        """Validate on external dataset."""
-        from isaric.validation.external import temporal_validation
-        
-        return temporal_validation(
-            self.fitted_model,
-            external_data,
+        """Validate logistic regression on external independent dataset."""
+        from isaric.validation.external import validate_classification
+        return validate_classification(
+            fitted_model=self.fitted_model,
+            external_data=external_data,
             dependent_var=self.dependent_var,
-            independent_vars=self.independent_vars
+            independent_vars=self.independent_vars,
+            add_const=True,
         )
 
     def _validate_bootstrap(self, n_iterations=1000):
@@ -856,12 +880,45 @@ class LogisticRegression(RAPID):
                 )
                 result = model.fit(disp=False)
                 params = result.params
-                return np.array([
+                coefs = np.array([
                     params[v] for v in self.X.columns
                     if v.lower() not in ('intercept', 'const', 'constant')
                 ])
+                metrics = {}
+                if hasattr(result, 'aic'):
+                    metrics['aic'] = float(result.aic)
+                if hasattr(result, 'bic'):
+                    metrics['bic'] = float(result.bic)
+                if hasattr(result, 'llf'):
+                    metrics['log_likelihood'] = float(result.llf)
+                if hasattr(result, 'deviance'):
+                    metrics['deviance'] = float(result.deviance)
+                return (coefs, metrics)
             except Exception:
                 return np.full(len(var_names), np.nan)
+
+        result = bootstrap_coefficients(
+            X=self.X,
+            y=self.y,
+            fit_func=fit_func_labeled,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            variable_names=var_names,
+            random_state=getattr(self, '_random_seed', 42),
+            collect_metrics=True,
+        )
+
+        if isinstance(result, tuple):
+            coef_df, metrics_df = result
+        else:
+            coef_df, metrics_df = result, None
+
+        return {
+            'coefficients':        coef_df,
+            'bootstrapped_metrics': metrics_df,
+            'bootstrap_type':      bootstrap_type,
+            'n_iterations':        n_iterations,
+        }
 
         df = bootstrap_coefficients(
             X=self.X,
@@ -1228,15 +1285,20 @@ class GLM(RAPID):
         return holdout_validation(data, test_size=test_size)
 
     def _validate_external(self, external_data):
-        """Validate on external dataset."""
-        from isaric.validation.external import temporal_validation
-        
-        return temporal_validation(
-            self.fitted_model,
-            external_data,
-            dependent_var=self.dependent_var,
-            independent_vars=self.independent_vars
+        """Validate GLM on external independent dataset."""
+        from isaric.validation.external import validate_classification
+        is_binomial = isinstance(
+            self.fitted_model.family, __import__('statsmodels').api.families.Binomial
         )
+        return validate_classification(
+            fitted_model=self.fitted_model,
+            external_data=external_data,
+            dependent_var=self.dependent_var,
+            independent_vars=self.independent_vars,
+            add_const=True,
+        ) if is_binomial else {
+            'note': 'External validation for non-binomial GLM not yet implemented.'
+        }
 
     def _validate_bootstrap(self, n_iterations=1000):
         """
@@ -1277,12 +1339,45 @@ class GLM(RAPID):
                 )
                 result = model.fit(disp=False)
                 params = result.params
-                return np.array([
+                coefs = np.array([
                     params[v] for v in self.X.columns
                     if v.lower() not in ('intercept', 'const', 'constant')
                 ])
+                metrics = {}
+                if hasattr(result, 'aic'):
+                    metrics['aic'] = float(result.aic)
+                if hasattr(result, 'bic'):
+                    metrics['bic'] = float(result.bic)
+                if hasattr(result, 'llf'):
+                    metrics['log_likelihood'] = float(result.llf)
+                if hasattr(result, 'deviance'):
+                    metrics['deviance'] = float(result.deviance)
+                return (coefs, metrics)
             except Exception:
                 return np.full(len(var_names), np.nan)
+
+        result = bootstrap_coefficients(
+            X=self.X,
+            y=self.y,
+            fit_func=fit_func_labeled,
+            n_iterations=n_iterations,
+            bootstrap_type=bootstrap_type,
+            variable_names=var_names,
+            random_state=getattr(self, '_random_seed', 42),
+            collect_metrics=True,
+        )
+
+        if isinstance(result, tuple):
+            coef_df, metrics_df = result
+        else:
+            coef_df, metrics_df = result, None
+
+        return {
+            'coefficients':        coef_df,
+            'bootstrapped_metrics': metrics_df,
+            'bootstrap_type':      bootstrap_type,
+            'n_iterations':        n_iterations,
+        }
 
         df = bootstrap_coefficients(
             X=self.X,
