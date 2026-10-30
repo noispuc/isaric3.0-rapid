@@ -44,7 +44,8 @@ def create_decision_tree_model(
     independent_vars: List[str],
     max_depth: Optional[int] = None,
     min_samples_split: int = 2,
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[DecisionTreeClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a Decision Tree classifier (not fitted).
@@ -58,7 +59,7 @@ def create_decision_tree_model(
         max_depth=max_depth,
         min_samples_split=min_samples_split,
         random_state=random_seed,
-        class_weight='balanced'
+        class_weight=class_weight
     )
 
     return model, X, y
@@ -70,7 +71,8 @@ def create_random_forest_model(
     independent_vars: List[str],
     n_estimators: int = 100,
     max_depth: Optional[int] = None,
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[RandomForestClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a Random Forest classifier (not fitted).
@@ -84,7 +86,7 @@ def create_random_forest_model(
         n_estimators=n_estimators,
         max_depth=max_depth,
         random_state=random_seed,
-        class_weight='balanced'
+        class_weight=class_weight
     )
 
     return model, X, y
@@ -97,7 +99,8 @@ def create_xgboost_model(
     n_estimators: int = 100,
     learning_rate: float = 0.1,
     max_depth: int = 6,
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[XGBClassifier, pd.DataFrame, pd.Series]:
     """
     Configure an XGBoost classifier (not fitted).
@@ -112,7 +115,8 @@ def create_xgboost_model(
         learning_rate=learning_rate,
         max_depth=max_depth,
         random_state=random_seed,
-        eval_metric='logloss'
+        eval_metric='logloss',
+        class_weight=class_weight
     )
 
     return model, X, y
@@ -125,7 +129,8 @@ def create_lightgbm_model(
     n_estimators: int = 100,
     learning_rate: float = 0.1,
     num_leaves: int = 31,
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[LGBMClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a LightGBM classifier (not fitted).
@@ -141,7 +146,7 @@ def create_lightgbm_model(
         num_leaves=num_leaves,
         random_state=random_seed,
         verbose=-1,
-        class_weight='balanced'
+        class_weight=class_weight
     )
 
     return model, X, y
@@ -154,7 +159,8 @@ def create_catboost_model(
     iterations: int = 100,
     learning_rate: float = 0.1,
     depth: int = 6,
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[CatBoostClassifier, pd.DataFrame, pd.Series]:
     """
     Configure a CatBoost classifier (not fitted).
@@ -164,15 +170,18 @@ def create_catboost_model(
     """
     X, y = _prepare_data(data, dependent_var, independent_vars)
 
+    # CatBoost uses auto_class_weights — map from class_weight
+    auto_weights = 'Balanced' if class_weight == 'balanced' else None
+
     model = CatBoostClassifier(
         iterations=iterations,
         learning_rate=learning_rate,
         depth=depth,
         random_state=random_seed,
         verbose=0,
-        auto_class_weights='Balanced'
+        auto_class_weights=auto_weights,
     )
-
+    
     return model, X, y
 
 
@@ -339,6 +348,7 @@ class DecisionTree(RAPID):
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
             "binned_residuals": self._binned_residuals,
+            "roc_curve":         self._roc_curve_plot,
         }
 
     def _binned_residuals(self, backend="plotly"):
@@ -367,6 +377,7 @@ class DecisionTree(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "DecisionTree":
         model_config, X, y = create_decision_tree_model(
@@ -374,6 +385,7 @@ class DecisionTree(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -406,10 +418,13 @@ class DecisionTree(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
+            
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -421,21 +436,52 @@ class DecisionTree(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -461,16 +507,23 @@ class DecisionTree(RAPID):
         if hasattr(self.fitted_model, 'get_n_leaves'):
             info["n_leaves"] = self.fitted_model.get_n_leaves()
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
         return kfold_cross_validation(
-            self._model, self.X, self.y,
-            n_splits=k_folds,
-            scoring='roc_auc'
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
         )
 
     def _calibration_curve(self):
@@ -481,6 +534,31 @@ class DecisionTree(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         """Check model assumptions (VIF + binned residuals)."""
@@ -539,10 +617,13 @@ class DecisionTree(RAPID):
         if bootstrap_type == 'auto':
             bootstrap_type = 'percentile'
 
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
         return _bootstrap_feature_importance(
             fitted_model=self.fitted_model,
-            X=self.X,
-            y=self.y,
+            X=X_tr,
+            y=y_tr,
             n_iterations=n_iterations,
             bootstrap_type=bootstrap_type,
             random_state=getattr(self, '_random_seed', 42),
@@ -589,22 +670,27 @@ class DecisionTree(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - Decision Tree",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        """Calibration plot with bootstrap CI bands."""
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )
 
 
 class RandomForest(RAPID):
@@ -630,6 +716,7 @@ class RandomForest(RAPID):
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
             "binned_residuals": self._binned_residuals,
+            "roc_curve":         self._roc_curve_plot,
         }
 
     def _binned_residuals(self, backend="plotly"):
@@ -658,6 +745,7 @@ class RandomForest(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "RandomForest":
         model_config, X, y = create_random_forest_model(
@@ -665,6 +753,7 @@ class RandomForest(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -696,10 +785,13 @@ class RandomForest(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
+                        
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -711,21 +803,52 @@ class RandomForest(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -747,14 +870,24 @@ class RandomForest(RAPID):
         if hasattr(self.fitted_model, 'oob_score_'):
             info["oob_score"] = float(self.fitted_model.oob_score_)
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -764,6 +897,31 @@ class RandomForest(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         """Check model assumptions (VIF + binned residuals)."""
@@ -822,10 +980,13 @@ class RandomForest(RAPID):
         if bootstrap_type == 'auto':
             bootstrap_type = 'percentile'
 
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
         return _bootstrap_feature_importance(
             fitted_model=self.fitted_model,
-            X=self.X,
-            y=self.y,
+            X=X_tr,
+            y=y_tr,
             n_iterations=n_iterations,
             bootstrap_type=bootstrap_type,
             random_state=getattr(self, '_random_seed', 42),
@@ -869,22 +1030,27 @@ class RandomForest(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - Random Forest",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        """Calibration plot with bootstrap CI bands."""
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )
 
 
 class XGBoost(RAPID):
@@ -910,6 +1076,7 @@ class XGBoost(RAPID):
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
             "binned_residuals": self._binned_residuals,
+            "roc_curve":         self._roc_curve_plot,
         }
 
     def _binned_residuals(self, backend="plotly"):
@@ -938,6 +1105,7 @@ class XGBoost(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "XGBoost":
         model_config, X, y = create_xgboost_model(
@@ -945,6 +1113,7 @@ class XGBoost(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -977,10 +1146,13 @@ class XGBoost(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
+                        
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -993,22 +1165,52 @@ class XGBoost(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
-
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
-
-        result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
         )
 
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
+
+        result = compute_classification_metrics(
+            np.asarray(y_eval), y_pred, y_prob=y_prob
+        )
+        result['threshold'] = self._resolved_threshold
+
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
         # ============ MODEL INFO ============
         info = {
             "model_type": self.model_type,
@@ -1032,14 +1234,24 @@ class XGBoost(RAPID):
         if hasattr(self.fitted_model, 'learning_rate'):
             info["learning_rate"] = self.fitted_model.learning_rate
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -1049,6 +1261,31 @@ class XGBoost(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         """Check model assumptions (VIF + binned residuals)."""
@@ -1107,10 +1344,13 @@ class XGBoost(RAPID):
         if bootstrap_type == 'auto':
             bootstrap_type = 'percentile'
 
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
         return _bootstrap_feature_importance(
             fitted_model=self.fitted_model,
-            X=self.X,
-            y=self.y,
+            X=X_tr,
+            y=y_tr,
             n_iterations=n_iterations,
             bootstrap_type=bootstrap_type,
             random_state=getattr(self, '_random_seed', 42),
@@ -1154,22 +1394,27 @@ class XGBoost(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - XGBoost",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        """Calibration plot with bootstrap CI bands."""
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )
 
 
 class LightGBM(RAPID):
@@ -1195,6 +1440,7 @@ class LightGBM(RAPID):
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
             "binned_residuals": self._binned_residuals,
+            "roc_curve":         self._roc_curve_plot,
         }
 
     def _binned_residuals(self, backend="plotly"):
@@ -1223,6 +1469,7 @@ class LightGBM(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "LightGBM":
         model_config, X, y = create_lightgbm_model(
@@ -1230,6 +1477,7 @@ class LightGBM(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -1261,10 +1509,13 @@ class LightGBM(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
+            
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -1276,21 +1527,52 @@ class LightGBM(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -1315,14 +1597,24 @@ class LightGBM(RAPID):
         if hasattr(self.fitted_model, 'learning_rate'):
             info["learning_rate"] = self.fitted_model.learning_rate
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -1332,6 +1624,31 @@ class LightGBM(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         """Check model assumptions (VIF + binned residuals)."""
@@ -1390,10 +1707,13 @@ class LightGBM(RAPID):
         if bootstrap_type == 'auto':
             bootstrap_type = 'percentile'
 
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
         return _bootstrap_feature_importance(
             fitted_model=self.fitted_model,
-            X=self.X,
-            y=self.y,
+            X=X_tr,
+            y=y_tr,
             n_iterations=n_iterations,
             bootstrap_type=bootstrap_type,
             random_state=getattr(self, '_random_seed', 42),
@@ -1437,22 +1757,27 @@ class LightGBM(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - LightGBM",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        """Calibration plot with bootstrap CI bands."""
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )
 
 
 class CatBoost(RAPID):
@@ -1478,6 +1803,7 @@ class CatBoost(RAPID):
             "feature_importance": self._feature_importance,
             "calibration_curve": self._calibration_plot,
             "binned_residuals": self._binned_residuals,
+            "roc_curve":         self._roc_curve_plot,
         }
 
     def _binned_residuals(self, backend="plotly"):
@@ -1506,6 +1832,7 @@ class CatBoost(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "CatBoost":
         model_config, X, y = create_catboost_model(
@@ -1513,6 +1840,7 @@ class CatBoost(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -1544,10 +1872,13 @@ class CatBoost(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
+
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -1559,21 +1890,52 @@ class CatBoost(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -1602,14 +1964,24 @@ class CatBoost(RAPID):
             except Exception:
                 pass
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -1619,6 +1991,56 @@ class CatBoost(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         """Check model assumptions (VIF + binned residuals)."""
@@ -1677,10 +2099,13 @@ class CatBoost(RAPID):
         if bootstrap_type == 'auto':
             bootstrap_type = 'percentile'
 
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        
         return _bootstrap_feature_importance(
             fitted_model=self.fitted_model,
-            X=self.X,
-            y=self.y,
+            X=X_tr,
+            y=y_tr,
             n_iterations=n_iterations,
             bootstrap_type=bootstrap_type,
             random_state=getattr(self, '_random_seed', 42),
@@ -1724,19 +2149,24 @@ class CatBoost(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - CatBoost",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        """Calibration plot with bootstrap CI bands."""
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )

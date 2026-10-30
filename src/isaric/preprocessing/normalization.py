@@ -25,28 +25,41 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 def standardize(
     data: pd.DataFrame,
-    columns: Optional[List[str]] = None
+    columns: Optional[List[str]] = None,
+    fit_data: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Transform numeric columns to have mean=0 and standard deviation=1.
 
     Z-score standardization is appropriate for normally distributed data.
 
+    When fit_data is provided, the scaler is fitted exclusively on
+    fit_data and then applied to data. This prevents data leakage when
+    data is the test set and fit_data is the training set.
+
     Args:
-        data: Input DataFrame.
+        data: Input DataFrame to transform.
         columns: List of columns to standardize.
             If None, standardizes all numeric columns.
+        fit_data: Optional DataFrame to learn mean and std from.
+            When None (default), learns from data itself (current
+            behaviour). When provided, learns from fit_data and
+            applies to data — use to avoid train→test leakage.
 
     Returns:
         DataFrame with standardized numeric columns.
+
+    Example:
+        # Without leakage (predictive models)
+        X_train_scaled = standardize(X_train, columns=['age'])
+        X_test_scaled  = standardize(X_test, columns=['age'],
+                                     fit_data=X_train)
     """
     result = data.copy()
 
-    # Determina quais colunas normalizar
     if columns is None:
         numeric_cols = result.select_dtypes(include=[np.number]).columns.tolist()
     else:
-        # Valida que as colunas existem
         missing = [col for col in columns if col not in result.columns]
         if missing:
             raise ValueError(f"Columns not found in DataFrame: {missing}")
@@ -56,14 +69,28 @@ def standardize(
         return result
 
     scaler = StandardScaler()
-    result[numeric_cols] = scaler.fit_transform(result[numeric_cols])
+
+    if fit_data is not None:
+        # Learn statistics from fit_data only
+        missing_fit = [c for c in numeric_cols if c not in fit_data.columns]
+        if missing_fit:
+            raise ValueError(
+                f"fit_data is missing columns: {missing_fit}"
+            )
+        scaler.fit(fit_data[numeric_cols])
+        result[numeric_cols] = scaler.transform(result[numeric_cols])
+    else:
+        # Current behaviour — learn and apply to same data
+        result[numeric_cols] = scaler.fit_transform(result[numeric_cols])
+
     return result
 
 
 def minmax_scale(
     data: pd.DataFrame,
     columns: Optional[List[str]] = None,
-    feature_range: Tuple[float, float] = (0, 1)
+    feature_range: Tuple[float, float] = (0, 1),
+    fit_data: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Rescale numeric columns to a fixed range, typically [0, 1].
@@ -71,11 +98,18 @@ def minmax_scale(
     Min-Max scaling is appropriate when the distribution is not Gaussian
     or when the algorithm requires bounded values.
 
+    When fit_data is provided, min and max are learned exclusively from
+    fit_data and applied to data, preventing train→test leakage.
+
     Args:
-        data: Input DataFrame.
+        data: Input DataFrame to transform.
         columns: List of columns to scale.
             If None, scales all numeric columns.
         feature_range: Target range (min, max) for scaled values.
+        fit_data: Optional DataFrame to learn min and max from.
+            When None (default), learns from data itself (current
+            behaviour). When provided, learns from fit_data and
+            applies to data.
 
     Returns:
         DataFrame with min-max scaled numeric columns.
@@ -91,11 +125,9 @@ def minmax_scale(
 
     result = data.copy()
 
-    # Determina quais colunas normalizar
     if columns is None:
         numeric_cols = result.select_dtypes(include=[np.number]).columns.tolist()
     else:
-        # Valida que as colunas existem
         missing = [col for col in columns if col not in result.columns]
         if missing:
             raise ValueError(f"Columns not found in DataFrame: {missing}")
@@ -105,7 +137,18 @@ def minmax_scale(
         return result
 
     scaler = MinMaxScaler(feature_range=feature_range)
-    result[numeric_cols] = scaler.fit_transform(result[numeric_cols])
+
+    if fit_data is not None:
+        missing_fit = [c for c in numeric_cols if c not in fit_data.columns]
+        if missing_fit:
+            raise ValueError(
+                f"fit_data is missing columns: {missing_fit}"
+            )
+        scaler.fit(fit_data[numeric_cols])
+        result[numeric_cols] = scaler.transform(result[numeric_cols])
+    else:
+        result[numeric_cols] = scaler.fit_transform(result[numeric_cols])
+
     return result
 
 

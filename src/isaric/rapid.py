@@ -35,7 +35,7 @@ Contract Note:
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pandas import DataFrame
 
 
@@ -75,6 +75,13 @@ class RAPID(ABC):
         "descriptive":    "descriptive",
     }
 
+    # Classification models — only these activate balancing/threshold/recalibration
+    _CLASSIFICATION_MODELS = {
+        'logistic', 'glm', 'lasso', 'ridge', 'elastic_net',
+        'svm', 'logistic_l2', 'decision_tree', 'random_forest',
+        'xgboost', 'lightgbm', 'catboost',
+    }
+
     # ======================================================================
     # CONSTRUCTOR (INHERITED BY SUBCLASSES)
     # ======================================================================
@@ -94,6 +101,23 @@ class RAPID(ABC):
         self._validation_log = []   # accumulates each validation() call
         self._decision = None       # set by decide() — documents selection
         self._displayed_plots = []  # set by summary() — used by report()
+
+        # Train/test split (set by fit() when test_size is provided)
+        self.X_train      = None
+        self.X_test       = None
+        self.y_train      = None
+        self.y_test       = None
+        self.X_train_full = None    # X_train before balancing (for recalibration)
+        self.y_train_full = None    # y_train before balancing
+
+        # Predictive model parameters (set by fit())
+        self._threshold           = 0.5
+        self._resolved_threshold  = 0.5     # actual threshold after "f1"/"youden" resolution
+        self._balancing           = None
+        self._recalibrate         = False
+        self._recalibrate_on      = "train"
+        self._recalibration_slope     = None
+        self._recalibration_intercept = None
 
     # ======================================================================
     # STATE CONTROL (INHERITED BY SUBCLASSES)
@@ -157,6 +181,97 @@ class RAPID(ABC):
             self._libraries_used[library_name] = version
         except importlib.metadata.PackageNotFoundError:
             self._libraries_used[library_name] = "not_installed" 
+
+    @staticmethod
+    def _apply_balancing(
+        X,
+        y,
+        method: str,
+        random_state: int = 42,
+    ):
+        """
+        Apply class balancing to training data.
+
+        Args:
+            X: Training predictor matrix.
+            y: Training outcome vector.
+            method: "undersample" (random undersampling of majority class)
+                or "smote" (synthetic minority oversampling).
+            random_state: Seed for reproducibility.
+
+        Returns:
+            Tuple (X_resampled, y_resampled).
+
+        Raises:
+            ImportError: If imbalanced-learn is not installed.
+            ValueError: If method is invalid.
+        """
+        try:
+            if method == "undersample":
+                from imblearn.under_sampling import RandomUnderSampler
+                sampler = RandomUnderSampler(random_state=random_state)
+            elif method == "smote":
+                from imblearn.over_sampling import SMOTE
+                sampler = SMOTE(random_state=random_state)
+            else:
+                raise ValueError(
+                    f"balancing must be 'undersample' or 'smote'. "
+                    f"Received: '{method}'"
+                )
+        except ImportError:
+            raise ImportError(
+                "imbalanced-learn is required for class balancing. "
+                "Install with: pip install imbalanced-learn"
+            )
+
+        import pandas as pd
+        X_res, y_res = sampler.fit_resample(X, y)
+
+        if isinstance(X, pd.DataFrame):
+            X_res = pd.DataFrame(X_res, columns=X.columns)
+        if isinstance(y, pd.Series):
+            y_res = pd.Series(y_res, name=y.name)
+
+        return X_res, y_res
+
+    @staticmethod
+    def _apply_recalibration(
+        fitted_model,
+        X_cal,
+        y_cal,
+    ) -> dict:
+        """
+        Apply logistic recalibration to model predictions.
+
+        Fits a logistic regression of y_cal on logit(y_prob_cal).
+        This is monotone — does not change AUC or ranking.
+        Changes the probability scale and calibration.
+
+        Args:
+            fitted_model: Fitted sklearn model with predict_proba().
+            X_cal: Calibration predictor matrix.
+            y_cal: Calibration outcome vector.
+
+        Returns:
+            Dict with calibration_slope and calibration_intercept.
+        """
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression as _LR
+
+        if not hasattr(fitted_model, 'predict_proba'):
+            return {}
+
+        y_prob = fitted_model.predict_proba(X_cal)[:, 1]
+        y_prob = np.clip(y_prob, 1e-7, 1 - 1e-7)
+        log_odds = np.log(y_prob / (1 - y_prob))
+
+        cal = _LR(C=1e6, solver='lbfgs', max_iter=500)
+        cal.fit(log_odds.reshape(-1, 1), y_cal)
+
+        return {
+            'calibration_slope':     float(cal.coef_[0][0]),
+            'calibration_intercept': float(cal.intercept_[0]),
+        }
 
     # ======================================================================
     # COMPARE MODELS (INHERITED BY SUBCLASSES)
@@ -923,13 +1038,17 @@ class RAPID(ABC):
         calibration: bool = False,
         assumptions: bool = False,
         train_test: bool = False,
-        test_size: float = 0.2,
+        test_size: Optional[float] = None,
         grid_search: bool = False,
         param_grid: Optional[Dict[str, List[Any]]] = None,
         selection_metric: str = "auto",
         bootstrap: bool = False,
         bootstrap_type: str = "auto",
         n_iterations: int = 1000,
+        balancing: Optional[str] = None,
+        threshold: Union[float, str] = 0.5,
+        recalibrate: bool = False,
+        recalibrate_on: str = "train",
     ) -> "RAPID":
         """
         Train the model and compute evaluation metrics.
@@ -976,6 +1095,26 @@ class RAPID(ABC):
                 Default "auto".
             n_iterations: Number of bootstrap samples. Only used when
                 bootstrap=True. Default 1000.
+            balancing: Class balancing applied to training data only.
+                Options: None (no balancing, default), "undersample"
+                (random undersampling of majority class), "smote"
+                (synthetic minority oversampling). Only active for
+                classification models. Requires imbalanced-learn.
+            threshold: Classification threshold for converting predicted
+                probabilities to binary predictions. Options:
+                - float: fixed threshold (default 0.5).
+                - "f1": selects threshold on training data that maximises
+                  F1-score using a grid from 0.01 to 0.95 step 0.005.
+                - "youden": selects threshold maximising Youden's J statistic.
+                Only active for classification models.
+            recalibrate: Apply logistic recalibration after training.
+                Adjusts predicted probabilities to better match observed
+                event rate. Does not change AUC or patient ranking.
+                Only active for classification models. Default False.
+            recalibrate_on: Data used to fit the recalibration model.
+                - "train": complete training data before balancing (default,
+                  matches paper method — avoids test set contamination).
+                - "test": held-out test set (only when test_size is set).
 
         Returns:
             self for method chaining.
@@ -1002,49 +1141,122 @@ class RAPID(ABC):
             )
 
         from datetime import datetime
+        from sklearn.model_selection import train_test_split as _sklearn_split
 
-        # Store bootstrap params for _run_bootstrap()
-        self._bootstrap = bootstrap
+        # ── Store params ──────────────────────────────────────────────────
+        self._bootstrap      = bootstrap
         self._bootstrap_type = bootstrap_type
-        self._n_iterations = n_iterations
+        self._n_iterations   = n_iterations
+        self._threshold      = threshold
+        self._balancing      = balancing
+        self._recalibrate    = recalibrate
+        self._recalibrate_on = recalibrate_on
 
         # Auto-ativa grid_search se param_grid foi passado
         if not grid_search and param_grid is not None:
             grid_search = True
 
-        # Step 3: Modelling - Treina o modelo
+        # ── Stratified split (NEW — before training) ──────────────────────
+        _is_classifier = self.model_type in self._CLASSIFICATION_MODELS
+        _do_new_split  = test_size is not None
+
+        if _do_new_split:
+            X_arr = self.X
+            y_arr = self.y
+
+            # Stratified for classifiers, random for others
+            stratify_col = y_arr if _is_classifier else None
+            X_tr, X_te, y_tr, y_te = _sklearn_split(
+                X_arr, y_arr,
+                test_size=test_size,
+                random_state=self._random_seed,
+                stratify=stratify_col,
+            )
+
+            # Keep full training data for recalibration (before balancing)
+            self.X_train_full = X_tr
+            self.y_train_full = y_tr
+
+            # Apply balancing to training data only
+            if balancing and _is_classifier:
+                X_tr, y_tr = self._apply_balancing(
+                    X_tr, y_tr,
+                    method=balancing,
+                    random_state=self._random_seed,
+                )
+
+            self.X_train = X_tr
+            self.y_train = y_tr
+            self.X_test  = X_te
+            self.y_test  = y_te
+
+        else:
+            # No new split — use all data (backward compatible)
+            self.X_train      = self.X
+            self.y_train      = self.y
+            self.X_train_full = self.X
+            self.y_train_full = self.y
+            self.X_test       = None
+            self.y_test       = None
+
+        # ── Step 3: Train model ───────────────────────────────────────────
         self.fitted_model = self._train_model(
             grid_search=grid_search,
             param_grid=param_grid,
-            selection_metric=selection_metric
+            selection_metric=selection_metric,
         )
 
-        # Registra timestamp do fit
         self._fit_at = datetime.now().isoformat()
 
-        # Build result_df
+        # ── Build result_df ───────────────────────────────────────────────
         self.result_df = self._build_result_df()
 
-        # Step 4: Model Evaluation - Calcula métricas
+        # ── Step 4: Calculate metrics ─────────────────────────────────────
         self.metrics = self._calculate_metrics(metrics)
 
-        # Cross-validation
+        # ── Recalibration (after metrics) ─────────────────────────────────
+        if recalibrate and _is_classifier and self.fitted_model is not None:
+            if recalibrate_on == "train" and self.X_train_full is not None:
+                cal_results = self._apply_recalibration(
+                    self.fitted_model,
+                    self.X_train_full,
+                    self.y_train_full,
+                )
+            elif recalibrate_on == "test" and self.X_test is not None:
+                cal_results = self._apply_recalibration(
+                    self.fitted_model,
+                    self.X_test,
+                    self.y_test,
+                )
+            else:
+                cal_results = {}
+
+            if cal_results:
+                self._recalibration_slope     = cal_results.get('calibration_slope')
+                self._recalibration_intercept = cal_results.get('calibration_intercept')
+                if self.metrics is None:
+                    self.metrics = {}
+                self.metrics.update(cal_results)
+
+        # ── Cross-validation ──────────────────────────────────────────────
         if cross_validation:
             self.cv_metrics = self._cross_validate(k_folds, repetitions)
 
-        # Calibration
+        # ── Calibration ───────────────────────────────────────────────────
         if calibration:
             self.calibration = self._calibration_curve()
 
-        # Assumptions
+        # ── Assumptions ───────────────────────────────────────────────────
         if assumptions:
             self.assumptions = self._check_assumptions()
 
-        # Train/Test
-        if train_test:
-            self.train_test = self._train_test_split(test_size)
+        # ── Train/Test (OLD mechanism — backward compat) ──────────────────
+        if train_test and not _do_new_split:
+            self.train_test = self._train_test_split(
+                test_size if test_size is not None else 0.2
+            )
 
-        # Bootstrap CIs
+        # ── Bootstrap CIs ─────────────────────────────────────────────────
         if bootstrap:
             self.bootstrap_results = self._validate_bootstrap(n_iterations)
 
@@ -1294,8 +1506,6 @@ class RAPID(ABC):
                 else:
                     raise ValueError(f"Unknown plot: {plot}")
 
-        self._transition_to(self._STATE_SUMMARIZED)
-
     def save(self) -> "RAPID":
         """
         Persist the trained model to disk.
@@ -1458,19 +1668,23 @@ class RAPID(ABC):
 
         return validation_results
 
-    @classmethod
     def report(
-        cls,
-        models: List["RAPID"],
+        self,
+        models: Optional[List["RAPID"]] = None,
         format: Optional[List[str]] = None,
     ) -> None:
         """
         Generate a publication-ready report for one or more fitted models.
 
-        Classmethod — not tied to any single instance. Accepts a list
-        of fitted RAPID instances. When multiple models are passed they
-        must belong to the same family; a comparison section is added
-        at the end of the PDF.
+        Can be called as a single-model report without arguments:
+            model.report()
+            model.report(format=["pdf", "csv"])
+
+        Or as a multi-model consolidated report:
+            model.report(models=[model, model2], format=["pdf"])
+
+        When models=None (default), reports self only.
+        When models=[...] is provided, reports exactly those models.
 
         CSV and PNG exports are generated per model. The PDF is
         consolidated across all models.
@@ -1490,7 +1704,10 @@ class RAPID(ABC):
         import isaric
         from datetime import datetime
 
-        if not models:
+        # Default: report self only
+        if models is None:
+            models = [self]
+        elif not models:
             raise ValueError(
                 "models list is empty. "
                 "Pass at least one fitted RAPID instance."
@@ -1499,7 +1716,7 @@ class RAPID(ABC):
         # Validate all models are fitted
         not_fitted = [
             m.model_id for m in models
-            if m._state != cls._STATE_FITTED
+            if m._state != self._STATE_FITTED
         ]
         if not_fitted:
             raise ValueError(
@@ -1510,7 +1727,7 @@ class RAPID(ABC):
         # Validate same family when multiple models
         if len(models) > 1:
             families = {
-                cls._FAMILY_MAP.get(m.model_type, 'unknown')
+                self._FAMILY_MAP.get(m.model_type, 'unknown')
                 for m in models
             }
             if len(families) > 1:
@@ -1600,7 +1817,7 @@ class RAPID(ABC):
             if len(models) > 3:
                 model_ids += f"_and_{len(models) - 3}_more"
             pdf_filename = f"RAPID_report_{model_ids}-{timestamp}.pdf"
-            cls._generate_pdf_report(models, pdf_filename)
+            self._generate_pdf_report(models, pdf_filename)
             print(f"✅ PDF saved: {pdf_filename}")
 
     def decide(

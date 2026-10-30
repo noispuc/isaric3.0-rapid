@@ -148,7 +148,8 @@ from isaric.modelevaluation.metrics import (
     compute_survival_metrics,
     compute_calibration_metrics,
     compute_clustering_metrics,
-    select_classification_threshold
+    select_classification_threshold,
+    bootstrap_metric_ci,
 )
 from isaric.modelevaluation.crossvalidation import (
     kfold_cross_validation,
@@ -166,7 +167,8 @@ from isaric.modelevaluation.calibration import (
     survival_brier_score,
     survival_roc,
     residuals_vs_fitted,
-    qq_plot
+    qq_plot,
+    calibration_curve_with_ci,
 )
 from isaric.modelevaluation.traintest import (
     holdout_validation,
@@ -211,7 +213,10 @@ from isaric.modelevaluation.bootstrap import (
 from isaric.validation.external import (
     temporal_validation,
     geographic_validation,
-    recalibration
+    recalibration,
+    validate_classification,
+    validate_survival,
+    validate_regression_sklearn,
 )
 from isaric.validation.sensitivity import (
     alternative_missing_handling,
@@ -249,7 +254,10 @@ from isaric.visualization.lineplots import (
     information_criteria_plot,
     grid_search_metric_plot,
     selection_rate_plot,
-    bootstrap_ci_plot, 
+    bootstrap_ci_plot,
+    bootstrap_metrics_ci_plot,
+    classification_roc_plot,
+    calibration_plot_with_ci,
 )
 from isaric.visualization.upsetplots import (
     upset_plot,
@@ -369,6 +377,8 @@ __all__ = [
     "compute_calibration_metrics",
     "compute_clustering_metrics",
     "select_classification_threshold",
+    "bootstrap_metric_ci",
+    "calibration_curve_with_ci",
     "kfold_cross_validation",
     "repeated_kfold_cross_validation",
     "stratified_kfold_cross_validation",
@@ -403,6 +413,9 @@ __all__ = [
     "bootstrap_lrt_stepmix",
     "bootstrap_ci_stepmix",
     "bootstrap_ci_plot",
+    "bootstrap_metrics_ci_plot",
+    "classification_roc_plot",
+    "calibration_plot_with_ci",
     "bootstrap_selection_rate",
     "bootstrap_c_index",
     "bootstrap_coefficients",
@@ -412,6 +425,9 @@ __all__ = [
     "temporal_validation",
     "geographic_validation",
     "recalibration",
+    "validate_classification",
+    "validate_survival",
+    "validate_regression_sklearn",
     "non_parametric_bootstrap",
     "confidence_interval",
     "bootstrap_metrics",

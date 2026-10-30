@@ -399,3 +399,105 @@ def qq_plot(
         'theoretical_quantiles': theoretical_quantiles[0],
         'sample_quantiles': theoretical_quantiles[1]
     }
+
+
+def calibration_curve_with_ci(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 20,
+    strategy: str = "quantile",
+    n_bootstrap: int = 200,
+    alpha: float = 0.05,
+    random_state: int = 42,
+) -> Dict:
+    """
+    Calibration curve with bootstrap percentile confidence intervals.
+
+    Bins observations by predicted probability (vigintile = 20 bins by
+    default, matching paper method). For each bin computes observed
+    event rate and CI from bootstrap resamples.
+
+    Args:
+        y_true: True binary labels (0/1).
+        y_prob: Predicted probabilities.
+        n_bins: Number of bins (default 20 — vigintile).
+        strategy: Binning strategy: "quantile" (equal frequency, default)
+            or "uniform" (equal width).
+        n_bootstrap: Number of bootstrap resamples for CI (default 200).
+        alpha: Significance level (default 0.05 → 95% CI).
+        random_state: Seed for reproducibility.
+
+    Returns:
+        Dictionary with:
+            - 'mean_predicted': array of mean predicted probability per bin.
+            - 'fraction_positive': array of observed event rate per bin.
+            - 'ci_lower': array of CI lower bounds per bin.
+            - 'ci_upper': array of CI upper bounds per bin.
+            - 'n_per_bin': array of observation counts per bin.
+            - 'n_bins': actual number of bins returned.
+            - 'strategy': binning strategy used.
+            - 'n_bootstrap': number of bootstrap resamples.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_prob = np.asarray(y_prob, dtype=float)
+    rng    = np.random.default_rng(random_state)
+
+    # ── Observed calibration curve ────────────────────────────────────────
+    frac_pos, mean_pred = sklearn_calibration_curve(
+        y_true, y_prob, n_bins=n_bins, strategy=strategy
+    )
+
+    # Count observations per bin using same binning logic as sklearn
+    # (replicate quantile or uniform binning to get counts)
+    if strategy == "quantile":
+        quantiles = np.percentile(
+            y_prob, np.linspace(0, 100, n_bins + 1)
+        )
+        bin_ids = np.searchsorted(quantiles[1:-1], y_prob)
+    else:
+        bin_ids = np.digitize(y_prob, np.linspace(0, 1, n_bins + 1)[1:-1])
+
+    n_actual = len(mean_pred)
+    n_per_bin = np.array([
+        int(np.sum(bin_ids == i)) for i in range(n_actual)
+    ])
+
+    # ── Bootstrap CIs per bin ─────────────────────────────────────────────
+    n = len(y_true)
+    boot_fracs = np.full((n_bootstrap, n_actual), np.nan)
+
+    for b in range(n_bootstrap):
+        idx         = rng.integers(0, n, n)
+        y_true_b    = y_true[idx]
+        y_prob_b    = y_prob[idx]
+
+        if len(np.unique(y_true_b)) < 2:
+            continue
+
+        try:
+            frac_b, _ = sklearn_calibration_curve(
+                y_true_b, y_prob_b,
+                n_bins=n_bins, strategy=strategy
+            )
+            # sklearn may return fewer bins if some are empty
+            min_len = min(len(frac_b), n_actual)
+            boot_fracs[b, :min_len] = frac_b[:min_len]
+        except Exception:
+            pass
+
+    lo_pct = (alpha / 2) * 100
+    hi_pct = (1 - alpha / 2) * 100
+
+    ci_lower = np.nanpercentile(boot_fracs, lo_pct, axis=0)
+    ci_upper = np.nanpercentile(boot_fracs, hi_pct, axis=0)
+
+    return {
+        'mean_predicted':    mean_pred,
+        'fraction_positive': frac_pos,
+        'ci_lower':          ci_lower,
+        'ci_upper':          ci_upper,
+        'n_per_bin':         n_per_bin,
+        'n_bins':            n_actual,
+        'strategy':          strategy,
+        'n_bootstrap':       n_bootstrap,
+    }

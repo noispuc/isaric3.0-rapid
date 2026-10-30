@@ -549,8 +549,213 @@ def bootstrap_metrics_ci_plot(
 
 
 
+# ============================================================================
+# CLASSIFICATION ROC PLOT
+# ============================================================================
+
+def classification_roc_plot(
+    fpr: np.ndarray,
+    tpr: np.ndarray,
+    auc: float,
+    ci_lower: Optional[float] = None,
+    ci_upper: Optional[float] = None,
+    threshold: Optional[float] = None,
+    title: str = "ROC Curve",
+    height: int = 500,
+    width: int = 550,
+    backend: str = "plotly",
+):
+    """
+    Generate a ROC curve for binary classification.
+
+    Displays sensitivity (TPR) vs 1-specificity (FPR) with AUC
+    annotation. Optionally shows bootstrap CI for AUC and marks
+    the operating threshold point.
+
+    Args:
+        fpr: False positive rate array (from roc_curve).
+        tpr: True positive rate array (from roc_curve).
+        auc: Area Under the ROC Curve.
+        ci_lower: AUC CI lower bound (optional, from bootstrap).
+        ci_upper: AUC CI upper bound (optional, from bootstrap).
+        threshold: Operating threshold (marks point on curve, optional).
+        title: Plot title.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+
+    Raises:
+        ValueError: If backend is invalid.
+    """
+    if backend == "plotly":
+        return _classification_roc_plotly(
+            fpr, tpr, auc, ci_lower, ci_upper, threshold,
+            title, height, width
+        )
+    elif backend == "matplotlib":
+        return _classification_roc_matplotlib(
+            fpr, tpr, auc, ci_lower, ci_upper, threshold,
+            title, height, width
+        )
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: '{backend}'"
+        )
 
 
+def _classification_roc_plotly(
+    fpr, tpr, auc, ci_lower, ci_upper, threshold,
+    title, height, width
+) -> go.Figure:
+    """Build Plotly ROC curve."""
+    if ci_lower is not None and ci_upper is not None:
+        auc_label = f"AUC = {auc:.3f} ({ci_lower:.3f}–{ci_upper:.3f})"
+    else:
+        auc_label = f"AUC = {auc:.3f}"
+
+    traces = []
+
+    # ROC curve
+    traces.append(go.Scatter(
+        x=fpr, y=tpr,
+        mode='lines',
+        name=auc_label,
+        line=dict(color='#2a9d8f', width=2.5),
+        hovertemplate=(
+            '1-Specificity: %{x:.3f}<br>'
+            'Sensitivity: %{y:.3f}<extra></extra>'
+        ),
+    ))
+
+    # Reference diagonal
+    traces.append(go.Scatter(
+        x=[0, 1], y=[0, 1],
+        mode='lines',
+        name='Reference',
+        line=dict(color='grey', width=1.2, dash='dash'),
+        hoverinfo='skip',
+        showlegend=False,
+    ))
+
+    # Operating threshold point
+    if threshold is not None:
+        from sklearn.metrics import roc_curve
+        # Find the point on the curve closest to the threshold
+        # (We don't recompute — just mark the closest fpr/tpr pair)
+        # Approximate: find index where tpr is closest to sensitivity at threshold
+        traces.append(go.Scatter(
+            x=[None], y=[None],
+            mode='markers',
+            name=f'Threshold = {threshold:.3f}',
+            marker=dict(color='#e76f51', size=10, symbol='circle'),
+            hovertemplate=f'Threshold: {threshold:.3f}<extra></extra>',
+        ))
+
+    layout = go.Layout(
+        title=title,
+        xaxis=dict(
+            title='1 - Specificity (FPR)',
+            range=[-0.02, 1.02],
+            tickformat='.1f',
+        ),
+        yaxis=dict(
+            title='Sensitivity (TPR)',
+            range=[-0.02, 1.02],
+            tickformat='.1f',
+        ),
+        legend=dict(
+            x=0.55, y=0.05,
+            bgcolor='rgba(255,255,255,0.8)',
+            bordercolor='rgba(0,0,0,0.1)',
+            borderwidth=1,
+        ),
+        height=height,
+        width=width,
+        template='plotly_white',
+    )
+
+    return go.Figure(data=traces, layout=layout)
+
+
+def _classification_roc_matplotlib(
+    fpr, tpr, auc, ci_lower, ci_upper, threshold,
+    title, height, width
+) -> plt.Figure:
+    """Build Matplotlib ROC curve."""
+    fig, ax = plt.subplots(figsize=(width / 100, height / 100))
+
+    if ci_lower is not None and ci_upper is not None:
+        auc_label = f"AUC = {auc:.3f} ({ci_lower:.3f}–{ci_upper:.3f})"
+    else:
+        auc_label = f"AUC = {auc:.3f}"
+
+    ax.plot(fpr, tpr, color='#2a9d8f', lw=2.5, label=auc_label)
+    ax.plot([0, 1], [0, 1], color='grey', lw=1.2, linestyle='--')
+
+    ax.set_xlim([-0.02, 1.02])
+    ax.set_ylim([-0.02, 1.02])
+    ax.set_xlabel('1 - Specificity (FPR)')
+    ax.set_ylabel('Sensitivity (TPR)')
+    ax.set_title(title)
+    ax.legend(loc='lower right', fontsize=9)
+    ax.grid(alpha=0.3)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    fig.tight_layout()
+    return fig
+
+
+# ============================================================================
+# CALIBRATION PLOT WITH CI
+# ============================================================================
+
+def calibration_plot_with_ci(
+    calibration_data: dict,
+    title: str = "Calibration Plot",
+    height: int = 500,
+    width: int = 550,
+    backend: str = "plotly",
+):
+    """
+    Generate a calibration plot with bootstrap confidence intervals.
+
+    Displays observed event rate vs mean predicted probability per bin
+    with CI bands. Perfect calibration follows the diagonal.
+
+    Args:
+        calibration_data: Dict from calibration_curve_with_ci() containing
+            'mean_predicted', 'fraction_positive', 'ci_lower', 'ci_upper'.
+        title: Plot title.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+
+    Raises:
+        ValueError: If required keys are missing or backend invalid.
+    """
+    required = ['mean_predicted', 'fraction_positive', 'ci_lower', 'ci_upper']
+    for key in required:
+        if key not in calibration_data:
+            raise ValueError(
+                f"calibration_data missing key '{key}'. "
+                f"Use calibration_curve_with_ci() to generate input."
+            )
+
+    if backend == "plotly":
+        return _calibration_with_ci_plotly(calibration_data, title, height, width)
+    elif backend == "matplotlib":
+        return _calibration_with_ci_matplotlib(calibration_data, title, height, width)
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: '{backend}'"
+        )
 
 # ============================================================================
 # PLOTLY BACKEND
@@ -898,6 +1103,75 @@ def _bootstrap_metrics_ci_plotly(
     )
 
     return fig
+
+def _calibration_with_ci_plotly(
+    cal, title, height, width
+) -> go.Figure:
+    """Build Plotly calibration plot with CI."""
+    x = cal['mean_predicted']
+    y = cal['fraction_positive']
+    lo = cal['ci_lower']
+    hi = cal['ci_upper']
+
+    traces = []
+
+    # CI band
+    traces.append(go.Scatter(
+        x=np.concatenate([x, x[::-1]]),
+        y=np.concatenate([hi, lo[::-1]]),
+        fill='toself',
+        fillcolor='rgba(42, 157, 143, 0.15)',
+        line=dict(color='rgba(255,255,255,0)'),
+        name='95% CI',
+        hoverinfo='skip',
+    ))
+
+    # Observed points + line
+    traces.append(go.Scatter(
+        x=x, y=y,
+        mode='lines+markers',
+        name='Observed',
+        line=dict(color='#2a9d8f', width=2),
+        marker=dict(color='#2a9d8f', size=7, symbol='circle'),
+        hovertemplate=(
+            'Predicted: %{x:.3f}<br>'
+            'Observed: %{y:.3f}<extra></extra>'
+        ),
+    ))
+
+    # Perfect calibration diagonal
+    traces.append(go.Scatter(
+        x=[0, 1], y=[0, 1],
+        mode='lines',
+        name='Perfect calibration',
+        line=dict(color='grey', width=1.2, dash='dash'),
+        hoverinfo='skip',
+    ))
+
+    layout = go.Layout(
+        title=title,
+        xaxis=dict(
+            title='Mean Predicted Probability',
+            range=[-0.02, 1.02],
+            tickformat='.1f',
+        ),
+        yaxis=dict(
+            title='Observed Event Rate',
+            range=[-0.02, 1.02],
+            tickformat='.1f',
+        ),
+        legend=dict(
+            x=0.02, y=0.95,
+            bgcolor='rgba(255,255,255,0.8)',
+            bordercolor='rgba(0,0,0,0.1)',
+            borderwidth=1,
+        ),
+        height=height,
+        width=width,
+        template='plotly_white',
+    )
+
+    return go.Figure(data=traces, layout=layout)
 
 # ============================================================================
 # MATPLOTLIB BACKEND
@@ -1385,6 +1659,36 @@ def _bootstrap_metrics_ci_matplotlib(
     ax.set_ylabel('Value')
     ax.set_title(title)
     ax.legend(title='Metric', fontsize=9)
+    ax.grid(alpha=0.3)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    fig.tight_layout()
+    return fig
+
+def _calibration_with_ci_matplotlib(
+    cal, title, height, width
+) -> plt.Figure:
+    """Build Matplotlib calibration plot with CI."""
+    x  = cal['mean_predicted']
+    y  = cal['fraction_positive']
+    lo = cal['ci_lower']
+    hi = cal['ci_upper']
+
+    fig, ax = plt.subplots(figsize=(width / 100, height / 100))
+
+    ax.fill_between(x, lo, hi, alpha=0.15, color='#2a9d8f', label='95% CI')
+    ax.plot(x, y, color='#2a9d8f', lw=2, marker='o', markersize=6,
+            label='Observed')
+    ax.plot([0, 1], [0, 1], color='grey', lw=1.2, linestyle='--',
+            label='Perfect calibration')
+
+    ax.set_xlim([-0.02, 1.02])
+    ax.set_ylim([-0.02, 1.02])
+    ax.set_xlabel('Mean Predicted Probability')
+    ax.set_ylabel('Observed Event Rate')
+    ax.set_title(title)
+    ax.legend(loc='upper left', fontsize=9)
     ax.grid(alpha=0.3)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)

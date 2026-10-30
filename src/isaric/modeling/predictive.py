@@ -40,7 +40,8 @@ def create_lasso_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure a LASSO (L1) logistic regression model (not fitted).
@@ -56,7 +57,7 @@ def create_lasso_model(
         C=C,
         random_state=random_seed,
         max_iter=1000,
-        class_weight='balanced'
+        class_weight=class_weight,
     )
 
     return model, X, y
@@ -67,7 +68,8 @@ def create_ridge_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure a Ridge (L2) logistic regression model (not fitted).
@@ -83,7 +85,7 @@ def create_ridge_model(
         C=C,
         random_state=random_seed,
         max_iter=1000,
-        class_weight='balanced'
+        class_weight=class_weight
     )
 
     return model, X, y
@@ -95,7 +97,8 @@ def create_elastic_net_model(
     independent_vars: List[str],
     C: float = 1.0,
     l1_ratio: float = 0.5,
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
     """
     Configure an Elastic Net logistic regression model (not fitted).
@@ -112,7 +115,7 @@ def create_elastic_net_model(
         l1_ratio=l1_ratio,
         random_state=random_seed,
         max_iter=1000,
-        class_weight='balanced'
+        class_weight=class_weight
     )
 
     return model, X, y
@@ -124,7 +127,8 @@ def create_svm_model(
     independent_vars: List[str],
     C: float = 1.0,
     kernel: str = "rbf",
-    random_seed=42
+    random_seed=42,
+    class_weight=None
 ) -> Tuple[SVC, pd.DataFrame, pd.Series]:
     """
     Configure a Support Vector Machine (SVM) classifier (not fitted).
@@ -139,7 +143,7 @@ def create_svm_model(
         kernel=kernel,
         probability=True,
         random_state=random_seed,
-        class_weight='balanced'
+        class_weight=class_weight
     )
 
     return model, X, y
@@ -150,16 +154,13 @@ def create_logistic_l2_model(
     dependent_var: str,
     independent_vars: List[str],
     C: float = 1.0,
-    random_seed=42
+    random_seed=42,
+    class_weight=None,
 ) -> Tuple[LogisticRegression, pd.DataFrame, pd.Series]:
-    """
-    Configure a Logistic Regression with L2 penalty (predictive focus).
-
-    Returns:
-        Tuple of (model, X, y).
-    """
     return create_ridge_model(
-        data, dependent_var, independent_vars, C=C, random_state=random_seed
+        data, dependent_var, independent_vars,
+        C=C, random_seed=random_seed,
+        class_weight=class_weight,
     )
 
 
@@ -302,8 +303,9 @@ class Lasso(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "coefficient_plot": self._coefficient_plot,
             "calibration_curve": self._calibration_plot,
+            "roc_curve":        self._roc_curve_plot,
         }
-
+                
     @classmethod
     def create(
         cls,
@@ -312,6 +314,7 @@ class Lasso(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "Lasso":
         model_config, X, y = create_lasso_model(
@@ -319,6 +322,7 @@ class Lasso(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -351,10 +355,12 @@ class Lasso(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -365,21 +371,62 @@ class Lasso(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return self._model.fit(X_tr, y_tr)
     
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """
+        Calculate classification metrics on test set when available.
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        Uses self.X_test/self.y_test when fit() was called with test_size.
+        Falls back to self.X/self.y for backward compatibility.
+        Resolves threshold from self._threshold (float/"f1"/"youden").
+        Adds bootstrap metric CIs when self._bootstrap=True.
+        """
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
+
+        # Evaluation set — test preferred, training as fallback
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        # Resolve threshold — optimize on TRAINING data to avoid leakage
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        # Bootstrap metric CIs (test set resampling)
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -402,14 +449,24 @@ class Lasso(RAPID):
             n_nonzero = int((self.fitted_model.coef_ != 0).sum())
             info["n_selected_features"] = n_nonzero
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -419,6 +476,31 @@ class Lasso(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         from isaric.modelevaluation.assumptions import test_epv
@@ -503,22 +585,26 @@ class Lasso(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - LASSO",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )
 
 
 class Ridge(RAPID):
@@ -543,6 +629,7 @@ class Ridge(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "coefficient_plot": self._coefficient_plot,
             "calibration_curve": self._calibration_plot,
+            "roc_curve":        self._roc_curve_plot,
         }
 
     @classmethod
@@ -553,6 +640,7 @@ class Ridge(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "Ridge":
         model_config, X, y = create_ridge_model(
@@ -560,6 +648,7 @@ class Ridge(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -592,10 +681,12 @@ class Ridge(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -606,21 +697,62 @@ class Ridge(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """
+        Calculate classification metrics on test set when available.
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        Uses self.X_test/self.y_test when fit() was called with test_size.
+        Falls back to self.X/self.y for backward compatibility.
+        Resolves threshold from self._threshold (float/"f1"/"youden").
+        Adds bootstrap metric CIs when self._bootstrap=True.
+        """
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
+
+        # Evaluation set — test preferred, training as fallback
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        # Resolve threshold — optimize on TRAINING data to avoid leakage
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        # Bootstrap metric CIs (test set resampling)
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -641,14 +773,24 @@ class Ridge(RAPID):
         if hasattr(self.fitted_model, 'C'):
             info["C"] = float(self.fitted_model.C)
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -658,6 +800,31 @@ class Ridge(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         from isaric.modelevaluation.assumptions import test_epv
@@ -742,22 +909,26 @@ class Ridge(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - Ridge",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )
 
 
 class ElasticNet(RAPID):
@@ -782,6 +953,7 @@ class ElasticNet(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "coefficient_plot": self._coefficient_plot,
             "calibration_curve": self._calibration_plot,
+            "roc_curve": self._roc_curve_plot,
         }
 
     @classmethod
@@ -792,6 +964,7 @@ class ElasticNet(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "ElasticNet":
         model_config, X, y = create_elastic_net_model(
@@ -799,6 +972,7 @@ class ElasticNet(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -831,10 +1005,13 @@ class ElasticNet(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
+
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -846,21 +1023,62 @@ class ElasticNet(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """
+        Calculate classification metrics on test set when available.
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        Uses self.X_test/self.y_test when fit() was called with test_size.
+        Falls back to self.X/self.y for backward compatibility.
+        Resolves threshold from self._threshold (float/"f1"/"youden").
+        Adds bootstrap metric CIs when self._bootstrap=True.
+        """
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
+
+        # Evaluation set — test preferred, training as fallback
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        # Resolve threshold — optimize on TRAINING data to avoid leakage
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        # Bootstrap metric CIs (test set resampling)
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -886,14 +1104,24 @@ class ElasticNet(RAPID):
             n_nonzero = int((self.fitted_model.coef_ != 0).sum())
             info["n_selected_features"] = n_nonzero
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -903,6 +1131,31 @@ class ElasticNet(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         from isaric.modelevaluation.assumptions import test_epv
@@ -987,22 +1240,26 @@ class ElasticNet(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - Elastic Net",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )
 
 
 class SVM(RAPID):
@@ -1026,6 +1283,7 @@ class SVM(RAPID):
         self.plots_map = {
             "confusion_matrix": self._confusion_matrix,
             "calibration_curve": self._calibration_plot,
+            "roc_curve": self._roc_curve_plot,
         }
 
     @classmethod
@@ -1036,6 +1294,7 @@ class SVM(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "SVM":
         model_config, X, y = create_svm_model(
@@ -1043,6 +1302,7 @@ class SVM(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -1074,10 +1334,13 @@ class SVM(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
+
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -1089,7 +1352,9 @@ class SVM(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return pd.DataFrame({
@@ -1098,15 +1363,54 @@ class SVM(RAPID):
         })
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """
+        Calculate classification metrics on test set when available.
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        Uses self.X_test/self.y_test when fit() was called with test_size.
+        Falls back to self.X/self.y for backward compatibility.
+        Resolves threshold from self._threshold (float/"f1"/"youden").
+        Adds bootstrap metric CIs when self._bootstrap=True.
+        """
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
+
+        # Evaluation set — test preferred, training as fallback
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        # Resolve threshold — optimize on TRAINING data to avoid leakage
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        # Bootstrap metric CIs (test set resampling)
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -1131,14 +1435,24 @@ class SVM(RAPID):
         if hasattr(self.fitted_model, 'n_support_'):
             info["n_support_vectors"] = int(self.fitted_model.n_support_.sum())
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -1148,6 +1462,31 @@ class SVM(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         from isaric.modelevaluation.assumptions import test_epv
@@ -1275,22 +1614,26 @@ class SVM(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - SVM",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )
 
 
 class LogisticL2(RAPID):
@@ -1315,6 +1658,7 @@ class LogisticL2(RAPID):
             "confusion_matrix": self._confusion_matrix,
             "coefficient_plot": self._coefficient_plot,
             "calibration_curve": self._calibration_plot,
+            "roc_curve": self._roc_curve_plot,
         }
 
     @classmethod
@@ -1325,6 +1669,7 @@ class LogisticL2(RAPID):
         dependent_var: Optional[str] = None,
         independent_vars: Optional[List[str]] = None,
         random_seed: int = 42,
+        class_weight=None,
         **params
     ) -> "LogisticL2":
         model_config, X, y = create_logistic_l2_model(
@@ -1332,6 +1677,7 @@ class LogisticL2(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             random_seed=random_seed,
+            class_weight=class_weight,
             **params
         )
 
@@ -1364,10 +1710,13 @@ class LogisticL2(RAPID):
             if selection_metric == "auto":
                 selection_metric = "roc_auc"
 
+            X_tr = self.X_train if self.X_train is not None else self.X
+            y_tr = self.y_train if self.y_train is not None else self.y
+
             best_model, best_params, results_df = run_grid_search(
                 estimator=self._model,
-                X=self.X,
-                y=self.y,
+                X=X_tr,
+                y=y_tr,
                 param_grid=param_grid,
                 selection_metric=selection_metric,
                 cv=5
@@ -1378,21 +1727,62 @@ class LogisticL2(RAPID):
             self.grid_results = results_df
             self.best_params = best_params
 
-        return self._model.fit(self.X, self.y)
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return self._model.fit(X_tr, y_tr)
 
     def _build_result_df(self):
         return _build_result_df(self.fitted_model, self.X)
 
     def _calculate_metrics(self, metrics=None):
-        """Calculate classification metrics."""
-        from isaric.modelevaluation.metrics import compute_classification_metrics
+        """
+        Calculate classification metrics on test set when available.
 
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        y_pred = (y_prob >= 0.5).astype(int)
+        Uses self.X_test/self.y_test when fit() was called with test_size.
+        Falls back to self.X/self.y for backward compatibility.
+        Resolves threshold from self._threshold (float/"f1"/"youden").
+        Adds bootstrap metric CIs when self._bootstrap=True.
+        """
+        from isaric.modelevaluation.metrics import (
+            compute_classification_metrics,
+            select_classification_threshold,
+            bootstrap_metric_ci,
+        )
+
+        # Evaluation set — test preferred, training as fallback
+        X_eval = self.X_test  if self.X_test  is not None else self.X
+        y_eval = self.y_test  if self.y_test  is not None else self.y
+        X_tr   = self.X_train if self.X_train is not None else self.X
+        y_tr   = self.y_train if self.y_train is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+
+        # Resolve threshold — optimize on TRAINING data to avoid leakage
+        threshold_val = getattr(self, '_threshold', 0.5)
+        if isinstance(threshold_val, str):
+            y_prob_train = self.fitted_model.predict_proba(X_tr)[:, 1]
+            threshold_val = select_classification_threshold(
+                np.asarray(y_tr), y_prob_train, method=threshold_val
+            )
+        self._resolved_threshold = float(threshold_val)
+
+        y_pred = (y_prob >= self._resolved_threshold).astype(int)
 
         result = compute_classification_metrics(
-            self.y, y_pred, y_prob=y_prob
+            np.asarray(y_eval), y_pred, y_prob=y_prob
         )
+        result['threshold'] = self._resolved_threshold
+
+        # Bootstrap metric CIs (test set resampling)
+        if getattr(self, '_bootstrap', False) and self.X_test is not None:
+            boot_cis = bootstrap_metric_ci(
+                y_true=np.asarray(y_eval),
+                y_prob=y_prob,
+                threshold=self._resolved_threshold,
+                n_iterations=getattr(self, '_n_iterations', 1000),
+                random_state=getattr(self, '_random_seed', 42),
+            )
+            result.update(boot_cis)
 
         # ============ MODEL INFO ============
         info = {
@@ -1412,14 +1802,24 @@ class LogisticL2(RAPID):
         if hasattr(self.fitted_model, 'C'):
             info["C"] = float(self.fitted_model.C)
 
+        info["N_train"]     = int(len(y_tr))
+        info["N_test"]      = int(len(y_eval)) if self.X_test is not None else 0
+        info["threshold"]   = self._resolved_threshold
+        info["balancing"]   = getattr(self, '_balancing', None)
+        info["recalibrate"] = getattr(self, '_recalibrate', False)
+
         self.model_info = info
 
         return result
 
     def _cross_validate(self, k_folds=5, repetitions=1):
         from isaric.modelevaluation.crossvalidation import kfold_cross_validation
-        return kfold_cross_validation(self._model, self.X, self.y,
-                                      n_splits=k_folds, scoring='roc_auc')
+        X_tr = self.X_train if self.X_train is not None else self.X
+        y_tr = self.y_train if self.y_train is not None else self.y
+        return kfold_cross_validation(
+            self._model, X_tr, y_tr,
+            n_splits=k_folds, scoring='roc_auc'
+        )
 
     def _calibration_curve(self):
         from isaric.modelevaluation.calibration import compute_brier_score, calibration_curve, binned_calibration
@@ -1429,6 +1829,31 @@ class LogisticL2(RAPID):
             'calibration_curve': calibration_curve(self.y, y_prob),
             'calibration_table': binned_calibration(self.y, y_prob)
         }
+
+    def _roc_curve_plot(self, backend="plotly"):
+        """ROC curve for binary classification."""
+        from sklearn.metrics import roc_curve, roc_auc_score
+        from isaric.visualization.lineplots import classification_roc_plot
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        fpr, tpr, _ = roc_curve(np.asarray(y_eval), y_prob)
+        auc_val = float(roc_auc_score(np.asarray(y_eval), y_prob))
+
+        ci_lower = (self.metrics or {}).get('auc_ci_lower')
+        ci_upper = (self.metrics or {}).get('auc_ci_upper')
+
+        return classification_roc_plot(
+            fpr=fpr,
+            tpr=tpr,
+            auc=auc_val,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            threshold=getattr(self, '_resolved_threshold', None),
+            backend=backend,
+        )
 
     def _check_assumptions(self):
         from isaric.modelevaluation.assumptions import test_epv
@@ -1513,19 +1938,23 @@ class LogisticL2(RAPID):
         )
 
     def _calibration_plot(self, backend="plotly"):
-        from isaric.visualization.lineplots import line_with_ci
-        from isaric.modelevaluation.calibration import calibration_curve
-        y_prob = self.fitted_model.predict_proba(self.X)[:, 1]
-        calib = calibration_curve(self.y, y_prob)
-        data = pd.DataFrame({
-            'predicted': calib['mean_predicted'],
-            'observed': calib['fraction_positive'],
-            'ci_lower': calib['fraction_positive'] * 0.9,
-            'ci_upper': calib['fraction_positive'] * 1.1,
-        })
-        return line_with_ci(data=data, x_col='predicted', y_col='observed',
-                           ci_lower_col='ci_lower', ci_upper_col='ci_upper',
-                           title="Calibration Curve - Logistic L2",
-                           xaxis_title="Predicted Probability",
-                           yaxis_title="Observed Proportion",
-                           backend=backend)
+        from isaric.modelevaluation.calibration import calibration_curve_with_ci
+        from isaric.visualization.lineplots import calibration_plot_with_ci
+
+        X_eval = self.X_test if self.X_test is not None else self.X
+        y_eval = self.y_test if self.y_test is not None else self.y
+
+        y_prob = self.fitted_model.predict_proba(X_eval)[:, 1]
+        cal_data = calibration_curve_with_ci(
+            y_true=np.asarray(y_eval),
+            y_prob=y_prob,
+            n_bins=20,
+            strategy="quantile",
+            n_bootstrap=200,
+            random_state=getattr(self, '_random_seed', 42),
+        )
+        return calibration_plot_with_ci(
+            calibration_data=cal_data,
+            title="Calibration Plot",
+            backend=backend,
+        )

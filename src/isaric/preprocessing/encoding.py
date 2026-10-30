@@ -20,7 +20,8 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 
 def onehot_encode(
     data: pd.DataFrame,
-    drop_first: bool = True
+    drop_first: bool = True,
+    fit_data: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Convert categorical columns to binary (dummy) variables.
@@ -29,13 +30,28 @@ def onehot_encode(
     N unique categories. Optionally drops the first to avoid perfect
     multicollinearity.
 
+    When fit_data is provided, category sets are learned exclusively
+    from fit_data and applied to data. Categories present in data but
+    absent in fit_data are silently dropped. This prevents train→test
+    leakage when data is the test set.
+
     Args:
-        data: Input DataFrame.
+        data: Input DataFrame to transform.
         drop_first: If True, drops the first dummy column to avoid
             multicollinearity (default True).
+        fit_data: Optional DataFrame to learn category sets from.
+            When None (default), learns from data itself (current
+            behaviour). When provided, learns categories from fit_data
+            and encodes data with the same fixed column set — ensures
+            test set has same columns as train set.
 
     Returns:
         DataFrame with one-hot encoded categorical columns.
+
+    Example:
+        # Without leakage (predictive models)
+        X_train_enc = onehot_encode(X_train)
+        X_test_enc  = onehot_encode(X_test, fit_data=X_train)
     """
     result = data.copy()
     categorical_cols = result.select_dtypes(
@@ -45,15 +61,38 @@ def onehot_encode(
     if len(categorical_cols) == 0:
         return result
 
-    for col in categorical_cols:
-        dummies = pd.get_dummies(
-            result[col],
-            prefix=col,
-            prefix_sep='!',
-            drop_first=drop_first,
-            dtype=int
-        )
-        result = pd.concat([result.drop(columns=[col]), dummies], axis=1)
+    if fit_data is not None:
+        # Learn fixed category sets from fit_data
+        for col in categorical_cols:
+            if col not in fit_data.columns:
+                continue
+
+            # Categories from training data only
+            train_cats = sorted(fit_data[col].dropna().unique().tolist())
+
+            # Enforce fixed categories on data (unseen → NaN → 0 after dummies)
+            result[col] = pd.Categorical(result[col], categories=train_cats)
+
+            dummies = pd.get_dummies(
+                result[col],
+                prefix=col,
+                prefix_sep='!',
+                drop_first=drop_first,
+                dtype=int,
+            )
+            result = pd.concat([result.drop(columns=[col]), dummies], axis=1)
+
+    else:
+        # Current behaviour — learn categories from data itself
+        for col in categorical_cols:
+            dummies = pd.get_dummies(
+                result[col],
+                prefix=col,
+                prefix_sep='!',
+                drop_first=drop_first,
+                dtype=int,
+            )
+            result = pd.concat([result.drop(columns=[col]), dummies], axis=1)
 
     return result
 

@@ -22,13 +22,14 @@ from sklearn.metrics import (
     recall_score,
     f1_score,
     roc_auc_score,
+    average_precision_score,
     roc_curve,
     log_loss,
     mean_squared_error,
     mean_absolute_error,
     r2_score,
     confusion_matrix,
-    brier_score_loss
+    brier_score_loss,
 )
 
 
@@ -40,10 +41,18 @@ def compute_classification_metrics(
     """
     Compute classification performance metrics.
 
+    Includes sensitivity, specificity, PPV, NPV, AUC-ROC, AUC-PR,
+    Brier score, and calibration slope/intercept when y_prob is provided.
+
+    Calibration slope: logistic regression of y_true on logit(y_prob)
+        — free slope, measures calibration accuracy.
+    Calibration intercept: logistic regression with slope fixed at 1
+        — calibration-in-the-large, measures overall calibration.
+
     Args:
         y_true: True binary labels (0/1).
         y_pred: Predicted class labels (0/1).
-        y_prob: Predicted probabilities (optional, for AUC and Log Loss).
+        y_prob: Predicted probabilities (optional).
 
     Returns:
         Dictionary with metric names and values.
@@ -53,20 +62,63 @@ def compute_classification_metrics(
     """
     _validate_binary(y_true)
 
+    cm = confusion_matrix(y_true, y_pred)
+    if cm.shape == (2, 2):
+        tn, fp, fn, tp = cm.ravel()
+    else:
+        tn = fp = fn = tp = 0
+
+    sensitivity = float(tp / (tp + fn)) if (tp + fn) > 0 else np.nan
+    specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else np.nan
+    ppv         = float(tp / (tp + fp)) if (tp + fp) > 0 else np.nan
+    npv         = float(tn / (tn + fn)) if (tn + fn) > 0 else np.nan
+
     metrics = {
-        'accuracy': accuracy_score(y_true, y_pred),
-        'precision': precision_score(y_true, y_pred, zero_division=0),
-        'recall': recall_score(y_true, y_pred, zero_division=0),
-        'f1': f1_score(y_true, y_pred, zero_division=0),
+        'accuracy':    float(accuracy_score(y_true, y_pred)),
+        'sensitivity': sensitivity,               # TP / (TP + FN)
+        'recall':      sensitivity,               # alias
+        'specificity': specificity,               # TN / (TN + FP)
+        'ppv':         ppv,                       # TP / (TP + FP) = precision
+        'precision':   ppv,                       # alias
+        'npv':         npv,                       # TN / (TN + FN)
+        'f1':          float(f1_score(y_true, y_pred, zero_division=0)),
+        'confusion_matrix': cm.tolist(),
     }
 
     if y_prob is not None:
-        metrics['auc'] = roc_auc_score(y_true, y_prob)
-        metrics['log_loss'] = log_loss(y_true, y_prob)
-        metrics['brier_score'] = brier_score_loss(y_true, y_prob)
+        metrics['auc']         = float(roc_auc_score(y_true, y_prob))
+        metrics['auc_pr']      = float(average_precision_score(y_true, y_prob))
+        metrics['log_loss']    = float(log_loss(y_true, y_prob))
+        metrics['brier_score'] = float(brier_score_loss(y_true, y_prob))
 
-    cm = confusion_matrix(y_true, y_pred)
-    metrics['confusion_matrix'] = cm.tolist()
+        # Calibration metrics — diagnostic (not recalibration)
+        try:
+            from sklearn.linear_model import LogisticRegression as _LR
+            y_prob_c = np.clip(y_prob, 1e-7, 1 - 1e-7)
+            log_odds = np.log(y_prob_c / (1 - y_prob_c))
+
+            # Calibration slope (free logistic regression)
+            cal_free = _LR(C=1e6, solver='lbfgs', max_iter=500)
+            cal_free.fit(log_odds.reshape(-1, 1), y_true)
+            metrics['calibration_slope']     = float(cal_free.coef_[0][0])
+
+            # Calibration intercept — slope fixed at 1 (calibration-in-the-large)
+            log_odds_offset = log_odds - log_odds  # offset = 0
+            cal_intercept   = _LR(C=1e6, solver='lbfgs', max_iter=500)
+            # Fix slope at 1 using offset trick
+            y_offset = y_prob_c - 0.5   # not ideal — use proper offset
+            # Correct approach: logit(p) is fixed offset, intercept only
+            from scipy.optimize import minimize_scalar
+            def _neg_ll(intercept):
+                p = 1 / (1 + np.exp(-(log_odds + intercept)))
+                p = np.clip(p, 1e-10, 1 - 1e-10)
+                return -np.sum(y_true * np.log(p) + (1 - y_true) * np.log(1 - p))
+            res = minimize_scalar(_neg_ll, bounds=(-10, 10), method='bounded')
+            metrics['calibration_intercept'] = float(res.x)
+
+        except Exception:
+            metrics['calibration_slope']     = np.nan
+            metrics['calibration_intercept'] = np.nan
 
     return metrics
 
@@ -284,46 +336,53 @@ def compute_clustering_metrics(
 def select_classification_threshold(
     y_true: np.ndarray,
     y_prob: np.ndarray,
-    method: str = "f1"
+    method: str = "f1",
+    grid_step: float = 0.005,
 ) -> float:
     """
-    Select optimal classification threshold.
+    Select optimal classification threshold on training data.
 
     Args:
-        y_true: True binary labels.
-        y_prob: Predicted probabilities.
-        method: Threshold selection method: "f1" or "youden".
+        y_true: True binary labels (training set).
+        y_prob: Predicted probabilities (training set).
+        method: Threshold selection method:
+            - "f1": Maximises F1-score. Uses explicit grid from 0.01 to
+              0.95 in steps of grid_step (default 0.005). This matches the
+              paper method and is fully reproducible.
+            - "youden": Maximises Youden's J statistic (sensitivity +
+              specificity - 1) using ROC curve thresholds.
+        grid_step: Step size for "f1" grid (default 0.005).
 
     Returns:
-        Optimal threshold value.
+        Optimal threshold value (float between 0 and 1).
 
     Raises:
         ValueError: If method is unknown.
     """
     if method not in ("f1", "youden"):
-        raise ValueError(f"method must be 'f1' or 'youden'. Received: {method}")
-
-    fpr, tpr, thresholds = roc_curve(y_true, y_prob)
+        raise ValueError(
+            f"method must be 'f1' or 'youden'. Received: '{method}'"
+        )
 
     if method == "youden":
-        # Youden's J statistic: max(tpr - fpr)
-        j_scores = tpr - fpr
-        best_idx = np.argmax(j_scores)
-        return thresholds[best_idx] if best_idx < len(thresholds) else 0.5
+        fpr, tpr, thresholds = roc_curve(y_true, y_prob)
+        j_scores  = tpr - fpr
+        best_idx  = int(np.argmax(j_scores))
+        return float(thresholds[best_idx]) if best_idx < len(thresholds) else 0.5
 
-    elif method == "f1":
-        # Find threshold that maximizes F1 score
-        best_threshold = 0.5
-        best_f1 = 0.0
+    # method == "f1" — explicit grid (reproducible, matches paper)
+    thresholds  = np.arange(0.01, 0.95 + grid_step, grid_step)
+    best_threshold = 0.5
+    best_f1        = 0.0
 
-        for threshold in thresholds:
-            y_pred = (y_prob >= threshold).astype(int)
-            f1 = f1_score(y_true, y_pred, zero_division=0)
-            if f1 > best_f1:
-                best_f1 = f1
-                best_threshold = threshold
+    for t in thresholds:
+        y_pred = (y_prob >= t).astype(int)
+        score  = f1_score(y_true, y_pred, zero_division=0)
+        if score > best_f1:
+            best_f1        = score
+            best_threshold = float(t)
 
-        return best_threshold
+    return best_threshold
 
 
 def _validate_binary(y: np.ndarray) -> None:
@@ -343,3 +402,139 @@ def _validate_binary(y: np.ndarray) -> None:
         )
     if not set(unique_values).issubset({0, 1}):
         raise ValueError(f"y must be coded as 0/1. Found: {unique_values}")
+
+
+def bootstrap_metric_ci(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    threshold: float = 0.5,
+    n_iterations: int = 1000,
+    alpha: float = 0.05,
+    random_state: int = 42,
+) -> Dict[str, float]:
+    """
+    Bootstrap percentile confidence intervals for classification metrics.
+
+    Resamples (y_true, y_prob) from the test set with replacement and
+    computes metrics on each resample. CIs are percentile-based
+    (2.5th and 97.5th percentiles for 95% CI).
+
+    Computed for: AUC, AUC-PR, Brier score, F1, sensitivity,
+    specificity, PPV, calibration slope, calibration intercept.
+
+    Args:
+        y_true: True binary labels (test set).
+        y_prob: Predicted probabilities (test set).
+        threshold: Classification threshold for binary predictions.
+        n_iterations: Number of bootstrap resamples (default 1000).
+        alpha: Significance level (default 0.05 → 95% CI).
+        random_state: Seed for reproducibility.
+
+    Returns:
+        Dictionary with {metric}_ci_lower and {metric}_ci_upper for
+        each computed metric. Also includes {metric}_mean.
+    """
+    rng = np.random.default_rng(random_state)
+    n   = len(y_true)
+
+    metric_keys = [
+        'auc', 'auc_pr', 'brier_score', 'f1',
+        'sensitivity', 'specificity', 'ppv',
+        'calibration_slope', 'calibration_intercept',
+    ]
+
+    boot_values: Dict[str, List[float]] = {k: [] for k in metric_keys}
+
+    for _ in range(n_iterations):
+        idx        = rng.integers(0, n, n)
+        y_true_b   = y_true[idx]
+        y_prob_b   = y_prob[idx]
+
+        # Skip iterations with only one class (invalid AUC)
+        if len(np.unique(y_true_b)) < 2:
+            continue
+
+        y_pred_b = (y_prob_b >= threshold).astype(int)
+
+        try:
+            boot_values['auc'].append(float(roc_auc_score(y_true_b, y_prob_b)))
+        except Exception:
+            pass
+
+        try:
+            boot_values['auc_pr'].append(
+                float(average_precision_score(y_true_b, y_prob_b))
+            )
+        except Exception:
+            pass
+
+        try:
+            boot_values['brier_score'].append(
+                float(brier_score_loss(y_true_b, y_prob_b))
+            )
+        except Exception:
+            pass
+
+        try:
+            boot_values['f1'].append(
+                float(f1_score(y_true_b, y_pred_b, zero_division=0))
+            )
+        except Exception:
+            pass
+
+        try:
+            cm_b = confusion_matrix(y_true_b, y_pred_b)
+            if cm_b.shape == (2, 2):
+                tn_b, fp_b, fn_b, tp_b = cm_b.ravel()
+                if (tp_b + fn_b) > 0:
+                    boot_values['sensitivity'].append(tp_b / (tp_b + fn_b))
+                if (tn_b + fp_b) > 0:
+                    boot_values['specificity'].append(tn_b / (tn_b + fp_b))
+                if (tp_b + fp_b) > 0:
+                    boot_values['ppv'].append(tp_b / (tp_b + fp_b))
+        except Exception:
+            pass
+
+        try:
+            from sklearn.linear_model import LogisticRegression as _LR
+            from scipy.optimize import minimize_scalar
+
+            y_prob_c = np.clip(y_prob_b, 1e-7, 1 - 1e-7)
+            log_odds = np.log(y_prob_c / (1 - y_prob_c))
+
+            cal = _LR(C=1e6, solver='lbfgs', max_iter=200)
+            cal.fit(log_odds.reshape(-1, 1), y_true_b)
+            boot_values['calibration_slope'].append(float(cal.coef_[0][0]))
+
+            def _neg_ll(intercept):
+                p = 1 / (1 + np.exp(-(log_odds + intercept)))
+                p = np.clip(p, 1e-10, 1 - 1e-10)
+                return -np.sum(
+                    y_true_b * np.log(p) + (1 - y_true_b) * np.log(1 - p)
+                )
+            res = minimize_scalar(_neg_ll, bounds=(-10, 10), method='bounded')
+            boot_values['calibration_intercept'].append(float(res.x))
+        except Exception:
+            pass
+
+    # Compute CIs
+    result = {}
+    lo_pct = (alpha / 2) * 100
+    hi_pct = (1 - alpha / 2) * 100
+
+    for key, values in boot_values.items():
+        if len(values) < 10:
+            result[f'{key}_mean']     = np.nan
+            result[f'{key}_ci_lower'] = np.nan
+            result[f'{key}_ci_upper'] = np.nan
+        else:
+            arr = np.array(values)
+            result[f'{key}_mean']     = float(np.mean(arr))
+            result[f'{key}_ci_lower'] = float(np.percentile(arr, lo_pct))
+            result[f'{key}_ci_upper'] = float(np.percentile(arr, hi_pct))
+
+    result['n_iterations']  = n_iterations
+    result['n_valid']       = min(len(v) for v in boot_values.values() if v)
+    result['bootstrap_type'] = 'percentile'
+
+    return result

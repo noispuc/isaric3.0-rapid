@@ -71,7 +71,10 @@ def create_logistic_model(
     # Validate outcome is binary
     _validate_binary_outcome(data, dependent_var, formula)
 
-    # Prepare data
+    # Prepare data — always use formula path to handle categorical
+    # variables silently via Patsy (Recommendation 8)
+    if not formula and dependent_var and independent_vars:
+        formula = f"{dependent_var} ~ {' + '.join(independent_vars)}"
     if formula:
         y, X = _prepare_data_from_formula(data, formula)
     else:
@@ -136,7 +139,8 @@ def create_glm_model(
     # Validate inputs
     _validate_inputs(data, dependent_var, independent_vars, formula)
 
-    # Prepare data
+    if not formula and dependent_var and independent_vars:
+        formula = f"{dependent_var} ~ {' + '.join(independent_vars)}"
     if formula:
         y, X = _prepare_data_from_formula(data, formula)
     else:
@@ -503,6 +507,7 @@ class LogisticRegression(RAPID):
         dependent_var: str,
         independent_vars: List[str],
         labels: Optional[Dict[str, str]] = None,
+        formula: Optional[str] = None,
         **kwargs
     ):
         """
@@ -515,6 +520,7 @@ class LogisticRegression(RAPID):
             dependent_var: Outcome variable name.
             independent_vars: Predictor variable names.
             labels: Dictionary for variable display labels.
+            formula: Patsy-style formula string (optional).
         """
         self._model = model
         self.X = X
@@ -522,6 +528,7 @@ class LogisticRegression(RAPID):
         self.dependent_var = dependent_var
         self.independent_vars = independent_vars
         self.labels = labels
+        self.formula = formula
         self.model_type = "logistic"
         self.fitted_model = None
         self.result_df = None
@@ -598,6 +605,10 @@ class LogisticRegression(RAPID):
             link=link
         )
 
+        # Store auto-generated formula for bootstrap and re-fitting
+        if formula is None and dependent_var and independent_vars:
+            formula = f"{dependent_var} ~ {' + '.join(independent_vars)}"
+
         return cls(
             model=model_config,
             X=X,
@@ -605,6 +616,7 @@ class LogisticRegression(RAPID):
             dependent_var=dependent_var,
             independent_vars=independent_vars,
             labels=labels,
+            formula=formula,
             **params
         )
 
@@ -984,6 +996,7 @@ class GLM(RAPID):
         family: str = "gaussian",
         link: str = "identity",
         labels: Optional[Dict[str, str]] = None,
+        formula: Optional[str] = None,
         **kwargs
     ):
         """
@@ -1007,6 +1020,7 @@ class GLM(RAPID):
         self.family = family
         self.link = link
         self.labels = labels
+        self.formula = formula
         self.model_type = "glm"
         self.fitted_model = None
         self.result_df = None
@@ -1063,15 +1077,18 @@ class GLM(RAPID):
             link=link
         )
 
+        # Store auto-generated formula for bootstrap and re-fitting
+        if formula is None and dependent_var and independent_vars:
+            formula = f"{dependent_var} ~ {' + '.join(independent_vars)}"
+
         return cls(
             model=model_config,
             X=X,
             y=y,
             dependent_var=dependent_var,
             independent_vars=independent_vars,
-            family=family,
-            link=link,
             labels=labels,
+            formula=formula,
             **params
         )
 

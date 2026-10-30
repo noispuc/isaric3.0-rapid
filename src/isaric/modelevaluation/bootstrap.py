@@ -539,6 +539,12 @@ def bootstrap_hazard_ratios(
     a CoxPHFitter, and collects log-HR estimates. CIs are computed on
     log-HR scale and exponentiated for the HR CI bounds.
 
+    When formula is provided (e.g. from censoring_var conversion),
+    all fitting steps use formula-based spec to handle categorical
+    and string covariates correctly. Parameter names are derived
+    from the fitted model (Patsy expansion) rather than from the
+    covariates list.
+
     Args:
         data: DataFrame with duration, event, and covariate columns.
         duration_var: Time-to-event column name.
@@ -551,6 +557,7 @@ def bootstrap_hazard_ratios(
         random_state: Seed for reproducibility.
         penalizer: Ridge penalizer for CoxPHFitter (default 0.0).
         formula: Formula for the Cox model (default None).
+            When provided, uses formula-based fitting in all steps.
 
     Returns:
         DataFrame with columns: variable, observed_hr, observed_log_hr,
@@ -561,25 +568,42 @@ def bootstrap_hazard_ratios(
     from lifelines import CoxPHFitter
 
     cols_needed = [duration_var, event_var] + covariates
-    data_fit = data[cols_needed].dropna().copy()
-    n_samples = len(data_fit)
-    p = len(covariates)
+    data_fit    = data[cols_needed].dropna().copy()
+    n_samples   = len(data_fit)
 
     rng = np.random.default_rng(random_state)
 
-    # Observed log-HRs
+    # ── Observed log-HRs ─────────────────────────────────────────────────────
+    # When formula is provided, use formula-based fit to handle
+    # categorical/string covariates. Parameter names come from Patsy
+    # expansion and may differ from the original covariates list.
     cph_obs = CoxPHFitter(penalizer=penalizer)
-    cph_obs.fit(
-        data_fit,
-        duration_col=duration_var,
-        event_col=event_var,
-    )
-    observed_log_hr = cph_obs.params_.loc[covariates].values.astype(float)
+
+    if formula is not None:
+        cph_obs.fit(
+            data_fit,
+            duration_col=duration_var,
+            event_col=event_var,
+            formula=formula,
+        )
+        _param_names    = list(cph_obs.params_.index)
+        observed_log_hr = cph_obs.params_.values.astype(float)
+        p               = len(_param_names)
+    else:
+        cph_obs.fit(
+            data_fit,
+            duration_col=duration_var,
+            event_col=event_var,
+        )
+        _param_names    = list(covariates)
+        observed_log_hr = cph_obs.params_.loc[covariates].values.astype(float)
+        p               = len(covariates)
 
     boot_log_hrs = np.full((n_iterations, p), np.nan)
 
+    # ── Bootstrap loop ────────────────────────────────────────────────────────
     for i in range(n_iterations):
-        idx = rng.integers(0, n_samples, n_samples)
+        idx       = rng.integers(0, n_samples, n_samples)
         data_boot = data_fit.iloc[idx].reset_index(drop=True)
         try:
             cph_boot = CoxPHFitter(penalizer=penalizer)
@@ -590,22 +614,23 @@ def bootstrap_hazard_ratios(
                     event_col=event_var,
                     formula=formula,
                 )
+                boot_log_hrs[i] = cph_boot.params_.values.astype(float)
             else:
                 cph_boot.fit(
                     data_boot,
                     duration_col=duration_var,
                     event_col=event_var,
                 )
-            boot_log_hrs[i] = cph_boot.params_.loc[covariates].values.astype(float)
+                boot_log_hrs[i] = cph_boot.params_.loc[covariates].values.astype(float)
         except Exception:
             pass
 
-    # Jackknife for BCa
+    # ── Jackknife for BCa ─────────────────────────────────────────────────────
     jackknife = None
     if bootstrap_type == "bca":
         jackknife = np.full((n_samples, p), np.nan)
         for i in range(n_samples):
-            idx = np.delete(np.arange(n_samples), i)
+            idx     = np.delete(np.arange(n_samples), i)
             data_jk = data_fit.iloc[idx].reset_index(drop=True)
             try:
                 cph_jk = CoxPHFitter(penalizer=penalizer)
@@ -616,22 +641,24 @@ def bootstrap_hazard_ratios(
                         event_col=event_var,
                         formula=formula,
                     )
+                    jackknife[i] = cph_jk.params_.values.astype(float)
                 else:
                     cph_jk.fit(
                         data_jk,
                         duration_col=duration_var,
                         event_col=event_var,
                     )
-                jackknife[i] = cph_jk.params_.loc[covariates].values.astype(float)
+                    jackknife[i] = cph_jk.params_.loc[covariates].values.astype(float)
             except Exception:
                 pass
 
+    # ── Build result DataFrame ────────────────────────────────────────────────
     rows = []
-    for j, var in enumerate(covariates):
-        boot_j = boot_log_hrs[:, j]
-        boot_j = boot_j[~np.isnan(boot_j)]
+    for j, var in enumerate(_param_names):
+        boot_j    = boot_log_hrs[:, j]
+        boot_j    = boot_j[~np.isnan(boot_j)]
         obs_log_j = float(observed_log_hr[j])
-        jk_j = jackknife[:, j] if jackknife is not None else None
+        jk_j      = jackknife[:, j] if jackknife is not None else None
 
         ci_lo_log, ci_hi_log = confidence_interval(
             values=boot_j,
@@ -652,16 +679,16 @@ def bootstrap_hazard_ratios(
             p_val = np.nan
 
         rows.append({
-            'variable': var,
-            'observed_hr': float(np.exp(obs_log_j)),
-            'observed_log_hr': obs_log_j,
+            'variable':             var,
+            'observed_hr':          float(np.exp(obs_log_j)),
+            'observed_log_hr':      obs_log_j,
             'bootstrap_mean_log_hr': float(np.mean(boot_j)) if len(boot_j) > 0 else np.nan,
-            'bootstrap_se_log_hr': float(np.std(boot_j, ddof=1)) if len(boot_j) > 1 else np.nan,
-            'hr_ci_lower': float(np.exp(ci_lo_log)) if not np.isnan(ci_lo_log) else np.nan,
-            'hr_ci_upper': float(np.exp(ci_hi_log)) if not np.isnan(ci_hi_log) else np.nan,
-            'bootstrap_p_value': p_val,
-            'bootstrap_type': bootstrap_type,
-            'n_iterations': n_iterations,
+            'bootstrap_se_log_hr':  float(np.std(boot_j, ddof=1)) if len(boot_j) > 1 else np.nan,
+            'hr_ci_lower':          float(np.exp(ci_lo_log)) if not np.isnan(ci_lo_log) else np.nan,
+            'hr_ci_upper':          float(np.exp(ci_hi_log)) if not np.isnan(ci_hi_log) else np.nan,
+            'bootstrap_p_value':    p_val,
+            'bootstrap_type':       bootstrap_type,
+            'n_iterations':         n_iterations,
         })
 
     return pd.DataFrame(rows)
