@@ -432,7 +432,30 @@ class Survival(RAPID):
         )
         self.km_model = km_fitted
 
-        # ── 3. KM by group (if group_var provided) ────────────────────────
+        # ── 3. Auto-detect group_var when not provided ────────────────────
+        if self.group_var is None and self.independent_vars:
+            for var in self.independent_vars:
+                if var in self.model_data.columns:
+                    col = self.model_data[var]
+                    if (col.dtype == 'object'
+                            or str(col.dtype) == 'category'
+                            or col.nunique() <= 10):
+                        self.group_var = var
+                        import warnings
+                        warnings.warn(
+                            f"[Survival] Auto-detected group_var='{var}' "
+                            f"(first categorical covariate in independent_vars). "
+                            f"Pass group_var='{var}' to suppress this warning "
+                            f"or group_var=None explicitly to disable grouping.",
+                            UserWarning,
+                            stacklevel=3,
+                        )
+                        # Register grouped KM plot now that group_var is known
+                        self.plots_map["compare_survival_curves"] = \
+                            self._compare_survival_curves
+                        break
+
+        # ── 4. KM by group (if group_var available) ───────────────────────
         if self.group_var and self.group_var in self.model_data.columns:
             self.km_by_group = {}
             for grp, grp_df in self.model_data.groupby(self.group_var):
@@ -795,27 +818,26 @@ class Survival(RAPID):
         )
 
     def _survival_curve(self, backend="plotly"):
-        """Overall Kaplan-Meier survival curve."""
+        """Overall Kaplan-Meier survival curve with 95% CI."""
         from isaric.visualization.survivalcurves import kaplan_meier_curve
         return kaplan_meier_curve(
-            self.model_data,
+            data=self.model_data,
             duration_var=self.duration_var,
             event_var=self.event_var,
             title="Kaplan-Meier Survival Curve",
             xaxis_title=f"Time ({self.time_unit})",
             backend=backend,
+            kmf=self.km_model,   # use pre-fitted model — avoids refitting
         )
-
     def _compare_survival_curves(self, backend="plotly"):
-        """KM survival curves by group with log-rank annotation."""
+        """KM survival curves by group with log-rank p-value annotation."""
         from isaric.visualization.survivalcurves import compare_survival_curves
         return compare_survival_curves(
-            self.model_data,
+            data=self.model_data,
             duration_var=self.duration_var,
             event_var=self.event_var,
-            group_var=self.group_var,
-            logrank_results=self.logrank_results,
-            title="Survival by Group",
+            group_col=self.group_var,          # was: group_var (wrong param name)
+            title=f"Survival by {self.group_var}",
             xaxis_title=f"Time ({self.time_unit})",
             backend=backend,
         )

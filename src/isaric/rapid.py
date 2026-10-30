@@ -1420,16 +1420,29 @@ class RAPID(ABC):
             print("=" * 80)
 
             # Regression / Predictive — coefficients
+            # Omits bootstrap_mean and bootstrap_se (confusing, Rec 10).
+            # Shows OR CIs when available (Rec 11).
             boot_df = self.bootstrap_results.get('coefficients')
             if boot_df is not None and not boot_df.empty:
-                show_cols = [
-                    c for c in [
-                        'variable', 'observed', 'bootstrap_mean',
-                        'bootstrap_se', 'ci_lower', 'ci_upper',
-                        'bootstrap_p_value',
+                # Prefer OR scale when available (logistic); fall back to coef scale
+                if 'odds_ratio' in boot_df.columns:
+                    show_cols = [
+                        c for c in [
+                            'variable', 'odds_ratio',
+                            'or_ci_lower', 'or_ci_upper',
+                            'bootstrap_p_value',
+                        ]
+                        if c in boot_df.columns
                     ]
-                    if c in boot_df.columns
-                ]
+                else:
+                    show_cols = [
+                        c for c in [
+                            'variable', 'observed',
+                            'ci_lower', 'ci_upper',
+                            'bootstrap_p_value',
+                        ]
+                        if c in boot_df.columns
+                    ]
                 print(boot_df[show_cols].to_string(index=False))
 
             # Survival — hazard ratios
@@ -1489,6 +1502,30 @@ class RAPID(ABC):
                     f"statistic={t.get('statistic', float('nan')):.4f}, "
                     f"p-value={t.get('p_value', float('nan')):.4f}"
                 )
+            print()
+
+        # ======================================================================
+        # 3c. LOG-RANK TEST (when group_var was provided in create())
+        # ======================================================================
+        if (hasattr(self, 'logrank_results')
+                and self.logrank_results is not None
+                and 'error' not in self.logrank_results):
+            print("=" * 80)
+            print("LOG-RANK TEST")
+            print("=" * 80)
+            groups = self.logrank_results.get('groups', [])
+            stat   = self.logrank_results.get('test_statistic', float('nan'))
+            pval   = self.logrank_results.get('p_value', float('nan'))
+            print(f"  Groups compared : {', '.join(str(g) for g in groups)}")
+            print(f"  Test statistic  : {stat:.4f}")
+            pval_str = f"{pval:.4f}" if pval >= 0.001 else f"{pval:.2e}"
+            print(f"  p-value         : {pval_str}")
+            if pval < 0.05:
+                print(f"  Interpretation  : Significant difference in survival"
+                      f" between groups (p < 0.05)")
+            else:
+                print(f"  Interpretation  : No significant difference in survival"
+                      f" between groups (p ≥ 0.05)")
             print()
 
         # ======================================================================

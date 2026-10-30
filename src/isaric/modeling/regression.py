@@ -925,27 +925,21 @@ class LogisticRegression(RAPID):
         else:
             coef_df, metrics_df = result, None
 
+        # Add OR CIs (exponentiate log-OR CI bounds) — Recommendation 11
+        if coef_df is not None and not coef_df.empty:
+            coef_df = coef_df.copy()
+            if 'observed' in coef_df.columns:
+                coef_df['odds_ratio']  = np.exp(coef_df['observed'])
+            if 'ci_lower' in coef_df.columns:
+                coef_df['or_ci_lower'] = np.exp(coef_df['ci_lower'])
+            if 'ci_upper' in coef_df.columns:
+                coef_df['or_ci_upper'] = np.exp(coef_df['ci_upper'])
+
         return {
-            'coefficients':        coef_df,
+            'coefficients':         coef_df,
             'bootstrapped_metrics': metrics_df,
-            'bootstrap_type':      bootstrap_type,
-            'n_iterations':        n_iterations,
-        }
-
-        df = bootstrap_coefficients(
-            X=self.X,
-            y=self.y,
-            fit_func=fit_func_labeled,
-            n_iterations=n_iterations,
-            bootstrap_type=bootstrap_type,
-            variable_names=var_names,
-            random_state=getattr(self, '_random_seed', 42),
-        )
-
-        return {
-            'coefficients': df,
-            'bootstrap_type': bootstrap_type,
-            'n_iterations': n_iterations,
+            'bootstrap_type':       bootstrap_type,
+            'n_iterations':         n_iterations,
         }
 
     def _validate_sensitivity(self):
@@ -1389,27 +1383,21 @@ class GLM(RAPID):
         else:
             coef_df, metrics_df = result, None
 
+        # Add OR CIs (exponentiate log-OR CI bounds) — Recommendation 11
+        if coef_df is not None and not coef_df.empty:
+            coef_df = coef_df.copy()
+            if 'observed' in coef_df.columns:
+                coef_df['odds_ratio']  = np.exp(coef_df['observed'])
+            if 'ci_lower' in coef_df.columns:
+                coef_df['or_ci_lower'] = np.exp(coef_df['ci_lower'])
+            if 'ci_upper' in coef_df.columns:
+                coef_df['or_ci_upper'] = np.exp(coef_df['ci_upper'])
+
         return {
-            'coefficients':        coef_df,
+            'coefficients':         coef_df,
             'bootstrapped_metrics': metrics_df,
-            'bootstrap_type':      bootstrap_type,
-            'n_iterations':        n_iterations,
-        }
-
-        df = bootstrap_coefficients(
-            X=self.X,
-            y=self.y,
-            fit_func=fit_func_labeled,
-            n_iterations=n_iterations,
-            bootstrap_type=bootstrap_type,
-            variable_names=var_names,
-            random_state=getattr(self, '_random_seed', 42),
-        )
-
-        return {
-            'coefficients': df,
-            'bootstrap_type': bootstrap_type,
-            'n_iterations': n_iterations,
+            'bootstrap_type':       bootstrap_type,
+            'n_iterations':         n_iterations,
         }
 
     def _validate_sensitivity(self):

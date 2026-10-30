@@ -257,6 +257,12 @@ class LCA(RAPID):
 
         super().__init__()
 
+        # LCA-specific default for bootstrap iterations.
+        # Much lower than the global default (1000) because LCA bootstrap
+        # is computationally expensive even for small datasets.
+        # Users can override with fit(n_iterations=N).
+        _LCA_DEFAULT_N_ITERATIONS = 20
+
     def _setup_plots_map(self):
         """
         Configure base plots available for LCA.
@@ -426,6 +432,21 @@ class LCA(RAPID):
         n_init    = getattr(self, '_n_init', 5)
         max_iter  = getattr(self, '_max_iter', 500)
 
+        # LCA bootstrap default: 20 iterations (much lighter than global 1000)
+        # Users can override with fit(n_iterations=N)
+        n_iterations = getattr(self, '_n_iterations', self._LCA_DEFAULT_N_ITERATIONS)
+        if n_iterations == 1000:   # user accepted global default — apply LCA override
+            n_iterations = self._LCA_DEFAULT_N_ITERATIONS
+            if bootstrap:
+                warnings.warn(
+                    f"[LCA] Using n_iterations={n_iterations} for bootstrap "
+                    f"(LCA-specific default — global default of 1000 would be "
+                    f"very slow). Pass fit(n_iterations=N) explicitly for "
+                    f"more precision (e.g., n_iterations=100 for publication).",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
         # ── Default param_grid ────────────────────────────────────────────
         if param_grid is None:
             k_max = max(self.n_clusters, 2)
@@ -468,6 +489,10 @@ class LCA(RAPID):
         occ_ratios_dict = {}
         var_relevance_dict = {}
 
+        # Stop criterion counter
+        _MAX_CONSECUTIVE_FAILURES = 5
+        _consecutive_failures     = 0
+
         # ── Class enumeration loop ────────────────────────────────────────
         for k in k_values:
             model = StepMix(
@@ -479,6 +504,12 @@ class LCA(RAPID):
                 verbose=0,
             )
             model.fit(self.X)
+
+            converged = bool(model.converged_)
+            if not converged:
+                _consecutive_failures += 1
+            else:
+                _consecutive_failures = 0
 
             avg_ll = model.score(self.X)
             ll = avg_ll * n_samples
@@ -555,11 +586,24 @@ class LCA(RAPID):
                 'min_class_perc':   min_class_perc,
                 'n_par':            int(npar),
                 'dof':              int(dof),
-                'converged':        bool(model.converged_),
-                'convergence_rate': 1.0 if model.converged_ else 0.0,
+                'converged':        converged,
+                'convergence_rate': 1.0 if converged else 0.0,
             })
 
             model_objects[k] = model
+
+            # Stop criterion: halt after N consecutive non-convergences
+            if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                warnings.warn(
+                    f"[LCA] Stopping enumeration at k={k}: "
+                    f"{_MAX_CONSECUTIVE_FAILURES} consecutive non-convergences. "
+                    f"Models for non-converged k values are included in "
+                    f"grid_results for diagnostics. Consider reducing n_clusters "
+                    f"or increasing n_init/max_iter in create().",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                break
 
         # ── Store grid results ────────────────────────────────────────────
         self.grid_results = pd.DataFrame(results)
@@ -647,10 +691,9 @@ class LCA(RAPID):
         # BLRT + CI bootstrap + selection rate. _validate_bootstrap()
         # will reuse these results without re-computing.
         if bootstrap:
-            n_iterations = getattr(self, '_n_iterations', 1000)
             self.lrt_results = self._run_lrt(
                 k_values=k_values,
-                n_bootstraps=n_iterations,
+                n_bootstraps=n_iterations,   # LCA-specific value computed above
             )
             if not self.nested_models_lrt.empty:
                 self.lrt_results['nested'] = self.nested_models_lrt

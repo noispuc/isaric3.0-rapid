@@ -33,13 +33,15 @@ def kaplan_meier_curve(
     color: str = '#2a9d8f',
     height: int = 500,
     width: int = 700,
-    backend: str = "plotly"
+    backend: str = "plotly",
+    kmf: Optional[KaplanMeierFitter] = None,
 ):
     """
-    Generate a Kaplan-Meier survival curve.
+    Generate a Kaplan-Meier survival curve with 95% confidence interval.
 
-    Plots the survival function estimated from time-to-event data
-    using the Kaplan-Meier product-limit formula.
+    When kmf is provided (pre-fitted KaplanMeierFitter), it is used
+    directly without refitting. When kmf is None, the model is fitted
+    from data using duration_var and event_var.
 
     Args:
         data: Input DataFrame.
@@ -48,10 +50,12 @@ def kaplan_meier_curve(
         title: Plot title.
         xaxis_title: X-axis label.
         yaxis_title: Y-axis label.
-        color: Line color.
+        color: Line color (hex).
         height: Figure height in pixels.
         width: Figure width in pixels.
         backend: "plotly" or "matplotlib".
+        kmf: Optional pre-fitted KaplanMeierFitter. When provided,
+            data, duration_var and event_var are not used for fitting.
 
     Returns:
         Plotly Figure or Matplotlib Figure.
@@ -59,15 +63,15 @@ def kaplan_meier_curve(
     Raises:
         ValueError: If required columns are not found or backend invalid.
     """
-    for col in [duration_var, event_var]:
-        if col not in data.columns:
-            raise ValueError(f"Column '{col}' not found in DataFrame.")
-
-    kmf = KaplanMeierFitter()
-    kmf.fit(
-        data[duration_var],
-        event_observed=data[event_var]
-    )
+    if kmf is None:
+        for col in [duration_var, event_var]:
+            if col not in data.columns:
+                raise ValueError(f"Column '{col}' not found in DataFrame.")
+        kmf = KaplanMeierFitter()
+        kmf.fit(
+            data[duration_var],
+            event_observed=data[event_var]
+        )
 
     if backend == "plotly":
         return _kaplan_meier_plotly(
@@ -77,7 +81,7 @@ def kaplan_meier_curve(
             yaxis_title=yaxis_title,
             color=color,
             height=height,
-            width=width
+            width=width,
         )
     elif backend == "matplotlib":
         return _kaplan_meier_matplotlib(
@@ -87,10 +91,12 @@ def kaplan_meier_curve(
             yaxis_title=yaxis_title,
             color=color,
             height=height,
-            width=width
+            width=width,
         )
     else:
-        raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: {backend}"
+        )
 
 
 def compare_survival_curves(
@@ -251,16 +257,40 @@ def _kaplan_meier_plotly(
     yaxis_title: str,
     color: str,
     height: int,
-    width: int
+    width: int,
 ) -> go.Figure:
-    """Build Plotly Kaplan-Meier curve."""
-    fig = go.Figure(data=go.Scatter(
-        x=kmf.survival_function_.index,
-        y=kmf.survival_function_.iloc[:, 0].values,
+    """Build Plotly Kaplan-Meier curve with 95% CI band."""
+    sf  = kmf.survival_function_
+    times = sf.index.values
+    surv  = sf.iloc[:, 0].values
+
+    fig = go.Figure()
+
+    # 95% CI band
+    if hasattr(kmf, 'confidence_interval_') and kmf.confidence_interval_ is not None:
+        ci     = kmf.confidence_interval_
+        ci_lo  = ci.iloc[:, 0].values
+        ci_hi  = ci.iloc[:, 1].values
+        ci_t   = ci.index.values
+
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([ci_t, ci_t[::-1]]),
+            y=np.concatenate([ci_hi, ci_lo[::-1]]),
+            fill='toself',
+            fillcolor='rgba(42, 157, 143, 0.15)',
+            line=dict(color='rgba(255,255,255,0)'),
+            name='95% CI',
+            hoverinfo='skip',
+        ))
+
+    # Survival curve
+    fig.add_trace(go.Scatter(
+        x=times,
+        y=surv,
         mode='lines',
         line=dict(color=color, width=2),
+        name='Survival',
         hovertemplate='Time: %{x:.1f}<br>Survival: %{y:.3f}<extra></extra>',
-        name='Survival'
     ))
 
     fig.update_layout(
@@ -270,7 +300,7 @@ def _kaplan_meier_plotly(
         yaxis=dict(range=[0, 1]),
         height=height,
         width=width,
-        template='plotly_white'
+        template='plotly_white',
     )
 
     return fig
@@ -354,19 +384,28 @@ def _kaplan_meier_matplotlib(
     yaxis_title: str,
     color: str,
     height: int,
-    width: int
+    width: int,
 ) -> plt.Figure:
-    """Build Matplotlib Kaplan-Meier curve."""
-    fig, ax = plt.subplots(figsize=(width/100, height/100))
-    
-    ax.plot(
-        kmf.survival_function_.index,
-        kmf.survival_function_.iloc[:, 0].values,
-        color=color,
-        linewidth=2,
-        label='Survival'
-    )
-    
+    """Build Matplotlib Kaplan-Meier curve with 95% CI band."""
+    sf    = kmf.survival_function_
+    times = sf.index.values
+    surv  = sf.iloc[:, 0].values
+
+    fig, ax = plt.subplots(figsize=(width / 100, height / 100))
+
+    # 95% CI band
+    if hasattr(kmf, 'confidence_interval_') and kmf.confidence_interval_ is not None:
+        ci    = kmf.confidence_interval_
+        ax.fill_between(
+            ci.index.values,
+            ci.iloc[:, 0].values,
+            ci.iloc[:, 1].values,
+            alpha=0.15,
+            color=color,
+            label='95% CI',
+        )
+
+    ax.plot(times, surv, color=color, linewidth=2, label='Survival')
     ax.set_xlabel(xaxis_title)
     ax.set_ylabel(yaxis_title)
     ax.set_title(title)
@@ -375,7 +414,7 @@ def _kaplan_meier_matplotlib(
     ax.grid(alpha=0.3)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    
+
     fig.tight_layout()
     return fig
 
