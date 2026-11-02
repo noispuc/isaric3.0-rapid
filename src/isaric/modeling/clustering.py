@@ -714,7 +714,7 @@ class LCA(RAPID):
             model=self.fitted_model,
             X=self.X,
             feature_names=self.measurement_vars,
-            class_names=self.class_names  # ← NOVO
+            class_names=self.class_names  
         )
 
     def _calculate_metrics(self, metrics=None):

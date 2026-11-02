@@ -28,9 +28,6 @@ import numpy as np
 from typing import List, Optional, Tuple
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
-from catboost import CatBoostClassifier
 from isaric.rapid import RAPID
 
 
@@ -101,13 +98,26 @@ def create_xgboost_model(
     max_depth: int = 6,
     random_seed=42,
     class_weight=None
-) -> Tuple[XGBClassifier, pd.DataFrame, pd.Series]:
+) -> tuple:
     """
     Configure an XGBoost classifier (not fitted).
 
+    Requires xgboost to be installed: pip install xgboost
+
     Returns:
         Tuple of (model, X, y).
+
+    Raises:
+        ImportError: If xgboost is not installed.
     """
+    try:
+        from xgboost import XGBClassifier
+    except ImportError:
+        raise ImportError(
+            "xgboost is required for XGBoost models. "
+            "Install with: pip install xgboost"
+        )
+
     X, y = _prepare_data(data, dependent_var, independent_vars)
 
     model = XGBClassifier(
@@ -131,13 +141,26 @@ def create_lightgbm_model(
     num_leaves: int = 31,
     random_seed=42,
     class_weight=None
-) -> Tuple[LGBMClassifier, pd.DataFrame, pd.Series]:
+) -> tuple:
     """
     Configure a LightGBM classifier (not fitted).
 
+    Requires lightgbm to be installed: pip install lightgbm
+
     Returns:
         Tuple of (model, X, y).
+
+    Raises:
+        ImportError: If lightgbm is not installed.
     """
+    try:
+        from lightgbm import LGBMClassifier
+    except ImportError:
+        raise ImportError(
+            "lightgbm is required for LightGBM models. "
+            "Install with: pip install lightgbm"
+        )
+
     X, y = _prepare_data(data, dependent_var, independent_vars)
 
     model = LGBMClassifier(
@@ -161,13 +184,26 @@ def create_catboost_model(
     depth: int = 6,
     random_seed=42,
     class_weight=None
-) -> Tuple[CatBoostClassifier, pd.DataFrame, pd.Series]:
+) -> tuple:
     """
     Configure a CatBoost classifier (not fitted).
 
+    Requires catboost to be installed: pip install catboost
+
     Returns:
         Tuple of (model, X, y).
+
+    Raises:
+        ImportError: If catboost is not installed.
     """
+    try:
+        from catboost import CatBoostClassifier
+    except ImportError:
+        raise ImportError(
+            "catboost is required for CatBoost models. "
+            "Install with: pip install catboost"
+        )
+
     X, y = _prepare_data(data, dependent_var, independent_vars)
 
     # CatBoost uses auto_class_weights — map from class_weight
