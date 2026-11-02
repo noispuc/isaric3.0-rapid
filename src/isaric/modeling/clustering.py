@@ -216,6 +216,12 @@ class LCA(RAPID):
     fit(), summary(), save(), validation(), report(), decide().
     """
 
+    # LCA-specific default for bootstrap iterations.
+    # Much lower than the global default (1000) because LCA bootstrap
+    # is computationally expensive even for small datasets.
+    # Users can override with fit(n_iterations=N).
+    _LCA_DEFAULT_N_ITERATIONS = 20
+
     def __init__(
         self,
         model: StepMix,
@@ -257,11 +263,6 @@ class LCA(RAPID):
 
         super().__init__()
 
-        # LCA-specific default for bootstrap iterations.
-        # Much lower than the global default (1000) because LCA bootstrap
-        # is computationally expensive even for small datasets.
-        # Users can override with fit(n_iterations=N).
-        _LCA_DEFAULT_N_ITERATIONS = 20
 
     def _setup_plots_map(self):
         """
