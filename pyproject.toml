@@ -33,6 +33,12 @@ dependencies = [
     "upsetplot>=0.9",
     "plotly>=6.1.1",
 
+    # Scientific computing
+    "scipy>=1.11",
+
+    # Reporting
+    "reportlab>=4.0",
+
     # Model interpretability
     "shap>=0.44",
 ]
