@@ -12,14 +12,14 @@ Available after fit():
   - summary()    - Display results and visualizations
   - save()       - Persist the trained model
   - validation() - Validate with independent external data
-  - report()     - Generate publication-ready report (classmethod)
+  - report()     - Generate publication-ready report
   - decide()     - Document model selection decision
 
 State control:
   created → fitted
 
   summary(), save(), validation(), decide() require fitted state.
-  report() is a classmethod — validates all models are fitted.
+  report() generates a publication-ready report for self or a list of models: model.report() or model.report(models=[m1, m2]).
   fit() can be called again to re-fit (overwrites previous results).
 
 Contract Note:
