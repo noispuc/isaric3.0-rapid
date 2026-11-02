@@ -431,10 +431,14 @@ class RAPID(ABC):
             from reportlab.lib.pagesizes import A4
             from reportlab.lib.enums import TA_CENTER
         except ImportError:
-            raise ImportError(
-                "ReportLab is required for PDF generation. "
-                "Install with: pip install reportlab"
+            import warnings
+            warnings.warn(
+                "ReportLab is not installed — PDF report skipped. "
+                "Install with: pip install reportlab",
+                UserWarning,
+                stacklevel=2,
             )
+            return
 
         import os
         import tempfile
