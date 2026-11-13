@@ -1,19 +1,503 @@
-from sklearn.calibration import calibration_curve
-import pandas as pd
+"""
+Calibration curves and diagnostics for the RAPID methodology.
 
-def compute_calibration_curve(y_true, y_prob, n_bins=10, strategy='uniform'):
+This module provides functions to assess the agreement between predicted
+probabilities (or risks) and observed outcome frequencies (Step 4 of the
+RAPID methodology). A well-calibrated model has predicted risks that
+match reality.
+
+Techniques:
+- calibration_curve: Compute calibration curve for binary outcomes.
+- binned_calibration: Compute binned calibration metrics.
+- compute_brier_score: Compute Brier Score.
+- predicted_vs_observed: Compare predicted vs observed for numeric outcomes.
+- survival_calibration: Compute calibration for survival models.
+- residuals_vs_fitted: Compute residuals vs fitted values.
+- qq_plot: Compute Q-Q plot data for normality assessment.
+"""
+
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Optional, Tuple
+from sklearn.metrics import brier_score_loss
+from scipy import stats
+from sklearn.calibration import calibration_curve as sklearn_calibration_curve
+
+import warnings
+try:
+    from lifelines.exceptions import ApproximationWarning
+    warnings.filterwarnings("ignore", category=ApproximationWarning)
+except ImportError:
+    pass
+
+def calibration_curve(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
+    strategy: str = "quantile"
+) -> Dict[str, np.ndarray]:
     """
-    Description:
-        Computes calibration curve data for binary classification models.
+    Compute calibration curve for binary outcomes.
+
+    Groups observations into bins based on predicted probabilities and
+    calculates the observed frequency of positive outcomes per bin.
 
     Args:
-        y_true (array-like): True binary labels.
-        y_prob (array-like): Predicted probabilities.
-        n_bins (int): Number of bins to discretize the [0,1] interval.
-        strategy (str): Binning strategy ('uniform' or 'quantile').
+        y_true: True binary labels (0/1).
+        y_prob: Predicted probabilities.
+        n_bins: Number of bins (default 10).
+        strategy: Binning strategy: "uniform" or "quantile".
 
     Returns:
-        pandas.DataFrame: DataFrame with mean predicted and observed probabilities per bin.
+        Dictionary with 'fraction_positive' and 'mean_predicted'.
+
+    Raises:
+        ValueError: If strategy is invalid.
     """
-    prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=n_bins, strategy=strategy)
-    return pd.DataFrame({"predicted": prob_pred, "observed": prob_true})
+    if strategy not in ("uniform", "quantile"):
+        raise ValueError(
+            f"strategy must be 'uniform' or 'quantile'. Received: {strategy}"
+        )
+
+    fraction_positive, mean_predicted = sklearn_calibration_curve(
+        y_true, y_prob, n_bins=n_bins, strategy=strategy
+    )
+
+    return {
+        'fraction_positive': fraction_positive,
+        'mean_predicted': mean_predicted
+    }
+
+
+def binned_calibration(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
+    strategy: str = "quantile"
+) -> pd.DataFrame:
+    """
+    Compute binned calibration metrics as a DataFrame.
+
+    Args:
+        y_true: True binary labels.
+        y_prob: Predicted probabilities.
+        n_bins: Number of bins (default 10).
+        strategy: Binning strategy.
+
+    Returns:
+        DataFrame with columns: Bin, Predicted_Mean, Observed_Mean,
+        Count, Difference.
+
+    Raises:
+        ValueError: If strategy is invalid.
+    """
+    if strategy not in ("uniform", "quantile"):
+        raise ValueError(
+            f"strategy must be 'uniform' or 'quantile'. Received: {strategy}"
+        )
+
+    result = calibration_curve(
+        y_true, y_prob, n_bins=n_bins, strategy=strategy
+    )
+    fraction_positive = result['fraction_positive']
+    mean_predicted = result['mean_predicted']
+
+    # Count observations per bin
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    bin_indices = np.digitize(y_prob, bin_edges[1:-1])
+    counts = [np.sum(bin_indices == i) for i in range(n_bins)]
+
+    rows = []
+    for i in range(len(mean_predicted)):
+        rows.append({
+            'Bin': i + 1,
+            'Predicted_Mean': round(mean_predicted[i], 4),
+            'Observed_Mean': round(fraction_positive[i], 4),
+            'Count': counts[i],
+            'Difference': round(fraction_positive[i] - mean_predicted[i], 4)
+        })
+
+    return pd.DataFrame(rows)
+
+
+def compute_brier_score(
+    y_true: np.ndarray,
+    y_prob: np.ndarray
+) -> float:
+    """
+    Compute Brier Score for binary outcomes.
+
+    Brier Score measures the mean squared difference between predicted
+    probabilities and actual outcomes. Lower is better (0 = perfect).
+
+    Args:
+        y_true: True binary labels (0/1).
+        y_prob: Predicted probabilities.
+
+    Returns:
+        Brier Score value.
+    """
+    return float(brier_score_loss(y_true, y_prob))
+
+
+def predicted_vs_observed(
+    y_true: np.ndarray,
+    y_pred: np.ndarray
+) -> Dict[str, np.ndarray]:
+    """
+    Compare predicted vs observed values for numeric outcomes.
+
+    Used to assess agreement between continuous predicted values and
+    true observed values.
+
+    Args:
+        y_true: True continuous values.
+        y_pred: Predicted continuous values.
+
+    Returns:
+        Dictionary with 'predicted' and 'observed' arrays.
+    """
+    return {
+        'predicted': np.asarray(y_pred),
+        'observed': np.asarray(y_true)
+    }
+
+
+def survival_calibration(
+    fitted_model,
+    model_data: pd.DataFrame,
+    duration_var: str,
+    event_var: str,
+    target_time: float
+) -> Dict[str, np.ndarray]:
+    """
+    Compute calibration for survival models at a specific time point.
+
+    Compares predicted survival probabilities with observed Kaplan-Meier
+    estimates at the given time point.
+
+    Args:
+        fitted_model: Fitted lifelines CoxPHFitter.
+        model_data: DataFrame used for fitting.
+        duration_var: Time-to-event column.
+        event_var: Event indicator column.
+        target_time: Time point for evaluation.
+
+    Returns:
+        Dictionary with 'predicted_survival' and 'observed_survival'.
+    """
+    from lifelines import KaplanMeierFitter
+
+    # Predicted survival probabilities at target time
+    predicted_survival = fitted_model.predict_survival_function(
+        model_data, times=[target_time]
+    ).squeeze()
+
+    # Observed survival via Kaplan-Meier
+    kmf = KaplanMeierFitter()
+    kmf.fit(
+        model_data[duration_var],
+        event_observed=model_data[event_var]
+    )
+    observed_survival = kmf.predict(target_time)
+
+    return {
+        'predicted_survival': predicted_survival.values,
+        'observed_survival': np.repeat(observed_survival, len(predicted_survival))
+    }
+
+
+def survival_brier_score(
+    fitted_model,
+    model_data: pd.DataFrame,
+    duration_var: str,
+    event_var: str,
+    target_time: float,
+    n_points: int = 100
+) -> Dict[str, np.ndarray]:
+    """
+    Compute IPCW Brier Score for survival models.
+
+    Uses Inverse Probability of Censoring Weighting (IPCW) to estimate
+    the time-dependent Brier Score, which measures the mean squared
+    difference between predicted survival probabilities and observed
+    outcomes.
+
+    Args:
+        fitted_model: Fitted lifelines CoxPHFitter.
+        model_data: DataFrame used for fitting.
+        duration_var: Time-to-event column.
+        event_var: Event indicator column (1=event, 0=censored).
+        target_time: Maximum time point for evaluation.
+        n_points: Number of time points (default 100).
+
+    Returns:
+        Dictionary with 'time_points' and 'brier_scores' arrays.
+    """
+    from lifelines import KaplanMeierFitter
+
+    # Trabalhar com vetores NumPy (evita problemas de índice)
+    T = model_data[duration_var].values
+    E = model_data[event_var].values
+
+    max_data_time = T.max()
+    eval_time = min(target_time, max_data_time)
+
+    # Time points (from first event to eval_time)
+    min_time = T[E == 1].min() if (E == 1).any() else T.min()
+    time_points = np.linspace(min_time, eval_time, n_points)
+
+    # IPCW: Kaplan-Meier of censoring distribution
+    kmf_censoring = KaplanMeierFitter().fit(T, 1 - E)
+    # G_T avaliado nos tempos de cada paciente (vetor, alinhado com T)
+    G_T = kmf_censoring.predict(T).values
+
+    brier_scores = []
+    for t in time_points:
+        # Probabilidades preditas (vetor, alinhado com T)
+        predicted_probs = fitted_model.predict_survival_function(
+            model_data, times=[t]
+        ).squeeze().values
+
+        G_t = kmf_censoring.predict(t).values
+        # G_t é escalar disfarçado de array; extrair
+        G_t = float(np.atleast_1d(G_t)[0])
+
+        # Term 1: subjects with event before t
+        is_event_before_t = (T <= t) & (E == 1)
+        term1 = np.sum(
+            ((predicted_probs[is_event_before_t] - 0) ** 2)
+            / G_T[is_event_before_t]
+        )
+
+        # Term 2: subjects without event by t
+        is_after_t = T > t
+        term2 = np.sum(
+            ((predicted_probs[is_after_t] - 1) ** 2) / G_t
+        )
+
+        score = (term1 + term2) / len(model_data)
+        brier_scores.append(score)
+
+    return {
+        'time_points': time_points,
+        'brier_scores': np.array(brier_scores)
+    }
+
+
+def survival_roc(
+    fitted_model,
+    model_data: pd.DataFrame,
+    duration_var: str,
+    event_var: str,
+    target_time: float
+) -> Dict[str, np.ndarray]:
+    """
+    Compute time-dependent ROC for survival models.
+
+    Classifies subjects as "event before target_time" (1) or
+    "no event by target_time" (0), then computes ROC using partial
+    hazard as risk score.
+
+    Args:
+        fitted_model: Fitted lifelines CoxPHFitter.
+        model_data: DataFrame used for fitting.
+        duration_var: Time-to-event column.
+        event_var: Event indicator column (1=event, 0=censored).
+        target_time: Time point for evaluation.
+
+    Returns:
+        Dictionary with 'fpr', 'tpr', 'auc'.
+
+    Raises:
+        ValueError: If target_time is not within the follow-up period.
+    """
+    import warnings
+    from sklearn.metrics import roc_curve, roc_auc_score
+
+    T = model_data[duration_var].values
+    E = model_data[event_var].values
+
+    max_followup = T.max()
+    if target_time > max_followup:
+        raise ValueError(
+            f"target_time ({target_time}) exceeds maximum follow-up "
+            f"({max_followup}). ROC cannot be computed because all "
+            f"subjects have the same outcome by that time. "
+            f"Choose target_time <= {max_followup:.1f}."
+        )
+
+    # Risk scores (partial hazard)
+    risk_scores = fitted_model.predict_partial_hazard(model_data).values
+
+    # Mask and true labels
+    mask = ((T <= target_time) & (E == 1)) | (T > target_time)
+    y_true = ((T <= target_time) & (E == 1)).astype(int)
+
+    # Verifica se y_true[mask] tem duas classes
+    y_true_masked = y_true[mask]
+    if len(np.unique(y_true_masked)) < 2:
+        raise ValueError(
+            f"Only one class present in y_true at target_time={target_time}. "
+            f"ROC is undefined. Try a different target_time."
+        )
+
+    fpr, tpr, _ = roc_curve(y_true_masked, risk_scores[mask])
+    auc_val = roc_auc_score(y_true_masked, risk_scores[mask])
+
+    return {
+        'fpr': fpr,
+        'tpr': tpr,
+        'auc': float(auc_val)
+    }
+
+
+def residuals_vs_fitted(
+    residuals: np.ndarray,
+    fitted_values: np.ndarray
+) -> Dict[str, np.ndarray]:
+    """
+    Compute residuals vs fitted values for regression diagnostics.
+
+    Used to assess homoscedasticity (constant variance) and linearity
+    assumptions. A random scatter around zero suggests assumptions hold.
+
+    Args:
+        residuals: Model residuals (observed - predicted).
+        fitted_values: Fitted/predicted values.
+
+    Returns:
+        Dictionary with 'residuals' and 'fitted' arrays.
+    """
+    return {
+        'residuals': np.asarray(residuals),
+        'fitted': np.asarray(fitted_values)
+    }
+
+
+def qq_plot(
+    residuals: np.ndarray
+) -> Dict[str, np.ndarray]:
+    """
+    Compute Q-Q plot data for normality assessment.
+
+    Compares the quantiles of residuals against theoretical quantiles
+    of a normal distribution. Points following the diagonal line
+    indicate normality.
+
+    Args:
+        residuals: Model residuals.
+
+    Returns:
+        Dictionary with 'theoretical_quantiles' and 'sample_quantiles'.
+    """
+    theoretical_quantiles, sample_quantiles = stats.probplot(
+        residuals, dist="norm"
+    )
+
+    return {
+        'theoretical_quantiles': theoretical_quantiles[0],
+        'sample_quantiles': theoretical_quantiles[1]
+    }
+
+
+def calibration_curve_with_ci(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 20,
+    strategy: str = "quantile",
+    n_bootstrap: int = 200,
+    alpha: float = 0.05,
+    random_state: int = 42,
+) -> Dict:
+    """
+    Calibration curve with bootstrap percentile confidence intervals.
+
+    Bins observations by predicted probability (vigintile = 20 bins by
+    default, matching paper method). For each bin computes observed
+    event rate and CI from bootstrap resamples.
+
+    Args:
+        y_true: True binary labels (0/1).
+        y_prob: Predicted probabilities.
+        n_bins: Number of bins (default 20 — vigintile).
+        strategy: Binning strategy: "quantile" (equal frequency, default)
+            or "uniform" (equal width).
+        n_bootstrap: Number of bootstrap resamples for CI (default 200).
+        alpha: Significance level (default 0.05 → 95% CI).
+        random_state: Seed for reproducibility.
+
+    Returns:
+        Dictionary with:
+            - 'mean_predicted': array of mean predicted probability per bin.
+            - 'fraction_positive': array of observed event rate per bin.
+            - 'ci_lower': array of CI lower bounds per bin.
+            - 'ci_upper': array of CI upper bounds per bin.
+            - 'n_per_bin': array of observation counts per bin.
+            - 'n_bins': actual number of bins returned.
+            - 'strategy': binning strategy used.
+            - 'n_bootstrap': number of bootstrap resamples.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_prob = np.asarray(y_prob, dtype=float)
+    rng    = np.random.default_rng(random_state)
+
+    # ── Observed calibration curve ────────────────────────────────────────
+    frac_pos, mean_pred = sklearn_calibration_curve(
+        y_true, y_prob, n_bins=n_bins, strategy=strategy
+    )
+
+    # Count observations per bin using same binning logic as sklearn
+    # (replicate quantile or uniform binning to get counts)
+    if strategy == "quantile":
+        quantiles = np.percentile(
+            y_prob, np.linspace(0, 100, n_bins + 1)
+        )
+        bin_ids = np.searchsorted(quantiles[1:-1], y_prob)
+    else:
+        bin_ids = np.digitize(y_prob, np.linspace(0, 1, n_bins + 1)[1:-1])
+
+    n_actual = len(mean_pred)
+    n_per_bin = np.array([
+        int(np.sum(bin_ids == i)) for i in range(n_actual)
+    ])
+
+    # ── Bootstrap CIs per bin ─────────────────────────────────────────────
+    n = len(y_true)
+    boot_fracs = np.full((n_bootstrap, n_actual), np.nan)
+
+    for b in range(n_bootstrap):
+        idx         = rng.integers(0, n, n)
+        y_true_b    = y_true[idx]
+        y_prob_b    = y_prob[idx]
+
+        if len(np.unique(y_true_b)) < 2:
+            continue
+
+        try:
+            frac_b, _ = sklearn_calibration_curve(
+                y_true_b, y_prob_b,
+                n_bins=n_bins, strategy=strategy
+            )
+            # sklearn may return fewer bins if some are empty
+            min_len = min(len(frac_b), n_actual)
+            boot_fracs[b, :min_len] = frac_b[:min_len]
+        except Exception:
+            pass
+
+    lo_pct = (alpha / 2) * 100
+    hi_pct = (1 - alpha / 2) * 100
+
+    ci_lower = np.nanpercentile(boot_fracs, lo_pct, axis=0)
+    ci_upper = np.nanpercentile(boot_fracs, hi_pct, axis=0)
+
+    return {
+        'mean_predicted':    mean_pred,
+        'fraction_positive': frac_pos,
+        'ci_lower':          ci_lower,
+        'ci_upper':          ci_upper,
+        'n_per_bin':         n_per_bin,
+        'n_bins':            n_actual,
+        'strategy':          strategy,
+        'n_bootstrap':       n_bootstrap,
+    }

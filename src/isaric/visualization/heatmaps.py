@@ -1,19 +1,873 @@
-import seaborn as sns
-import matplotlib.pyplot as plt
+"""
+Heatmap visualization for the RAPID methodology.
 
-def plot_heatmap(df, title="Heatmap"):
+This module provides functions to generate heatmap plots (Step 6.4 of
+the RAPID methodology). Heatmaps encode values in a matrix by color
+intensity, useful for visualizing correlation and confusion matrices.
+
+Backends:
+- plotly: Interactive figures for notebook display (default).
+- matplotlib: Static figures for report export (PNG, PDF).
+
+Techniques:
+- correlation_heatmap: Visualize correlation between predictors.
+- confusion_matrix_heatmap: Visualize classification confusion matrix.
+- lca_profile_heatmap: Visualize LCA class profiles.
+"""
+
+import pandas as pd
+import numpy as np
+from typing import List, Optional, Tuple
+import plotly.graph_objs as go
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
+
+
+def correlation_heatmap(
+    data: pd.DataFrame,
+    title: str = "Correlation Heatmap",
+    colorscale: str = "RdBu_r",
+    height: int = 600,
+    width: int = 800,
+    backend: str = "plotly"
+):
     """
-    Description:
-        Generates a heatmap to visualize correlations or intensity across a matrix.
+    Generate a correlation heatmap for numeric predictors.
+
+    Visualizes the magnitude and direction of the correlation
+    coefficient between all pairs of predictors.
 
     Args:
-        df (pandas.DataFrame): Input dataset (typically a correlation matrix).
-        title (str): Title of the plot.
+        data: Input DataFrame with numeric columns.
+        title: Plot title.
+        colorscale: Plotly colorscale name or Matplotlib colormap name.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
 
     Returns:
-        matplotlib.figure.Figure: Heatmap figure.
+        Plotly Figure or Matplotlib Figure.
+
+    Raises:
+        ValueError: If no numeric columns found or backend invalid.
     """
-    fig, ax = plt.subplots()
-    sns.heatmap(df, annot=True, cmap="coolwarm", ax=ax)
+    numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+    if len(numeric_cols) == 0:
+        raise ValueError("No numeric columns found for correlation heatmap.")
+
+    corr_matrix = data[numeric_cols].corr()
+
+    if backend == "plotly":
+        return _correlation_heatmap_plotly(
+            corr_matrix=corr_matrix,
+            title=title,
+            colorscale=colorscale,
+            height=height,
+            width=width
+        )
+    elif backend == "matplotlib":
+        return _correlation_heatmap_matplotlib(
+            corr_matrix=corr_matrix,
+            title=title,
+            cmap=colorscale,
+            height=height,
+            width=width
+        )
+    else:
+        raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
+
+
+def confusion_matrix_heatmap(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    class_names: Optional[List[str]] = None,
+    title: str = "Confusion Matrix",
+    normalize: bool = False,
+    colorscale: str = "Blues",
+    height: int = 500,
+    width: int = 500,
+    backend: str = "plotly"
+):
+    """
+    Generate a confusion matrix heatmap for classification models.
+
+    Displays counts or percentages of True Positives, False Positives,
+    etc., as a heatmap.
+
+    Args:
+        y_true: True binary labels.
+        y_pred: Predicted class labels.
+        class_names: List of class names (default: ['Negative', 'Positive']).
+        title: Plot title.
+        normalize: If True, normalize by row (true label).
+        colorscale: Plotly colorscale name or Matplotlib colormap name.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+
+    Raises:
+        ValueError: If backend invalid.
+    """
+    if class_names is None:
+        class_names = ['Negative', 'Positive']
+
+    cm = confusion_matrix(y_true, y_pred)
+
+    if backend == "plotly":
+        return _confusion_matrix_plotly(
+            cm=cm,
+            class_names=class_names,
+            title=title,
+            normalize=normalize,
+            colorscale=colorscale,
+            height=height,
+            width=width
+        )
+    elif backend == "matplotlib":
+        return _confusion_matrix_matplotlib(
+            cm=cm,
+            class_names=class_names,
+            title=title,
+            normalize=normalize,
+            cmap=colorscale,
+            height=height,
+            width=width
+        )
+    else:
+        raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
+
+
+def lca_profile_heatmap(
+    class_profiles: pd.DataFrame,
+    n_clusters: Optional[int] = None,  # ← padronizado
+    title: str = "LCA Class Profiles",
+    colorscale: str = "viridis",
+    height: int = 600,
+    width: int = 800,
+    backend: str = "plotly"
+):
+    """
+    Generate a heatmap showing LCA class profiles.
+
+    Visualizes the probability of each feature per latent class.
+
+    Args:
+        class_profiles: DataFrame with shape (n_classes, n_features)
+            containing probabilities in [0, 1].
+        n_clusters: Number of latent classes (optional, for title).
+        title: Plot title.
+        colorscale: Plotly colorscale name or Matplotlib colormap name.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+
+    Raises:
+        ValueError: If backend invalid.
+    """
+    if backend == "plotly":
+        return _lca_profile_plotly(
+            class_profiles=class_profiles,
+            n_clusters=n_clusters,
+            title=title,
+            colorscale=colorscale,
+            height=height,
+            width=width
+        )
+    elif backend == "matplotlib":
+        return _lca_profile_matplotlib(
+            class_profiles=class_profiles,
+            n_clusters=n_clusters,
+            title=title,
+            cmap=colorscale,
+            height=height,
+            width=width
+        )
+    else:
+        raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
+
+
+def lca_radar_plot(
+    class_profiles: pd.DataFrame,
+    n_clusters: Optional[int] = None,
+    title: str = "LCA Class Profiles (Radar)",
+    colors: Optional[List[str]] = None,
+    class_names: Optional[List[str]] = None,
+    height: int = 600,
+    width: int = 800,
+    backend: str = "plotly"
+):
+    """
+    Generate a radar plot showing LCA class profiles.
+
+    Each latent class is a polygon, and each axis is a feature.
+    Useful for visually comparing class profiles.
+
+    Args:
+        class_profiles: DataFrame with shape (n_classes, n_features)
+            containing probabilities in [0, 1].
+        n_clusters: Number of latent classes (optional, for title).
+        title: Plot title.
+        colors: List of colors for each class.
+        class_names: List of display names for each class (optional).
+            If None, uses the DataFrame index (e.g., "Class_1", ...).
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+    """
+    if backend == "plotly":
+        return _lca_radar_plotly(
+            class_profiles, n_clusters, title, colors, class_names, height, width
+        )
+    elif backend == "matplotlib":
+        return _lca_radar_matplotlib(
+            class_profiles, n_clusters, title, colors, class_names, height, width
+        )
+    else:
+        raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
+
+def pairplot(
+    data: pd.DataFrame,
+    variables: Optional[List[str]] = None,
+    group_col: Optional[str] = None,
+    title: str = "Pairplot",
+    height: int = 700,
+    width: int = 800,
+    backend: str = "plotly"
+):
+    """
+    Generate a pairplot (scatter matrix) for continuous variables.
+
+    Diagonal: distribution (histogram) of each variable.
+    Off-diagonal: scatter plots for each pair of variables.
+    If group_col is provided, points are colored by group.
+
+    Args:
+        data: Input DataFrame.
+        variables: List of numeric columns to include.
+            If None, uses all numeric columns.
+        group_col: Optional column for coloring points by group.
+        title: Plot title.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+
+    Raises:
+        ValueError: If variables not found or backend invalid.
+    """
+    if variables is None:
+        variables = data.select_dtypes(include=[np.number]).columns.tolist()
+
+    # Valida colunas
+    for col in variables:
+        if col not in data.columns:
+            raise ValueError(f"Column '{col}' not found in DataFrame.")
+        if not pd.api.types.is_numeric_dtype(data[col]):
+            raise ValueError(f"Column '{col}' must be numeric for pairplot.")
+
+    if len(variables) < 2:
+        raise ValueError("pairplot requires at least 2 numeric variables.")
+
+    if group_col is not None and group_col not in data.columns:
+        raise ValueError(f"Group column '{group_col}' not found in DataFrame.")
+
+    if backend == "plotly":
+        return _pairplot_plotly(
+            data, variables, group_col, title, height, width
+        )
+    elif backend == "matplotlib":
+        return _pairplot_matplotlib(
+            data, variables, group_col, title, height, width
+        )
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: {backend}"
+        )
+
+
+def crosstab_heatmap(
+    crosstab: pd.DataFrame,
+    title: str = "Crosstab",
+    normalize: bool = False,
+    colorscale: str = "Blues",
+    height: int = 500,
+    width: int = 700,
+    backend: str = "plotly"
+):
+    """
+    Generate a heatmap from a crosstab (classes x outcome).
+
+    Args:
+        crosstab: DataFrame from pd.crosstab (rows = classes,
+            columns = outcome categories).
+        title: Plot title.
+        normalize: If True, normalize by row (percentage per class).
+        colorscale: Plotly colorscale name or Matplotlib colormap name.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+    """
+    if normalize:
+        # Normaliza por linha (cada classe soma 100%)
+        row_sums = crosstab.sum(axis=1)
+        data = crosstab.div(row_sums, axis=0) * 100
+        text = np.round(data.values, 1).astype(str)
+        colorbar_title = "% (row)"
+    else:
+        data = crosstab
+        text = crosstab.values.astype(str)
+        colorbar_title = "Count"
+
+    if backend == "plotly":
+        return _crosstab_heatmap_plotly(
+            data, text, title, colorscale, colorbar_title, height, width
+        )
+    elif backend == "matplotlib":
+        return _crosstab_heatmap_matplotlib(
+            data, text, title, colorscale, colorbar_title, height, width
+        )
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: {backend}"
+        )
+
+# ============================================================================
+# PLOTLY BACKEND
+# ============================================================================
+
+def _correlation_heatmap_plotly(
+    corr_matrix: pd.DataFrame,
+    title: str,
+    colorscale: str,
+    height: int,
+    width: int
+) -> go.Figure:
+    """Build Plotly correlation heatmap."""
+    fig = go.Figure(data=go.Heatmap(
+        z=corr_matrix.values,
+        x=corr_matrix.columns.tolist(),
+        y=corr_matrix.index.tolist(),
+        colorscale=colorscale,
+        zmid=0,
+        text=np.round(corr_matrix.values, 2),
+        texttemplate='%{text}',
+        textfont=dict(size=10),
+        hovertemplate='%{y} vs %{x}<br>Correlation: %{z:.3f}<extra></extra>',
+        colorbar=dict(title="Correlation")
+    ))
+
+    fig.update_layout(
+        title=title,
+        height=height,
+        width=width,
+        template='plotly_white'
+    )
+
+    return fig
+
+
+def _confusion_matrix_plotly(
+    cm: np.ndarray,
+    class_names: List[str],
+    title: str,
+    normalize: bool,
+    colorscale: str,
+    height: int,
+    width: int
+) -> go.Figure:
+    """Build Plotly confusion matrix heatmap."""
+    if normalize:
+        cm_display = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        text = np.round(cm_display, 2).astype(str)
+        colorbar_title = "Proportion"
+    else:
+        cm_display = cm
+        text = cm.astype(str)
+        colorbar_title = "Count"
+
+    fig = go.Figure(data=go.Heatmap(
+        z=cm_display,
+        x=class_names,
+        y=class_names,
+        colorscale=colorscale,
+        text=text,
+        texttemplate='%{text}',
+        textfont=dict(size=16),
+        hovertemplate='True: %{y}<br>Predicted: %{x}<br>Value: %{z}<extra></extra>',
+        colorbar=dict(title=colorbar_title)
+    ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title='Predicted',
+        yaxis_title='True',
+        height=height,
+        width=width,
+        template='plotly_white',
+        yaxis=dict(autorange='reversed')
+    )
+
+    return fig
+
+
+def _lca_profile_plotly(
+    class_profiles: pd.DataFrame,
+    n_clusters: Optional[int],
+    title: str,
+    colorscale: str,
+    height: int,
+    width: int
+) -> go.Figure:
+    """Build Plotly LCA profile heatmap."""
+    y_labels = [f'Class {i}' for i in range(len(class_profiles))]
+
+    fig = go.Figure(data=go.Heatmap(
+        z=class_profiles.values,
+        x=class_profiles.columns.tolist(),
+        y=y_labels,
+        colorscale=colorscale,
+        text=np.round(class_profiles.values, 2),
+        texttemplate='%{text}',
+        textfont=dict(size=10),
+        hovertemplate='Feature: %{x}<br>Class: %{y}<br>Probability: %{z:.3f}<extra></extra>',
+        colorbar=dict(title="Probability")
+    ))
+
+    if n_clusters:
+        title = f"LCA Class Profiles (K={n_clusters})"
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="Variables",
+        yaxis_title="Latent Class",
+        height=height,
+        width=width,
+        template='plotly_white',
+        xaxis_tickangle=-45
+    )
+
+    return fig
+
+
+def _lca_radar_plotly(
+    class_profiles: pd.DataFrame,
+    n_clusters: Optional[int],
+    title: str,
+    colors: Optional[List[str]],
+    class_names: Optional[List[str]],
+    height: int,
+    width: int
+) -> go.Figure:
+    """Build Plotly radar plot for LCA profiles."""
+    features = class_profiles.columns.tolist()
+
+    if colors is None:
+        colors = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261',
+                  '#8a5a44', '#a8dadc', '#457b9d', '#e63946', '#06d6a0']
+
+    # Nomes de exibição para as classes
+    if class_names is not None:
+        if len(class_names) != len(class_profiles):
+            raise ValueError(
+                f"class_names has length {len(class_names)}, "
+                f"but there are {len(class_profiles)} classes."
+            )
+        labels = list(class_names)
+    else:
+        labels = list(class_profiles.index)
+
+    fig = go.Figure()
+
+    for i, (class_name, row) in enumerate(class_profiles.iterrows()):
+        values = row.values.tolist() + [row.values[0]]
+        angles = features + [features[0]]
+
+        fig.add_trace(go.Scatterpolar(
+            r=values,
+            theta=angles,
+            fill='toself',
+            name=str(labels[i]),
+            line=dict(color=colors[i % len(colors)], width=2),
+            opacity=0.6
+        ))
+
+    if n_clusters:
+        title = f"LCA Class Profiles (K={n_clusters})"
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 1]
+            )
+        ),
+        title=title,
+        height=height,
+        width=width,
+        template='plotly_white',
+        showlegend=True
+    )
+
+    return fig
+
+def _pairplot_plotly(
+    data, variables, group_col, title, height, width
+) -> go.Figure:
+    """Build Plotly pairplot via scatter_matrix."""
+    import plotly.express as px
+
+    # Prepara DataFrame
+    cols = variables + ([group_col] if group_col else [])
+    df = data[cols].dropna()
+
+    if group_col:
+        fig = px.scatter_matrix(
+            df,
+            dimensions=variables,
+            color=group_col,
+            title=title,
+            height=height,
+            width=width
+        )
+    else:
+        fig = px.scatter_matrix(
+            df,
+            dimensions=variables,
+            title=title,
+            height=height,
+            width=width
+        )
+
+    fig.update_traces(
+        diagonal_visible=True,
+        marker=dict(size=4, opacity=0.6)
+    )
+
+    fig.update_layout(
+        template='plotly_white',
+        dragmode='select'
+    )
+
+    return fig
+
+def _crosstab_heatmap_plotly(
+    data, text, title, colorscale, colorbar_title, height, width
+) -> go.Figure:
+    """Build Plotly crosstab heatmap."""
+    fig = go.Figure(data=go.Heatmap(
+        z=data.values,
+        x=data.columns.tolist(),
+        y=data.index.tolist(),
+        colorscale=colorscale,
+        text=text,
+        texttemplate='%{text}',
+        textfont=dict(size=12),
+        hovertemplate='Class: %{y}<br>Outcome: %{x}<br>Value: %{z:.2f}<extra></extra>',
+        colorbar=dict(title=colorbar_title)
+    ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title='Outcome',
+        yaxis_title='Class',
+        height=height,
+        width=width,
+        template='plotly_white',
+        yaxis=dict(autorange='reversed')
+    )
+
+    return fig
+
+# ============================================================================
+# MATPLOTLIB BACKEND
+# ============================================================================
+
+def _correlation_heatmap_matplotlib(
+    corr_matrix: pd.DataFrame,
+    title: str,
+    cmap: str,
+    height: int,
+    width: int
+) -> plt.Figure:
+    """Build Matplotlib correlation heatmap."""
+    fig, ax = plt.subplots(figsize=(width/100, height/100))
+    
+    im = ax.imshow(corr_matrix.values, cmap=cmap, vmin=-1, vmax=1, aspect='auto')
+    
+    ax.set_xticks(range(len(corr_matrix.columns)))
+    ax.set_yticks(range(len(corr_matrix.index)))
+    ax.set_xticklabels(corr_matrix.columns.tolist(), rotation=45, ha='right')
+    ax.set_yticklabels(corr_matrix.index.tolist())
+    
+    # Add text annotations
+    for i in range(len(corr_matrix.index)):
+        for j in range(len(corr_matrix.columns)):
+            ax.text(
+                j, i, f'{corr_matrix.values[i, j]:.2f}',
+                ha='center', va='center',
+                fontsize=8
+            )
+    
     ax.set_title(title)
+    fig.colorbar(im, ax=ax, label='Correlation')
+    fig.tight_layout()
+    return fig
+
+
+def _confusion_matrix_matplotlib(
+    cm: np.ndarray,
+    class_names: List[str],
+    title: str,
+    normalize: bool,
+    cmap: str,
+    height: int,
+    width: int
+) -> plt.Figure:
+    """Build Matplotlib confusion matrix heatmap."""
+    if normalize:
+        cm_display = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        colorbar_title = "Proportion"
+    else:
+        cm_display = cm
+        colorbar_title = "Count"
+    
+    fig, ax = plt.subplots(figsize=(width/100, height/100))
+    
+    im = ax.imshow(cm_display, cmap=cmap)
+    
+    ax.set_xticks(range(len(class_names)))
+    ax.set_yticks(range(len(class_names)))
+    ax.set_xticklabels(class_names)
+    ax.set_yticklabels(class_names)
+    
+    # Add text annotations
+    for i in range(len(class_names)):
+        for j in range(len(class_names)):
+            if normalize:
+                text = f'{cm_display[i, j]:.2f}'
+            else:
+                text = f'{int(cm_display[i, j])}'
+            ax.text(j, i, text, ha='center', va='center', fontsize=16)
+    
+    ax.set_xlabel('Predicted')
+    ax.set_ylabel('True')
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax, label=colorbar_title)
+    fig.tight_layout()
+    return fig
+
+
+def _lca_profile_matplotlib(
+    class_profiles: pd.DataFrame,
+    n_clusters: Optional[int],
+    title: str,
+    cmap: str,
+    height: int,
+    width: int
+) -> plt.Figure:
+    """Build Matplotlib LCA profile heatmap."""
+    y_labels = [f'Class {i}' for i in range(len(class_profiles))]
+    
+    fig, ax = plt.subplots(figsize=(width/100, height/100))
+    
+    im = ax.imshow(class_profiles.values, cmap=cmap, vmin=0, vmax=1, aspect='auto')
+    
+    ax.set_xticks(range(len(class_profiles.columns)))
+    ax.set_yticks(range(len(y_labels)))
+    ax.set_xticklabels(class_profiles.columns.tolist(), rotation=45, ha='right')
+    ax.set_yticklabels(y_labels)
+    
+    # Add text annotations
+    for i in range(len(y_labels)):
+        for j in range(len(class_profiles.columns)):
+            ax.text(
+                j, i, f'{class_profiles.values[i, j]:.2f}',
+                ha='center', va='center',
+                fontsize=8
+            )
+    
+    if n_clusters:
+        title = f"LCA Class Profiles (K={n_clusters})"
+    
+    ax.set_xlabel('Variables')
+    ax.set_ylabel('Latent Class')
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax, label='Probability')
+    fig.tight_layout()
+    return fig
+
+def _lca_radar_matplotlib(
+    class_profiles: pd.DataFrame,
+    n_clusters: Optional[int],
+    title: str,
+    colors: Optional[List[str]],
+    class_names: Optional[List[str]],
+    height: int,
+    width: int
+) -> plt.Figure:
+    """Build Matplotlib radar plot for LCA profiles."""
+    features = class_profiles.columns.tolist()
+    n_features = len(features)
+
+    if colors is None:
+        colors = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261',
+                  '#8a5a44', '#a8dadc', '#457b9d', '#e63946', '#06d6a0']
+
+    # Nomes de exibição para as classes
+    if class_names is not None:
+        if len(class_names) != len(class_profiles):
+            raise ValueError(
+                f"class_names has length {len(class_names)}, "
+                f"but there are {len(class_profiles)} classes."
+            )
+        labels = list(class_names)
+    else:
+        labels = list(class_profiles.index)
+
+    # Ângulos
+    angles = np.linspace(0, 2 * np.pi, n_features, endpoint=False).tolist()
+    angles += angles[:1]  # fechar
+
+    fig, ax = plt.subplots(figsize=(width/100, height/100),
+                            subplot_kw=dict(polar=True))
+
+    for i, (class_name, row) in enumerate(class_profiles.iterrows()):
+        values = row.values.tolist() + [row.values[0]]
+
+        ax.plot(angles, values, 'o-', linewidth=2,
+                color=colors[i % len(colors)], label=str(labels[i]))
+        ax.fill(angles, values, alpha=0.2, color=colors[i % len(colors)])
+
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(features)
+    ax.set_ylim(0, 1)
+
+    if n_clusters:
+        title = f"LCA Class Profiles (K={n_clusters})"
+
+    ax.set_title(title)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+
+    fig.tight_layout()
+    return fig
+
+def _pairplot_matplotlib(
+    data, variables, group_col, title, height, width
+) -> plt.Figure:
+    """Build Matplotlib pairplot (scatter matrix)."""
+    import matplotlib.pyplot as plt
+    from pandas.plotting import scatter_matrix
+
+    cols = variables + ([group_col] if group_col else [])
+    df = data[cols].dropna()
+
+    if group_col:
+        # Colorir por grupo
+        groups = df[group_col].unique()
+        colors = plt.cm.Set2(np.linspace(0, 1, len(groups)))
+        color_map = {g: colors[i] for i, g in enumerate(groups)}
+
+        fig, axes = plt.subplots(
+            len(variables), len(variables),
+            figsize=(width/100, height/100)
+        )
+        # Garante matriz 2D mesmo se len(variables) == 1
+        if len(variables) == 1:
+            axes = np.array([[axes]])
+
+        for i, var_i in enumerate(variables):
+            for j, var_j in enumerate(variables):
+                ax = axes[i, j]
+                if i == j:
+                    # Diagonal: histograma por grupo
+                    for g in groups:
+                        ax.hist(
+                            df[df[group_col] == g][var_i],
+                            bins=20, alpha=0.5,
+                            color=color_map[g], label=str(g)
+                        )
+                else:
+                    # Off-diagonal: scatter por grupo
+                    for g in groups:
+                        sub = df[df[group_col] == g]
+                        ax.scatter(
+                            sub[var_j], sub[var_i],
+                            s=8, alpha=0.6,
+                            color=color_map[g], label=str(g)
+                        )
+                # Labels apenas nas bordas
+                if i == len(variables) - 1:
+                    ax.set_xlabel(var_j)
+                if j == 0:
+                    ax.set_ylabel(var_i)
+                ax.tick_params(labelsize=7)
+
+        # Legenda em um dos subplots
+        if len(groups) > 1:
+            axes[0, -1].legend(
+                loc='upper right',
+                fontsize=7,
+                frameon=True
+            )
+    else:
+        # Sem grupo: scatter_matrix do pandas
+        fig, axes = plt.subplots(
+            len(variables), len(variables),
+            figsize=(width/100, height/100)
+        )
+        scatter_matrix(
+            df[variables],
+            alpha=0.5,
+            figsize=(width/100, height/100),
+            diagonal='hist',
+            ax=axes,
+            marker='o',
+            s=10
+        )
+
+    fig.suptitle(title, fontsize=12)
+    fig.tight_layout()
+    return fig
+
+
+def _crosstab_heatmap_matplotlib(
+    data, text, title, cmap, colorbar_title, height, width
+) -> plt.Figure:
+    """Build Matplotlib crosstab heatmap."""
+    fig, ax = plt.subplots(figsize=(width/100, height/100))
+
+    im = ax.imshow(data.values, cmap=cmap, aspect='auto')
+
+    ax.set_xticks(range(len(data.columns)))
+    ax.set_yticks(range(len(data.index)))
+    ax.set_xticklabels(data.columns.tolist(), rotation=45, ha='right')
+    ax.set_yticklabels(data.index.tolist())
+
+    # Texto
+    for i in range(len(data.index)):
+        for j in range(len(data.columns)):
+            ax.text(
+                j, i, text[i][j] if isinstance(text, np.ndarray) else str(text[i][j]),
+                ha='center', va='center', fontsize=10
+            )
+
+    ax.set_xlabel('Outcome')
+    ax.set_ylabel('Class')
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax, label=colorbar_title)
+    fig.tight_layout()
     return fig
