@@ -1302,8 +1302,13 @@ class LCA(RAPID):
             backend=backend
         )
 
-    def _crosstab(self, backend="plotly", k: Optional[int] = None):
-        """Generate crosstab heatmap between classes and outcome for reference or exploratory k."""
+    def _crosstab(
+        self,
+        backend: str = "plotly",
+        k: Optional[int] = None,
+        mode: str = "exploratory",
+    ):
+        """Generate crosstab heatmap between classes and outcome for reference, exploratory, or selected k."""
         from isaric.visualization.heatmaps import crosstab_heatmap
 
         if self.outcome is None or self.outcome_data is None:
@@ -1312,7 +1317,7 @@ class LCA(RAPID):
                 "Pass `outcome=<column_name>` in create()."
             )
 
-        sol = self._resolve_k_solution(k)
+        sol = self._resolve_k_solution(k, mode=mode)
         pred = sol["model"].predict(self.X)
         class_names = sol["class_names"]
         target_k = sol["k"]
@@ -1336,10 +1341,14 @@ class LCA(RAPID):
         )
 
     # ======================================================================
-    # LCA-SPECIFIC SUMMARY & K-RESOLUTION HELPERS (GEN-03, LCA-06, LCA-07)
+    # LCA-SPECIFIC SUMMARY & K-RESOLUTION HELPERS (GEN-03, LCA-06, LCA-07, LCA-08)
     # ======================================================================
 
-    def _resolve_k_solution(self, k: Optional[int] = None) -> dict:
+    def _resolve_k_solution(
+        self,
+        k: Optional[int] = None,
+        mode: str = "exploratory",
+    ) -> dict:
         """
         Resolve and validate a fitted LCA class solution without mutating model state.
 
@@ -1348,34 +1357,42 @@ class LCA(RAPID):
         retrieves the corresponding StepMix estimator from self.model_objects.
 
         Args:
-            k: Optional integer number of latent classes to inspect.
+            k: Optional integer number of latent classes to inspect or select.
+            mode: Resolution role when k is provided:
+                - 'exploratory' (default): temporary exploration via summary(k=N).
+                - 'selected': formal scientific selection via decide(selected=True, k=N).
+                - 'reference': reference solution (used when k is None).
 
         Returns:
             Dictionary containing the immutable presentation context for k:
             - k (int): Resolved number of classes.
             - ref_k (int): Reference model number of classes.
             - available_ks (List[int]): Sorted list of all fitted k values.
-            - is_exploratory (bool): True when an explicit k was requested.
+            - is_exploratory (bool): True when exploring k via summary(k=N).
+            - is_selected (bool): True when resolved from a formal decision.
+            - solution_role (str): 'reference', 'exploratory', or 'selected'.
             - model (StepMix): Fitted StepMix estimator for k.
             - class_names (Optional[List[str]]): Display names if applicable to k.
             - profiles_df (pd.DataFrame): Class profile table of shape (k, n_vars).
             - grid_row (Optional[pd.Series]): Row from grid_results for k.
+            - metrics (dict): Fit metrics for k extracted from grid_results.
             - ave_pp_row (Optional[pd.Series]): Row from DiagClass['ave_pp'] for k.
             - occ_row (Optional[pd.Series]): Row from DiagClass['occ_ratios'] for k.
-            - label_tag (str): Human-readable label ('Reference k=...' or 'Exploratory k=...').
+            - label_tag (str): Human-readable label ('Reference k=...', 'Exploratory k=...', or 'Selected k=...').
 
         Raises:
             ValueError: If model is not fitted, k is not a valid integer (or is bool),
                 or k is not in self.model_objects.
         """
-        self._check_state(self._STATE_FITTED, "summary")
+        caller_name = "decide" if mode == "selected" else "summary"
+        self._check_state(self._STATE_FITTED, caller_name)
         if (
             self.fitted_model is None
             or not hasattr(self, "model_objects")
             or not self.model_objects
         ):
             raise ValueError(
-                "LCA model has no fitted class solutions. Call fit() before summary()."
+                f"LCA model has no fitted class solutions. Call fit() before {caller_name}()."
             )
 
         ref_k = int(self.fitted_model.n_components)
@@ -1393,18 +1410,22 @@ class LCA(RAPID):
                     f"Requested k={target_k} is not available in the fitted LCA solutions. "
                     f"Available fitted k values: {available_ks}."
                 )
-            is_exploratory = True
+            is_selected = (mode == "selected")
+            is_exploratory = not is_selected
+            solution_role = "selected" if is_selected else "exploratory"
             model_k = self.model_objects[target_k]
         else:
             target_k = ref_k
+            is_selected = False
             is_exploratory = False
+            solution_role = "reference"
             model_k = self.fitted_model
 
-        # Only apply custom class_names when target_k matches reference k and length matches
+        # Apply custom class_names only when length matches target_k and solution is reference or selected
         effective_class_names = (
             list(self.class_names)
             if (
-                target_k == ref_k
+                (target_k == ref_k or is_selected)
                 and self.class_names is not None
                 and len(self.class_names) == target_k
             )
@@ -1412,7 +1433,7 @@ class LCA(RAPID):
         )
 
         if (
-            not is_exploratory
+            solution_role == "reference"
             and self.result_df is not None
             and len(self.result_df) == target_k
             and (
@@ -1435,6 +1456,42 @@ class LCA(RAPID):
             if not matched.empty:
                 grid_row = matched.iloc[0]
 
+        metrics_dict = {}
+        if grid_row is not None:
+            for col_key, out_key in [
+                ("n_clusters", "n_clusters"),
+                ("LL", "ll"),
+                ("AIC", "aic"),
+                ("BIC", "bic"),
+                ("CAIC", "caic"),
+                ("SABIC", "sabic"),
+                ("entropy", "entropy"),
+                ("relative_entropy", "relative_entropy"),
+                ("ave_pp_min", "ave_pp_min"),
+                ("occ_k_min", "occ_k_min"),
+                ("min_mm_f", "min_mm_f"),
+                ("min_class_perc", "min_class_perc"),
+                ("n_par", "n_par"),
+                ("dof", "dof"),
+                ("converged", "converged"),
+                ("lrt_statistic", "lrt_statistic"),
+                ("lrt_dof_diff", "lrt_dof_diff"),
+                ("lrt_p_value", "lrt_p_value"),
+                ("blrt_p_value", "blrt_p_value"),
+            ]:
+                if col_key in grid_row.index and pd.notna(grid_row[col_key]):
+                    val = grid_row[col_key]
+                    if isinstance(val, (bool, np.bool_)):
+                        metrics_dict[out_key] = bool(val)
+                    elif isinstance(val, (int, np.integer)):
+                        metrics_dict[out_key] = int(val)
+                    elif isinstance(val, (float, np.floating)):
+                        metrics_dict[out_key] = float(val)
+                    else:
+                        metrics_dict[out_key] = val
+        elif self.metrics:
+            metrics_dict = dict(self.metrics)
+
         ave_pp_row = None
         occ_row = None
         if hasattr(self, "DiagClass") and self.DiagClass:
@@ -1445,25 +1502,112 @@ class LCA(RAPID):
             if occ_df is not None and target_k in occ_df.index:
                 occ_row = occ_df.loc[target_k]
 
-        label_tag = (
-            f"Exploratory k={target_k}"
-            if is_exploratory
-            else f"Reference k={ref_k}"
-        )
+        if is_selected:
+            label_tag = f"Selected k={target_k}"
+        elif is_exploratory:
+            label_tag = f"Exploratory k={target_k}"
+        else:
+            label_tag = f"Reference k={ref_k}"
 
         return {
             "k": target_k,
             "ref_k": ref_k,
             "available_ks": available_ks,
             "is_exploratory": is_exploratory,
+            "is_selected": is_selected,
+            "solution_role": solution_role,
             "model": model_k,
             "class_names": effective_class_names,
             "profiles_df": profiles_df,
             "grid_row": grid_row,
+            "metrics": metrics_dict,
             "ave_pp_row": ave_pp_row,
             "occ_row": occ_row,
             "label_tag": label_tag,
         }
+
+    def _resolve_report_solution(self) -> dict:
+        """
+        Resolve the LCA class solution to be used by report() and save() (LCA-08).
+
+        - If a formal decision with selected=True and a valid fitted k exists in
+          self._decision, resolves that selected k solution (mode='selected').
+        - Otherwise (no decision, selected=False, or selected=True without k),
+          falls back to the reference solution (mode='reference') and records
+          the exact decision_status ('undecided', 'rejected', or 'selected_reference').
+        """
+        decision = getattr(self, "_decision", None)
+        selected_k = None
+        decision_status = "undecided"
+
+        if isinstance(decision, dict):
+            is_sel = bool(decision.get("selected", False))
+            dec_k = decision.get("k", None)
+            if is_sel and dec_k is not None:
+                selected_k = int(dec_k)
+                decision_status = "selected_k"
+            elif is_sel and dec_k is None:
+                decision_status = "selected_reference"
+            else:
+                decision_status = "rejected"
+
+        if selected_k is not None:
+            sol = self._resolve_k_solution(selected_k, mode="selected")
+        else:
+            sol = self._resolve_k_solution(None, mode="reference")
+
+        sol["selected_k"] = selected_k
+        sol["decision_status"] = decision_status
+        sol["prevalence_df"] = self._build_class_prevalence_df(sol, is_short=False)
+
+        if self.outcome is not None and self.outcome_data is not None:
+            if (
+                sol["solution_role"] == "reference"
+                and hasattr(self, "outcome_crosstab_df")
+                and self.outcome_crosstab_df is not None
+            ):
+                ct_df = self.outcome_crosstab_df
+                test_res = getattr(self, "outcome_test_result", None)
+            else:
+                ct_df, test_res = self._compute_outcome_for_solution(
+                    model_k=sol["model"],
+                    class_names=sol["class_names"],
+                )
+            sol["outcome_crosstab_df"] = ct_df
+            sol["outcome_test_result"] = test_res
+        else:
+            sol["outcome_crosstab_df"] = None
+            sol["outcome_test_result"] = None
+
+        return sol
+
+    def _render_report_plot(
+        self,
+        plot_name: str,
+        backend: str = "matplotlib",
+        solution: Optional[dict] = None,
+    ):
+        """
+        Render a registered plot in plots_map using the report solution context (LCA-08).
+
+        Class-specific plots (radar_plot, profile_heatmap, cluster_distribution,
+        crosstab) use the formally selected k when available (or reference k otherwise).
+        Class-enumeration plots always display the complete enumeration across all k.
+        """
+        if plot_name not in self.plots_map:
+            raise ValueError(f"Unknown plot: {plot_name}")
+
+        sol = solution if solution is not None else self._resolve_report_solution()
+        plot_fn = self.plots_map[plot_name]
+        class_specific_plots = {
+            "profile_heatmap",
+            "cluster_distribution",
+            "radar_plot",
+            "crosstab",
+        }
+        if sol["is_selected"] and plot_name in class_specific_plots:
+            return plot_fn(backend=backend, k=sol["k"], mode="selected")
+        return plot_fn(backend=backend)
 
     def _compute_outcome_for_solution(
         self,
@@ -1962,11 +2106,16 @@ class LCA(RAPID):
     # PLOT METHODS (CALLED BY plots_map)
     # ======================================================================
 
-    def _profile_heatmap(self, backend="plotly", k: Optional[int] = None):
-        """Generate LCA class profiles heatmap for the reference or exploratory k."""
+    def _profile_heatmap(
+        self,
+        backend: str = "plotly",
+        k: Optional[int] = None,
+        mode: str = "exploratory",
+    ):
+        """Generate LCA class profiles heatmap for the reference, exploratory, or selected k."""
         from isaric.visualization.heatmaps import lca_profile_heatmap
 
-        sol = self._resolve_k_solution(k)
+        sol = self._resolve_k_solution(k, mode=mode)
         return lca_profile_heatmap(
             sol["profiles_df"],
             n_clusters=None,
@@ -1974,11 +2123,16 @@ class LCA(RAPID):
             backend=backend
         )
     
-    def _cluster_distribution(self, backend="plotly", k: Optional[int] = None):
-        """Generate cluster distribution bar plot for the reference or exploratory k."""
+    def _cluster_distribution(
+        self,
+        backend: str = "plotly",
+        k: Optional[int] = None,
+        mode: str = "exploratory",
+    ):
+        """Generate cluster distribution bar plot for the reference, exploratory, or selected k."""
         from isaric.visualization.barplots import simple_bar_plot
 
-        sol = self._resolve_k_solution(k)
+        sol = self._resolve_k_solution(k, mode=mode)
         pred = sol["model"].predict(self.X)
         class_labels = list(sol["profiles_df"].index)
         counts = [int((pred == i).sum()) for i in range(sol["k"])]
@@ -1995,11 +2149,16 @@ class LCA(RAPID):
             backend=backend
         )
 
-    def _radar_plot(self, backend="plotly", k: Optional[int] = None):
-        """Generate LCA radar plot for the reference or exploratory k."""
+    def _radar_plot(
+        self,
+        backend: str = "plotly",
+        k: Optional[int] = None,
+        mode: str = "exploratory",
+    ):
+        """Generate LCA radar plot for the reference, exploratory, or selected k."""
         from isaric.visualization.heatmaps import lca_radar_plot
 
-        sol = self._resolve_k_solution(k)
+        sol = self._resolve_k_solution(k, mode=mode)
         return lca_radar_plot(
             sol["profiles_df"],
             n_clusters=None,

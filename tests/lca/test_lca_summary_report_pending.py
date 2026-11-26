@@ -1267,11 +1267,11 @@ def test_lca_sequential_exploration_preserves_decision_data_metrics_and_report(
 
 
 def test_other_model_families_summary_regression(
-    synthetic_df, symptom_vars, monkeypatch, capsys
+    synthetic_df, symptom_vars, tmp_path: Path, monkeypatch, capsys
 ):
     """
-    Prompt 4.1 (Item 4):
-    Verify RAPID.summary() across all non-LCA model families:
+    Prompt 4.1 (Item 4) & Prompt 5 (Test O):
+    Verify RAPID.summary() and RAPID.report() across all non-LCA model families:
     1. Clustering: KMeans (model='kmeans')
     2. Inferential Regression: LogisticRegression (model='logistic') and GLM (model='glm')
     3. Predictive ML: Lasso (model='lasso')
@@ -1279,6 +1279,7 @@ def test_other_model_families_summary_regression(
     5. Survival Analysis: Survival (model='survival')
     """
     import numpy as np
+    import pandas as pd
 
     shown = []
     monkeypatch.setattr(go.Figure, "show", lambda self, *a, **kw: shown.append(self))
@@ -1318,22 +1319,38 @@ def test_other_model_families_summary_regression(
         with pytest.raises(ValueError, match="only supported for LCA"):
             mdl.summary(k=2)
 
+        # Verify report(format=['csv', 'pdf']) preserves legacy contract for non-LCA models
+        fam_dir = tmp_path / f"report_{name}"
+        fam_dir.mkdir()
+        monkeypatch.chdir(fam_dir)
+        mdl.summary(plots=[])
+        mdl.report(format=["csv", "pdf"])
+        capsys.readouterr()
+
+        res_csv = next(fam_dir.glob("*_results.csv"))
+        df_res = pd.read_csv(res_csv)
+        assert list(df_res.columns[:3]) == ["model_id", "model_type", "exported_at"]
+        assert "reference_k" not in df_res.columns
+        assert "selected_k" not in df_res.columns
+        assert len(list(fam_dir.glob("*.pdf"))) == 1
+
     assert len(shown) == 0
 
 
 # ============================================================================
-# FUTURE / PENDING REQUIREMENTS (LCA-08 MARKED STRICT XFAIL UNTIL IMPLEMENTED)
+# LCA-08: FORMAL MODEL SELECTION, REPORT INTEGRATION & PERSISTENCE TESTS
 # ============================================================================
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Pending LCA requirement: model.decide(selected=True, k=3, ...) currently only records metadata and does not update fitted_model/result_df from reference n_clusters=4 to k=3.",
-)
 def test_pending_decide_k_updates_active_solution(synthetic_df, symptom_vars):
     """
-    Future requirement: calling model.decide(selected=True, k=3, reason=...)
-    should switch the active solution (fitted_model, result_df, metrics) to k=3.
+    LCA-08 (formerly XFAIL 1) — Formal selection via decide(selected=True, k=3):
+    Verifies that decide(selected=True, k=3) records the formal selection and
+    resolves k=3 as the active report solution (_resolve_report_solution) while
+    preserving the original fitted reference model (k=4) and all enumerated
+    solutions in model_objects.
     """
+    import numpy as np
+
     model = isa.RAPID.create(
         data=synthetic_df,
         model="lca",
@@ -1342,23 +1359,56 @@ def test_pending_decide_k_updates_active_solution(synthetic_df, symptom_vars):
         random_seed=42,
     )
     model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 3, 4]})
-    model.decide(selected=True, k=3, reason="Selected k=3 after reviewing enumeration.")
+    ref_fitted_before = model.fitted_model
 
-    assert model.fitted_model.n_components == 3
-    assert len(model.result_df) == 3
+    model.decide(
+        selected=True,
+        k=np.int64(3),
+        reason="Selected k=3 after reviewing enumeration.",
+        notes="Verified with clinical team.",
+    )
+
+    # 1. Decision metadata accurately recorded
+    assert model._decision is not None
+    assert model._decision["selected"] is True
+    assert model._decision["k"] == 3
+    assert isinstance(model._decision["k"], int)
+    assert model._decision["reference_k"] == 4
+    assert model._decision["reason"] == "Selected k=3 after reviewing enumeration."
+    assert model._decision["notes"] == "Verified with clinical team."
+    assert "timestamp" in model._decision
+
+    # 2. Original reference model and all enumerated solutions are preserved
+    assert model.fitted_model is ref_fitted_before
+    assert model.fitted_model.n_components == 4
+    assert len(model.result_df) == 4
+    assert sorted(model.model_objects.keys()) == [1, 2, 3, 4]
+
+    # 3. Resolved report solution uses the formally selected k=3
+    rep_sol = model._resolve_report_solution()
+    assert rep_sol["k"] == 3
+    assert rep_sol["ref_k"] == 4
+    assert rep_sol["selected_k"] == 3
+    assert rep_sol["is_selected"] is True
+    assert rep_sol["solution_role"] == "selected"
+    assert rep_sol["decision_status"] == "selected_k"
+    assert rep_sol["model"] is model.model_objects[3]
+    assert len(rep_sol["profiles_df"]) == 3
+    assert len(rep_sol["prevalence_df"]) == 3
+    grid_k3 = model.grid_results.set_index("n_clusters").loc[3]
+    assert np.isclose(rep_sol["metrics"]["aic"], grid_k3["AIC"], rtol=1e-12)
+    assert np.isclose(rep_sol["metrics"]["bic"], grid_k3["BIC"], rtol=1e-12)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Pending LCA requirement: model.report() after decide(k=3) still exports result_df for initial n_clusters=4 instead of chosen k=3.",
-)
 def test_pending_report_after_decide_k_exports_chosen_k_profiles(
     synthetic_df, symptom_vars, tmp_path: Path, monkeypatch
 ):
     """
-    Future requirement: calling model.report() after model.decide(selected=True, k=3)
-    should export the 3-class profile table in the report CSV/PDF.
+    LCA-08 (formerly XFAIL 2) — CSV export after decide(selected=True, k=3):
+    Verifies that calling model.report(format=['csv']) after decide(selected=True, k=3)
+    exports the 3-class profile table, full grid_results, and k=3 diagnostics/outcomes.
     """
+    import numpy as np
     import pandas as pd
 
     monkeypatch.chdir(tmp_path)
@@ -1367,6 +1417,7 @@ def test_pending_report_after_decide_k_exports_chosen_k_profiles(
         model="lca",
         n_clusters=4,
         measurement_vars=symptom_vars,
+        outcome="severe",
         random_seed=42,
     )
     model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 3, 4]})
@@ -1379,3 +1430,464 @@ def test_pending_report_after_decide_k_exports_chosen_k_profiles(
     )
     df_exported = pd.read_csv(results_csv)
     assert len(df_exported) == 3
+    assert list(df_exported["Class"]) == ["Class_1", "Class_2", "Class_3"]
+    assert (df_exported["reference_k"] == 4).all()
+    assert (df_exported["selected_k"] == 3).all()
+    assert (df_exported["decision_status"] == "selected_k").all()
+
+    # Verify exported profiles match k=3 fitted model exactly
+    expected_k3_profiles = model._resolve_k_solution(3, mode="selected")["profiles_df"]
+    for col in symptom_vars:
+        assert np.allclose(df_exported[col].values, expected_k3_profiles[col].values, rtol=1e-12)
+
+    # Grid results CSV retains all 4 enumerated k solutions
+    grid_csv = next(tmp_path.glob("*_grid_results.csv"))
+    df_grid = pd.read_csv(grid_csv)
+    assert list(df_grid["n_clusters"]) == [1, 2, 3, 4]
+
+    # Outcome crosstab CSV has 3 rows for selected k=3
+    outcome_csv = next(tmp_path.glob("*_outcome_crosstab.csv"))
+    df_outcome = pd.read_csv(outcome_csv)
+    assert len(df_outcome) == 3
+    assert list(df_outcome["class"]) == ["Class_1", "Class_2", "Class_3"]
+
+    # Class diagnostics CSV has 3 rows for reported_k=3, while ave_pp CSV retains full enumeration
+    diag_csv = next(tmp_path.glob("*_class_diagnostics.csv"))
+    df_diag = pd.read_csv(diag_csv)
+    assert len(df_diag) == 3
+    assert (df_diag["reported_k"] == 3).all()
+
+    ave_pp_csv = next(tmp_path.glob("*_ave_pp.csv"))
+    df_ave_pp = pd.read_csv(ave_pp_csv)
+    assert len(df_ave_pp) == 4
+
+
+def test_lca08_png_and_plot_consistency_for_selected_k(
+    synthetic_df, symptom_vars, tmp_path: Path, monkeypatch
+):
+    """
+    Test C — PNG & plot consistency for selected k=3 (Plotly and Matplotlib):
+    Verifies radar_plot, profile_heatmap, cluster_distribution, and crosstab reflect
+    Selected k=3 while enumeration plots retain all fitted k=[1, 2, 3, 4].
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    model = isa.RAPID.create(
+        data=synthetic_df,
+        model="lca",
+        n_clusters=4,
+        measurement_vars=symptom_vars,
+        outcome="severe",
+        random_seed=42,
+    )
+    model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 3, 4]})
+    model.decide(selected=True, k=3, reason="Selected k=3")
+
+    # Plotly & Matplotlib via _render_report_plot
+    radar_pl = model._render_report_plot("radar_plot", backend="plotly")
+    assert len(radar_pl.data) == 3
+    assert "Selected k=3" in radar_pl.layout.title.text
+
+    radar_mpl = model._render_report_plot("radar_plot", backend="matplotlib")
+    assert "Selected k=3" in radar_mpl.axes[0].get_title()
+    _, labels = radar_mpl.axes[0].get_legend_handles_labels()
+    assert labels == ["Class_1", "Class_2", "Class_3"]
+    plt.close(radar_mpl)
+
+    hm_pl = model._render_report_plot("profile_heatmap", backend="plotly")
+    assert np.asarray(hm_pl.data[0].z).shape == (3, len(symptom_vars))
+    assert "Selected k=3" in hm_pl.layout.title.text
+
+    hm_mpl = model._render_report_plot("profile_heatmap", backend="matplotlib")
+    assert len(hm_mpl.axes[0].get_yticks()) == 3
+    assert "Selected k=3" in hm_mpl.axes[0].get_title()
+    plt.close(hm_mpl)
+
+    dist_pl = model._render_report_plot("cluster_distribution", backend="plotly")
+    assert list(dist_pl.data[0].x) == ["Class_1", "Class_2", "Class_3"]
+    assert "Selected k=3" in dist_pl.layout.title.text
+
+    ct_pl = model._render_report_plot("crosstab", backend="plotly")
+    assert np.asarray(ct_pl.data[0].z).shape[0] == 3
+    assert "Selected k=3" in ct_pl.layout.title.text
+
+    ic_pl = model._render_report_plot("information_criteria", backend="plotly")
+    assert list(ic_pl.data[0].x) == [1, 2, 3, 4]
+
+    # Export PNGs via report(format=["png"])
+    monkeypatch.chdir(tmp_path)
+    model.summary(plots=["radar_plot", "profile_heatmap"])
+    model.report(format=["png"])
+    png_files = sorted(p.name for p in tmp_path.glob("*.png"))
+    assert len(png_files) == 2
+    assert any("radar_plot" in f for f in png_files)
+    assert any("profile_heatmap" in f for f in png_files)
+
+
+def test_lca08_pdf_consistency_before_and_after_decide(
+    synthetic_df, symptom_vars, tmp_path: Path, monkeypatch
+):
+    """
+    Test D & E — PDF report consistency before and after decide(selected=True, k=3):
+    Verifies programmatic PDF story contents when undecided (Reference k=4) vs
+    after selecting k=3 (Selected k=3).
+    """
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Table
+
+    captured_stories = []
+    orig_build = SimpleDocTemplate.build
+
+    def _spy_build(self, flowables, *args, **kwargs):
+        captured_stories.append(list(flowables))
+        return orig_build(self, flowables, *args, **kwargs)
+
+    monkeypatch.setattr(SimpleDocTemplate, "build", _spy_build)
+    monkeypatch.chdir(tmp_path)
+
+    model = isa.RAPID.create(
+        data=synthetic_df,
+        model="lca",
+        n_clusters=4,
+        measurement_vars=symptom_vars,
+        outcome="severe",
+        random_seed=42,
+    )
+    model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 3, 4]})
+
+    # 1. PDF before decide() -> Reference k=4
+    model.summary(plots=["radar_plot"])
+    model.report(format=["pdf"])
+    story_before = captured_stories[-1]
+    paras_before = [f.getPlainText() for f in story_before if isinstance(f, Paragraph)]
+    assert "Fit Metrics (Reference k=4)" in paras_before
+    assert "Parameter Table — Item-Response Probabilities (Reference k=4)" in paras_before
+    assert "Selected: None (No formal decision recorded)" in paras_before
+
+    # Locate Parameter Table in story_before -> header + 4 class rows = 5 rows
+    param_idx_before = next(
+        i for i, f in enumerate(story_before)
+        if isinstance(f, Paragraph) and "Parameter Table" in f.getPlainText()
+    )
+    param_tbl_before = next(f for f in story_before[param_idx_before + 1:] if isinstance(f, Table))
+    assert len(param_tbl_before._cellvalues) == 5  # 1 header + 4 classes
+
+    # 2. PDF after decide(selected=True, k=3) -> Selected k=3
+    model.decide(
+        selected=True,
+        k=3,
+        reason="Best balance between BIC and clinical interpretability",
+    )
+    model.report(format=["pdf"])
+    story_after = captured_stories[-1]
+    paras_after = [f.getPlainText() for f in story_after if isinstance(f, Paragraph)]
+
+    assert "Fit Metrics (Selected k=3)" in paras_after
+    assert "Parameter Table — Item-Response Probabilities (Selected k=3)" in paras_after
+    assert "Class Sizes & Classification Diagnostics (Selected k=3)" in paras_after
+    assert "Outcome by Class — severe (Selected k=3)" in paras_after
+    assert "Class Enumeration Results" in paras_after
+    assert "Selected: True" in paras_after
+    assert "Reference k: 4" in paras_after
+    assert "Selected k: 3" in paras_after
+    assert "Reason: Best balance between BIC and clinical interpretability" in paras_after
+
+    # Verify Fit Metrics table in PDF contains k=3 AIC (1999.2995), not k=4 AIC (2008.6805)
+    fit_idx_after = next(
+        i for i, f in enumerate(story_after)
+        if isinstance(f, Paragraph) and f.getPlainText() == "Fit Metrics (Selected k=3)"
+    )
+    fit_tbl_after = next(f for f in story_after[fit_idx_after + 1:] if isinstance(f, Table))
+    fit_kv = dict(fit_tbl_after._cellvalues[1:])
+    assert fit_kv["aic"] == "1999.2995"
+    assert fit_kv["bic"] == "2122.7356"
+
+    # Verify Parameter Table in PDF has 1 header + 3 class rows = 4 rows
+    param_idx_after = next(
+        i for i, f in enumerate(story_after)
+        if isinstance(f, Paragraph) and "Parameter Table" in f.getPlainText()
+    )
+    param_tbl_after = next(f for f in story_after[param_idx_after + 1:] if isinstance(f, Table))
+    assert len(param_tbl_after._cellvalues) == 4  # 1 header + 3 classes
+    assert [r[0] for r in param_tbl_after._cellvalues[1:]] == ["Class_1", "Class_2", "Class_3"]
+
+    # Verify Class Enumeration table still has 1 header + 4 rows = 5 rows
+    enum_idx_after = next(
+        i for i, f in enumerate(story_after)
+        if isinstance(f, Paragraph) and f.getPlainText() == "Class Enumeration Results"
+    )
+    enum_tbl_after = next(f for f in story_after[enum_idx_after + 1:] if isinstance(f, Table))
+    assert len(enum_tbl_after._cellvalues) == 5
+
+
+def test_lca08_repeated_decisions_rejection_and_k_none_fallback(
+    synthetic_df, symptom_vars, tmp_path: Path, monkeypatch
+):
+    """
+    Test G & Section 4 — Repeated decisions, selected=False rejection, and k=None:
+    1. decide(selected=True, k=2) -> report exports 2 classes.
+    2. decide(selected=True, k=3) -> report exports 3 classes (overwrites k=2 cleanly).
+    3. decide(selected=False, k=3) -> report falls back to Reference k=4 (decision_status='rejected').
+    4. decide(selected=True, reason='...') without k -> report uses Reference k=4 (decision_status='selected_reference').
+    """
+    import pandas as pd
+
+    model = isa.RAPID.create(
+        data=synthetic_df,
+        model="lca",
+        n_clusters=4,
+        measurement_vars=symptom_vars,
+        random_seed=42,
+    )
+    model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 3, 4]})
+
+    def _export_and_read(subdir_name: str) -> pd.DataFrame:
+        d = tmp_path / subdir_name
+        d.mkdir()
+        monkeypatch.chdir(d)
+        model.report(format=["csv"])
+        res_csv = next(
+            p for p in d.glob("*_results.csv")
+            if not p.name.endswith("_grid_results.csv")
+        )
+        return pd.read_csv(res_csv)
+
+    # 1. Decide k=2
+    model.decide(selected=True, k=2, reason="Initial k=2")
+    df_k2 = _export_and_read("step1_k2")
+    assert len(df_k2) == 2
+    assert (df_k2["selected_k"] == 2).all()
+
+    # 2. Revise decision to k=3
+    model.decide(selected=True, k=3, reason="Revised to k=3")
+    df_k3 = _export_and_read("step2_k3")
+    assert len(df_k3) == 3
+    assert (df_k3["selected_k"] == 3).all()
+    assert model._decision["reason"] == "Revised to k=3"
+
+    # 3. Reject k=3 (selected=False) -> falls back to reference k=4
+    model.decide(selected=False, k=3, reason="Rejected k=3 after clinical review")
+    df_rej = _export_and_read("step3_rejected")
+    assert len(df_rej) == 4
+    assert df_rej["selected_k"].isna().all()
+    assert (df_rej["decision_status"] == "rejected").all()
+
+    # 4. Decide selected=True without k -> falls back to reference k=4 without inventing selected_k
+    model.decide(selected=True, reason="Accepted reference model")
+    df_ref = _export_and_read("step4_no_k")
+    assert len(df_ref) == 4
+    assert df_ref["selected_k"].isna().all()
+    assert (df_ref["decision_status"] == "selected_reference").all()
+
+
+def test_lca08_invalid_decide_parameters_and_refit_invalidation(
+    synthetic_df, symptom_vars
+):
+    """
+    Test H & I — Validation of invalid decide() arguments and stale decision
+    invalidation on re-fit (both when new range excludes and includes old k).
+    """
+    m_unfitted = isa.RAPID.create(
+        data=synthetic_df,
+        model="lca",
+        n_clusters=3,
+        measurement_vars=symptom_vars,
+    )
+    with pytest.raises(ValueError, match="state 'created'"):
+        m_unfitted.decide(selected=True, k=2)
+
+    model = isa.RAPID.create(
+        data=synthetic_df,
+        model="lca",
+        n_clusters=4,
+        measurement_vars=symptom_vars,
+        random_seed=42,
+    )
+    model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 4]})
+
+    # Unavailable k values (k=99, k=0, k=-1, unfitted k=3)
+    for bad_val in [99, 0, -1, 3]:
+        with pytest.raises(ValueError, match=r"not available.*\[1, 2, 4\]"):
+            model.decide(selected=True, k=bad_val)
+
+    # Invalid types for k (bool, str, float, list)
+    for bad_type in [True, False, "2", 2.5, [1, 2]]:
+        with pytest.raises(ValueError, match="must be an integer"):
+            model.decide(selected=True, k=bad_type)
+
+    # Invalid type for selected
+    with pytest.raises(ValueError, match="Parameter 'selected' must be a boolean"):
+        model.decide(selected="yes", k=2)
+
+    # Re-fit invalidation Case 1: old selected k=4 is not in new param_grid [1, 2]
+    model.decide(selected=True, k=4, reason="Selected k=4")
+    assert model._decision is not None
+    model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2]})
+    assert model._decision is None
+    assert model._resolve_report_solution()["decision_status"] == "undecided"
+    assert model._resolve_report_solution()["k"] == 1
+
+    # Re-fit invalidation Case 2: old selected k=2 IS in new param_grid [1, 2, 3], still invalidated
+    model.decide(selected=True, k=2, reason="Selected k=2")
+    assert model._decision is not None
+    model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 3]})
+    assert model._decision is None
+    assert model._resolve_report_solution()["decision_status"] == "undecided"
+
+
+def test_lca08_explicit_plot_selection_k1_and_outcome_in_report(
+    synthetic_df, symptom_vars, tmp_path: Path, monkeypatch
+):
+    """
+    Test J, K & L — Explicit empty plots with decide(), k=1 formal selection,
+    and continuous/categorical outcome reporting for selected k.
+    """
+    import numpy as np
+    import pandas as pd
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate
+
+    captured_stories = []
+    orig_build = SimpleDocTemplate.build
+
+    def _spy_build(self, flowables, *args, **kwargs):
+        captured_stories.append(list(flowables))
+        return orig_build(self, flowables, *args, **kwargs)
+
+    monkeypatch.setattr(SimpleDocTemplate, "build", _spy_build)
+
+    rng = np.random.default_rng(42)
+    df_out = synthetic_df.copy()
+    df_out["cont_score"] = rng.normal(loc=50.0, scale=10.0, size=len(df_out))
+
+    model = isa.RAPID.create(
+        data=df_out,
+        model="lca",
+        n_clusters=4,
+        measurement_vars=symptom_vars,
+        outcome="cont_score",
+        random_seed=42,
+    )
+    model.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 3, 4]})
+
+    # Test J: summary(plots=[]) -> decide(selected=True, k=3) -> report(format=["png", "pdf"]) exports 0 figures
+    dir_no_plots = tmp_path / "no_plots_k3"
+    dir_no_plots.mkdir()
+    monkeypatch.chdir(dir_no_plots)
+    model.summary(plots=[])
+    model.decide(selected=True, k=3, reason="k=3 with continuous outcome and no plots")
+    model.report(format=["csv", "png", "pdf"])
+
+    assert len(list(dir_no_plots.glob("*.png"))) == 0
+    story_no_plots = captured_stories[-1]
+    assert len([f for f in story_no_plots if isinstance(f, Image)]) == 0
+    paras_no_plots = [f.getPlainText() for f in story_no_plots if isinstance(f, Paragraph)]
+    assert "Figures" not in paras_no_plots
+    assert "Outcome by Class — cont_score (Selected k=3)" in paras_no_plots
+    assert any("ANOVA:" in p for p in paras_no_plots)
+
+    # Test L: Formal selection of k=1
+    dir_k1 = tmp_path / "selected_k1"
+    dir_k1.mkdir()
+    monkeypatch.chdir(dir_k1)
+    model.summary(plots=["radar_plot"])
+    model.decide(selected=True, k=1, reason="Single class selected")
+    model.report(format=["csv", "png", "pdf"])
+
+    res_k1 = pd.read_csv(
+        next(p for p in dir_k1.glob("*_results.csv") if not p.name.endswith("_grid_results.csv"))
+    )
+    assert len(res_k1) == 1
+    assert (res_k1["selected_k"] == 1).all()
+    assert len(list(dir_k1.glob("*.png"))) == 1
+
+    story_k1 = captured_stories[-1]
+    paras_k1 = [f.getPlainText() for f in story_k1 if isinstance(f, Paragraph)]
+    assert "Fit Metrics (Selected k=1)" in paras_k1
+    assert "Selected k: 1" in paras_k1
+    assert any("not applicable" in p for p in paras_k1)
+
+
+def test_lca08_multi_model_report_save_persistence_and_no_recalculation(
+    model_bootstrap, synthetic_df, symptom_vars, tmp_path: Path, monkeypatch
+):
+    """
+    Test M, N & Section 9 — Multi-model report isolation, save() persistence
+    consistency, and zero statistical/bootstrap recalculation during decide() & report().
+    """
+    import json
+    import pickle
+    import zipfile
+    import pandas as pd
+    from isaric.modelevaluation import gridsearch as gs_mod
+    from stepmix.stepmix import StepMix
+
+    # Forbid any StepMix fitting or bootstrap recalculation during decide(), report(), and save()
+    def _forbid_fit_or_boot(*args, **kwargs):
+        raise AssertionError("No re-fitting or bootstrap recalculation is allowed during decide/report/save")
+
+    model_b = isa.RAPID.create(
+        data=synthetic_df,
+        model="lca",
+        n_clusters=4,
+        measurement_vars=symptom_vars,
+        random_seed=99,
+    )
+    model_b.fit(bootstrap=False, param_grid={"n_clusters": [1, 2, 3, 4]})
+
+    monkeypatch.setattr(StepMix, "fit", _forbid_fit_or_boot)
+    monkeypatch.setattr(gs_mod, "bootstrap_stepmix", _forbid_fit_or_boot)
+    monkeypatch.setattr(gs_mod, "bootstrap_ci_stepmix", _forbid_fit_or_boot)
+    monkeypatch.setattr(gs_mod, "bootstrap_lrt_stepmix", _forbid_fit_or_boot)
+
+    grid_a_before = model_bootstrap.grid_results.copy(deep=True)
+    ci_a_before = model_bootstrap.lrt_results["ci_bootstrap"].copy(deep=True)
+
+    # Model A selects k=3; Model B selects k=2
+    model_bootstrap.decide(selected=True, k=3, reason="Model A selected k=3")
+    model_b.decide(selected=True, k=2, reason="Model B selected k=2")
+
+    monkeypatch.chdir(tmp_path)
+    model_bootstrap.report(models=[model_bootstrap, model_b], format=["csv", "pdf"])
+
+    # Verify independent CSV exports for Model A (3 rows) and Model B (2 rows)
+    res_a = pd.read_csv(
+        next(
+            p for p in tmp_path.glob(f"{model_bootstrap.model_id}*_results.csv")
+            if not p.name.endswith("_grid_results.csv")
+        )
+    )
+    res_b = pd.read_csv(
+        next(
+            p for p in tmp_path.glob(f"{model_b.model_id}*_results.csv")
+            if not p.name.endswith("_grid_results.csv")
+        )
+    )
+    assert len(res_a) == 3
+    assert (res_a["selected_k"] == 3).all()
+    assert len(res_b) == 2
+    assert (res_b["selected_k"] == 2).all()
+    assert len(list(tmp_path.glob("*.pdf"))) == 1
+
+    # Verify save() persists the selected k=3 estimator and unambiguous metadata
+    model_bootstrap.save()
+    saved_zip = tmp_path / model_bootstrap.saved_filename
+    assert saved_zip.exists()
+    with zipfile.ZipFile(saved_zip, "r") as zf:
+        meta = json.loads(zf.read("metadata.json").decode("utf-8"))
+        saved_est = pickle.loads(zf.read("model.pkl"))
+
+    assert meta["reference_k"] == 4
+    assert meta["selected_k"] == 3
+    assert meta["serialized_model_k"] == 3
+    assert meta["serialized_model_role"] == "selected"
+    assert meta["decision_status"] == "selected_k"
+    assert saved_est.n_components == 3
+    # Live reference estimator remains k=4
+    assert model_bootstrap.fitted_model.n_components == 4
+
+    # Verify numerical invariance of grid_results and ci_bootstrap
+    pd.testing.assert_frame_equal(model_bootstrap.grid_results, grid_a_before)
+    pd.testing.assert_frame_equal(model_bootstrap.lrt_results["ci_bootstrap"], ci_a_before)
+
+    # Restore model_bootstrap._decision to None so session fixture stays clean
+    model_bootstrap._decision = None

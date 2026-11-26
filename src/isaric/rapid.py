@@ -558,6 +558,7 @@ class RAPID(ABC):
         with tempfile.TemporaryDirectory() as tmpdir:
 
             for model in models:
+                report_sol = model._get_report_solution()
 
                 # ── Model header ──────────────────────────────────────────
                 story.append(Paragraph(f"Model: {model.model_id}", s_h1))
@@ -578,19 +579,38 @@ class RAPID(ABC):
                 ctx.append(["random_seed", str(getattr(model, '_random_seed', '—'))])
                 if hasattr(model, 'model_info') and model.model_info:
                     for k in ['framework', 'method', 'N_observations',
-                               'N_events', 'N_features']:
+                               'N_variables', 'N_events', 'N_features']:
                         if k in model.model_info:
                             ctx.append([k, str(model.model_info[k])])
+                if report_sol is not None:
+                    ctx.append(["reference_k", str(report_sol["ref_k"])])
+                    ctx.append([
+                        "selected_k",
+                        str(report_sol["selected_k"])
+                        if report_sol["selected_k"] is not None
+                        else f"None (using Reference k={report_sol['ref_k']})",
+                    ])
+                    ctx.append(["decision_status", str(report_sol["decision_status"])])
                 t = Table(ctx, colWidths=[2.5*inch, 3.5*inch])
                 t.setStyle(_tbl_style())
                 story.append(t)
                 story.append(Spacer(1, 0.15*inch))
 
                 # ── Fit metrics ───────────────────────────────────────────
-                if hasattr(model, 'metrics') and model.metrics:
-                    story.append(Paragraph("Fit Metrics", s_h2))
+                active_metrics = (
+                    report_sol["metrics"]
+                    if report_sol is not None and report_sol.get("metrics")
+                    else getattr(model, 'metrics', None)
+                )
+                if active_metrics:
+                    metrics_heading = (
+                        f"Fit Metrics ({report_sol['label_tag']})"
+                        if report_sol is not None
+                        else "Fit Metrics"
+                    )
+                    story.append(Paragraph(metrics_heading, s_h2))
                     met = [["Metric", "Value"]]
-                    for k, v in model.metrics.items():
+                    for k, v in active_metrics.items():
                         if k == 'confusion_matrix':
                             continue
                         met.append([
@@ -603,9 +623,25 @@ class RAPID(ABC):
                     story.append(Spacer(1, 0.15*inch))
 
                 # ── Parameter table ───────────────────────────────────────
-                if hasattr(model, 'result_df') and model.result_df is not None:
-                    story.append(Paragraph("Parameter Table", s_h2))
-                    df = model.result_df.reset_index(drop=True)
+                active_result_df = (
+                    report_sol["profiles_df"]
+                    if report_sol is not None
+                    else getattr(model, 'result_df', None)
+                )
+                if active_result_df is not None:
+                    param_heading = (
+                        f"Parameter Table — Item-Response Probabilities ({report_sol['label_tag']})"
+                        if report_sol is not None
+                        else "Parameter Table"
+                    )
+                    story.append(Paragraph(param_heading, s_h2))
+                    if report_sol is not None:
+                        df = active_result_df.copy()
+                        if "Class" not in df.columns:
+                            df.insert(0, "Class", list(df.index))
+                        df = df.reset_index(drop=True)
+                    else:
+                        df = active_result_df.reset_index(drop=True)
                     rows = [list(df.columns)]
                     for _, row in df.iterrows():
                         rows.append([
@@ -675,30 +711,48 @@ class RAPID(ABC):
                 if hasattr(model, 'DiagClass') and model.DiagClass:
                     story.append(Paragraph("Class Diagnostics", s_h2))
 
-                    # Class sizes/proportions
+                    # Class sizes/proportions & solution-specific diagnostics (AvePP, OCC)
                     try:
-                        weights = model.fitted_model.weights_
-                        n_classes = len(weights)
-                        class_labels = (
-                            model.class_names
-                            if hasattr(model, 'class_names')
-                                and model.class_names
-                                and len(model.class_names) == n_classes
-                            else [f"Class_{i+1}" for i in range(n_classes)]
-                        )
-                        sizes_data = [["Class", "Proportion", "N (est.)"]]
-                        n_obs = len(model.X)
-                        for lbl, w in zip(class_labels, weights):
-                            sizes_data.append([
-                                lbl,
-                                f"{w:.4f}",
-                                f"{int(round(w * n_obs))}",
-                            ])
-                        t = Table(sizes_data, colWidths=[2.5*inch, 1.5*inch, 1.5*inch])
-                        t.setStyle(_tbl_style())
-                        story.append(Paragraph("Class Sizes", s_body))
-                        story.append(t)
-                        story.append(Spacer(1, 0.1*inch))
+                        if report_sol is not None and report_sol.get("prevalence_df") is not None:
+                            prev_df = report_sol["prevalence_df"]
+                            rows = [list(prev_df.columns)]
+                            for _, row in prev_df.iterrows():
+                                rows.append([
+                                    f"{v:.4f}" if isinstance(v, float) else str(v)
+                                    for v in row
+                                ])
+                            col_w = (PAGE_W - 2*inch) / max(len(rows[0]), 1)
+                            t = Table(rows, colWidths=[col_w] * len(rows[0]))
+                            t.setStyle(_tbl_style())
+                            story.append(Paragraph(
+                                f"Class Sizes & Classification Diagnostics ({report_sol['label_tag']})",
+                                s_body,
+                            ))
+                            story.append(t)
+                            story.append(Spacer(1, 0.1*inch))
+                        else:
+                            weights = model.fitted_model.weights_
+                            n_classes = len(weights)
+                            class_labels = (
+                                model.class_names
+                                if hasattr(model, 'class_names')
+                                    and model.class_names
+                                    and len(model.class_names) == n_classes
+                                else [f"Class_{i+1}" for i in range(n_classes)]
+                            )
+                            sizes_data = [["Class", "Proportion", "N (est.)"]]
+                            n_obs = len(model.X)
+                            for lbl, w in zip(class_labels, weights):
+                                sizes_data.append([
+                                    lbl,
+                                    f"{w:.4f}",
+                                    f"{int(round(w * n_obs))}",
+                                ])
+                            t = Table(sizes_data, colWidths=[2.5*inch, 1.5*inch, 1.5*inch])
+                            t.setStyle(_tbl_style())
+                            story.append(Paragraph("Class Sizes", s_body))
+                            story.append(t)
+                            story.append(Spacer(1, 0.1*inch))
                     except Exception:
                         pass
 
@@ -743,13 +797,25 @@ class RAPID(ABC):
                         story.append(Spacer(1, 0.1*inch))
 
                 # ── Outcome crosstab ──────────────────────────────────────────
-                if (hasattr(model, 'outcome_crosstab_df')
-                        and model.outcome_crosstab_df is not None):
+                active_outcome_ct = (
+                    report_sol["outcome_crosstab_df"]
+                    if report_sol is not None
+                    else getattr(model, 'outcome_crosstab_df', None)
+                )
+                active_outcome_test = (
+                    report_sol["outcome_test_result"]
+                    if report_sol is not None
+                    else getattr(model, 'outcome_test_result', None)
+                )
+                if active_outcome_ct is not None:
                     outcome_name = getattr(model, 'outcome', 'outcome')
-                    story.append(Paragraph(
-                        f"Outcome by Class — {outcome_name}", s_h2
-                    ))
-                    ct = model.outcome_crosstab_df.reset_index()
+                    outcome_heading = (
+                        f"Outcome by Class — {outcome_name} ({report_sol['label_tag']})"
+                        if report_sol is not None
+                        else f"Outcome by Class — {outcome_name}"
+                    )
+                    story.append(Paragraph(outcome_heading, s_h2))
+                    ct = active_outcome_ct.reset_index()
                     rows = [list(ct.columns)]
                     for _, row in ct.iterrows():
                         rows.append([
@@ -760,14 +826,18 @@ class RAPID(ABC):
                     t = Table(rows, colWidths=[col_w] * len(rows[0]))
                     t.setStyle(_tbl_style())
                     story.append(t)
-                    if (hasattr(model, 'outcome_test_result')
-                            and model.outcome_test_result):
-                        tr = model.outcome_test_result
+                    if active_outcome_test:
+                        tr = active_outcome_test
                         story.append(Paragraph(
                             f"{tr.get('test', '')}: "
                             f"stat={tr.get('statistic', float('nan')):.4f}, "
                             f"p={tr.get('p_value', float('nan')):.4f}",
                             s_note
+                        ))
+                    elif report_sol is not None:
+                        story.append(Paragraph(
+                            "Statistical test: not applicable (single class or insufficient observations)",
+                            s_note,
                         ))
                     story.append(Spacer(1, 0.15*inch))
 
@@ -786,15 +856,60 @@ class RAPID(ABC):
                     story.append(Spacer(1, 0.1*inch))
 
                 # ── Decision ──────────────────────────────────────────────
-                if model._decision:
+                if model._decision or report_sol is not None:
                     story.append(Paragraph("Decision", s_h2))
-                    story.append(Paragraph(
-                        f"Selected: {model._decision.get('selected', '—')}",
-                        s_body
-                    ))
-                    if model._decision.get('reason'):
+                    if model._decision:
                         story.append(Paragraph(
-                            f"Reason: {model._decision['reason']}", s_body
+                            f"Selected: {model._decision.get('selected', '—')}",
+                            s_body
+                        ))
+                        if report_sol is not None:
+                            story.append(Paragraph(
+                                f"Reference k: {report_sol['ref_k']}",
+                                s_body,
+                            ))
+                            if report_sol["is_selected"]:
+                                story.append(Paragraph(
+                                    f"Selected k: {report_sol['selected_k']}",
+                                    s_body,
+                                ))
+                            elif model._decision.get("selected") is False:
+                                rej_k = model._decision.get("k")
+                                rej_note = f" (Rejected k={rej_k})" if rej_k is not None else ""
+                                story.append(Paragraph(
+                                    f"Selected k: None{rej_note} — Report uses Reference k={report_sol['ref_k']}",
+                                    s_body,
+                                ))
+                            else:
+                                story.append(Paragraph(
+                                    f"Selected k: None — Report uses Reference k={report_sol['ref_k']}",
+                                    s_body,
+                                ))
+                        elif model._decision.get("k") is not None:
+                            story.append(Paragraph(
+                                f"Selected k: {model._decision['k']}",
+                                s_body,
+                            ))
+                        if model._decision.get('reason'):
+                            story.append(Paragraph(
+                                f"Reason: {model._decision['reason']}", s_body
+                            ))
+                        if model._decision.get('notes'):
+                            story.append(Paragraph(
+                                f"Notes: {model._decision['notes']}", s_body
+                            ))
+                        if model._decision.get('timestamp'):
+                            story.append(Paragraph(
+                                f"Timestamp: {model._decision['timestamp']}", s_note
+                            ))
+                    else:
+                        story.append(Paragraph(
+                            "Selected: None (No formal decision recorded)",
+                            s_body,
+                        ))
+                        story.append(Paragraph(
+                            f"Reference k: {report_sol['ref_k']} — Report uses Reference k={report_sol['ref_k']}",
+                            s_body,
                         ))
                     story.append(Spacer(1, 0.1*inch))
 
@@ -813,9 +928,16 @@ class RAPID(ABC):
                             import matplotlib
                             matplotlib.use('Agg')
                             import matplotlib.pyplot as plt
-                            fig = model.plots_map[plot_name](
-                                backend="matplotlib"
-                            )
+                            if hasattr(model, '_render_report_plot') and callable(model._render_report_plot):
+                                fig = model._render_report_plot(
+                                    plot_name,
+                                    backend="matplotlib",
+                                    solution=report_sol,
+                                )
+                            else:
+                                fig = model.plots_map[plot_name](
+                                    backend="matplotlib"
+                                )
                             figs = fig if isinstance(fig, list) else [fig]
                             for idx, f in enumerate(figs):
                                 png = os.path.join(
@@ -848,11 +970,18 @@ class RAPID(ABC):
 
                 # Metrics
                 all_keys = []
+                resolved_metrics_by_model = []
                 for m in models:
-                    if hasattr(m, 'metrics') and m.metrics:
-                        for k, v in m.metrics.items():
-                            if isinstance(v, (int, float)) and k not in all_keys:
-                                all_keys.append(k)
+                    m_sol = m._get_report_solution()
+                    m_met = (
+                        m_sol["metrics"]
+                        if m_sol is not None and m_sol.get("metrics")
+                        else getattr(m, 'metrics', None)
+                    ) or {}
+                    resolved_metrics_by_model.append(m_met)
+                    for k, v in m_met.items():
+                        if isinstance(v, (int, float)) and k not in all_keys:
+                            all_keys.append(k)
 
                 if all_keys:
                     story.append(Paragraph("Metrics", s_h2))
@@ -860,8 +989,8 @@ class RAPID(ABC):
                     rows = [hdr]
                     for key in all_keys:
                         row = [key]
-                        for m in models:
-                            v = (m.metrics or {}).get(key, None)
+                        for m_met in resolved_metrics_by_model:
+                            v = m_met.get(key, None)
                             row.append(
                                 f"{v:.4f}" if isinstance(v, float)
                                 else str(v) if v is not None else "—"
@@ -940,7 +1069,13 @@ class RAPID(ABC):
                 story,
                 onFirstPage=_hf,
                 onLaterPages=_hf,
-            )   
+            )
+
+    def _get_report_solution(self) -> Optional[Dict[str, Any]]:
+        """Return resolved report solution context when supported by the model subclass."""
+        if hasattr(self, "_resolve_report_solution") and callable(self._resolve_report_solution):
+            return self._resolve_report_solution()
+        return None
 
     # ======================================================================
     # ABSTRACT CONTRACT
@@ -1159,8 +1294,9 @@ class RAPID(ABC):
         from datetime import datetime
         from sklearn.model_selection import train_test_split as _sklearn_split
 
-        # ── Store params ──────────────────────────────────────────────────
+        # ── Store params & invalidate stale decision/display state ────────
         self._displayed_plots = None
+        self._decision        = None
         self._bootstrap      = bootstrap
         self._bootstrap_type = bootstrap_type
         self._n_iterations   = n_iterations
@@ -1667,6 +1803,18 @@ class RAPID(ABC):
                     entry_copy[k] = str(v)
             validation_log_serialisable.append(entry_copy)
 
+        report_sol = self._get_report_solution()
+        estimator_to_save = (
+            report_sol["model"]
+            if report_sol is not None
+            else self.fitted_model
+        )
+        metrics_to_save = (
+            report_sol["metrics"]
+            if report_sol is not None and report_sol.get("metrics")
+            else self.metrics
+        )
+
         metadata = {
             "model_id":        self.model_id,
             "model_name":      self.model_type,
@@ -1675,14 +1823,20 @@ class RAPID(ABC):
             "fit_at":          self._fit_at,
             "rapid_version":   isaric.__version__,
             "library_versions": self._libraries_used,
-            "key_metrics":     self.metrics,
+            "key_metrics":     metrics_to_save,
             "validation_log":  validation_log_serialisable,
             "decision":        self._decision,
         }
+        if report_sol is not None:
+            metadata["reference_k"] = report_sol["ref_k"]
+            metadata["selected_k"] = report_sol["selected_k"]
+            metadata["serialized_model_k"] = report_sol["k"]
+            metadata["serialized_model_role"] = report_sol["solution_role"]
+            metadata["decision_status"] = report_sol["decision_status"]
 
         with zipfile.ZipFile(filename, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.writestr('metadata.json', json.dumps(metadata, indent=2))
-            zf.writestr('model.pkl', pickle.dumps(self.fitted_model))
+            zf.writestr('model.pkl', pickle.dumps(estimator_to_save))
 
         self.saved_filename = filename
         print(f"✅ Model saved: {filename}")
@@ -1848,16 +2002,35 @@ class RAPID(ABC):
         if "csv" in format_list:
             for model in models:
                 prefix = f"{model.model_id}-{timestamp}"
+                report_sol = model._get_report_solution()
 
                 def _add_context(df) -> 'DataFrame':
-                    """Add model context columns to exported DataFrame."""
+                    """Add model context columns to exported DataFrame without duplicating columns."""
                     df = df.reset_index(drop=True).copy()
-                    df.insert(0, 'exported_at', timestamp)
-                    df.insert(0, 'model_type',  model.model_type)
-                    df.insert(0, 'model_id',    model.model_id)
+                    context_cols = [
+                        ('model_id', model.model_id),
+                        ('model_type', model.model_type),
+                    ]
+                    if report_sol is not None:
+                        context_cols.extend([
+                            ('reference_k', report_sol["ref_k"]),
+                            ('selected_k', report_sol["selected_k"]),
+                            ('decision_status', report_sol["decision_status"]),
+                        ])
+                    context_cols.append(('exported_at', timestamp))
+                    for col_name, col_val in reversed(context_cols):
+                        if col_name not in df.columns:
+                            df.insert(0, col_name, col_val)
                     return df
 
-                if hasattr(model, 'result_df') and model.result_df is not None:
+                if report_sol is not None:
+                    prof_df = report_sol["profiles_df"].copy()
+                    if "Class" not in prof_df.columns:
+                        prof_df.insert(0, "Class", list(prof_df.index))
+                    csv_file = f"{prefix}_results.csv"
+                    _add_context(prof_df).to_csv(csv_file, index=False)
+                    print(f"✅ CSV saved: {csv_file}")
+                elif hasattr(model, 'result_df') and model.result_df is not None:
                     csv_file = f"{prefix}_results.csv"
                     _add_context(model.result_df).to_csv(csv_file, index=False)
                     print(f"✅ CSV saved: {csv_file}")
@@ -1868,11 +2041,15 @@ class RAPID(ABC):
                     print(f"✅ CSV saved: {csv_grid}")
 
                 # Additional exports for LCA
-                if (hasattr(model, 'outcome_crosstab_df')
-                        and model.outcome_crosstab_df is not None):
+                active_outcome_ct = (
+                    report_sol["outcome_crosstab_df"]
+                    if report_sol is not None
+                    else getattr(model, 'outcome_crosstab_df', None)
+                )
+                if active_outcome_ct is not None:
                     csv_ct = f"{prefix}_outcome_crosstab.csv"
                     _add_context(
-                        model.outcome_crosstab_df.reset_index()
+                        active_outcome_ct.reset_index()
                     ).to_csv(csv_ct, index=False)
                     print(f"✅ CSV saved: {csv_ct}")
 
@@ -1885,10 +2062,18 @@ class RAPID(ABC):
                         ).to_csv(csv_pp, index=False)
                         print(f"✅ CSV saved: {csv_pp}")
 
+                    if report_sol is not None and report_sol.get("prevalence_df") is not None:
+                        csv_diag = f"{prefix}_class_diagnostics.csv"
+                        diag_df = report_sol["prevalence_df"].copy()
+                        diag_df.insert(0, "reported_k", report_sol["k"])
+                        _add_context(diag_df).to_csv(csv_diag, index=False)
+                        print(f"✅ CSV saved: {csv_diag}")
+
         # ── PNG export — one file per model per plot ──────────────────────
         if "png" in format_list:
             for model in models:
                 prefix = f"{model.model_id}-{timestamp}"
+                report_sol = model._get_report_solution()
                 plots_to_export = (
                     model._displayed_plots
                     if model._displayed_plots is not None
@@ -1900,7 +2085,14 @@ class RAPID(ABC):
                     try:
                         import matplotlib
                         matplotlib.use('Agg')
-                        fig = model.plots_map[plot_name](backend="matplotlib")
+                        if hasattr(model, '_render_report_plot') and callable(model._render_report_plot):
+                            fig = model._render_report_plot(
+                                plot_name,
+                                backend="matplotlib",
+                                solution=report_sol,
+                            )
+                        else:
+                            fig = model.plots_map[plot_name](backend="matplotlib")
                         figs = fig if isinstance(fig, list) else [fig]
                         for idx, f in enumerate(figs):
                             png_file = f"{prefix}_{plot_name}_{idx}.png"
@@ -1992,7 +2184,7 @@ class RAPID(ABC):
 
         from datetime import datetime
 
-        # Validate k for LCA
+        # Validate k for LCA / clustering
         if k is not None:
             if self.model_type not in ('lca', 'kmeans'):
                 import warnings
@@ -2003,6 +2195,9 @@ class RAPID(ABC):
                     stacklevel=2,
                 )
                 k = None
+            elif hasattr(self, '_resolve_k_solution') and callable(self._resolve_k_solution):
+                resolved = self._resolve_k_solution(k, mode="selected")
+                k = resolved["k"]
             elif (hasattr(self, 'model_objects')
                   and self.model_objects
                   and k not in self.model_objects):
@@ -2012,8 +2207,16 @@ class RAPID(ABC):
                     f"Re-run fit() with a param_grid that includes k={k}."
                 )
 
+        if isinstance(selected, bool):
+            selected_bool = selected
+        else:
+            raise ValueError(
+                f"Parameter 'selected' must be a boolean (True or False). "
+                f"Received: {selected!r} (type {type(selected).__name__})."
+            )
+
         self._decision = {
-            'selected':   bool(selected),
+            'selected':   selected_bool,
             'reason':     reason,
             'k':          k,
             'notes':      notes,
@@ -2021,6 +2224,8 @@ class RAPID(ABC):
             'model_id':   self.model_id,
             'model_type': self.model_type,
         }
+        if self.model_type == 'lca' and self.fitted_model is not None:
+            self._decision['reference_k'] = int(self.fitted_model.n_components)
 
         # Confirmation message
         status = "✅ SELECTED" if selected else "❌ NOT SELECTED"
