@@ -57,6 +57,14 @@ coverage.xml
 *.cover
 .pytest_cache/
 .tox/
+src/isaric/__init__.py
+src/isaric/modeling/clustering.py
+src/isaric/rapid.py
+src/isaric/visualization/lineplots.py
+notebooks/validation/lca_development_local.ipynb
+scripts/lca/
+tests/
+RAPIDv0_2_0_LCA_Clustering_sampleSINAN.ipynb
 
 # ============================================================================
 # DOCUMENTATION BUILD
@@ -85,3 +93,8 @@ secrets.yml
 # GITHUB ACTIONS TEMP
 # ============================================================================
 workflow-temp/
+
+# ============================================================================
+# DEVELOPMENT ARTIFACTS AND BASELINES
+# ============================================================================
+artifacts/

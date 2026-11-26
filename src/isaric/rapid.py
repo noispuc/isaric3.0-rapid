@@ -622,11 +622,17 @@ class RAPID(ABC):
                 if hasattr(model, 'grid_results') and model.grid_results is not None:
                     story.append(Paragraph("Class Enumeration Results", s_h2))
                     gdf = model.grid_results.reset_index(drop=True)
+                    if 'convergence_rate' in gdf.columns:
+                        conv_vals = gdf['convergence_rate'].dropna()
+                        if conv_vals.empty or (conv_vals == 1.0).all():
+                            gdf = gdf.drop(columns=['convergence_rate'])
                     # Select most relevant columns for the report
                     show_cols = [c for c in [
                         'n_clusters', 'LL', 'AIC', 'BIC', 'CAIC', 'SABIC',
                         'entropy', 'relative_entropy', 'convergence_rate',
                         'ave_pp_min', 'min_class_perc',
+                        'lrt_statistic', 'lrt_dof_diff', 'lrt_p_value',
+                        'blrt_p_value',
                     ] if c in gdf.columns]
                     gdf_show = gdf[show_cols] if show_cols else gdf
                     rows = [list(gdf_show.columns)]
@@ -641,8 +647,14 @@ class RAPID(ABC):
                     story.append(t)
                     story.append(Spacer(1, 0.15*inch))
 
-                # ── Nested LRT ────────────────────────────────────────────────
-                if (hasattr(model, 'nested_models_lrt')
+                # ── Nested LRT (only when not already integrated in grid_results) ─
+                _lrt_in_grid = (
+                    hasattr(model, 'grid_results')
+                    and model.grid_results is not None
+                    and 'lrt_p_value' in model.grid_results.columns
+                )
+                if (not _lrt_in_grid
+                        and hasattr(model, 'nested_models_lrt')
                         and model.nested_models_lrt is not None
                         and not model.nested_models_lrt.empty):
                     story.append(Paragraph("Nested LRT (Chi-square)", s_h2))
@@ -1482,7 +1494,12 @@ class RAPID(ABC):
             print("=" * 80)
             print("GRID SEARCH RESULTS")
             print("=" * 80)
-            print(self.grid_results.to_string(index=False))
+            grid_display = self.grid_results
+            if 'convergence_rate' in grid_display.columns:
+                conv_vals = grid_display['convergence_rate'].dropna()
+                if conv_vals.empty or (conv_vals == 1.0).all():
+                    grid_display = grid_display.drop(columns=['convergence_rate'])
+            print(grid_display.to_string(index=False))
 
             if hasattr(self, 'best_params') and self.best_params:
                 print(f"\nBest parameters: {self.best_params}")
@@ -1545,6 +1562,12 @@ class RAPID(ABC):
                     else:
                         fig.show()
                 else:
+                    if plot == "bootstrap_metrics_ci":
+                        raise ValueError(
+                            "Unknown plot: 'bootstrap_metrics_ci'. "
+                            "It has been replaced by 'bootstrap_metrics_ic' "
+                            "and 'bootstrap_metrics_entropy'."
+                        )
                     raise ValueError(f"Unknown plot: {plot}")
 
     def save(self) -> "RAPID":

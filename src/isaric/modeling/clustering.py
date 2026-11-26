@@ -309,6 +309,9 @@ class LCA(RAPID):
         Also updates _default_plots to include bootstrap plots when
         bootstrap data is available.
         """
+        # Reset base plots_map and _default_plots so re-fit reflects only current training
+        self._setup_plots_map()
+
         # Crosstab only when outcome was provided
         if self.outcome is None or self.outcome_data is None:
             self.plots_map.pop("crosstab", None)
@@ -324,15 +327,21 @@ class LCA(RAPID):
         )
 
         if bootstrap_available:
-            # Single consolidated CI plot (replaces individual BIC/entropy plots)
-            self.plots_map["bootstrap_metrics_ci"] = self._bootstrap_metrics_ci
-            self.plots_map["selection_rate"]        = self._selection_rate
+            # Separate bootstrap CI plots by metric family (LCA-04):
+            # - bootstrap_metrics_ic: AIC, BIC, CAIC, SABIC
+            # - bootstrap_metrics_entropy: two-panel entropy & relative_entropy
+            self.plots_map["bootstrap_metrics_ic"]      = self._bootstrap_metrics_ic
+            self.plots_map["bootstrap_metrics_entropy"] = self._bootstrap_metrics_entropy
+            self.plots_map["selection_rate"]            = self._selection_rate
 
             # Add to default plots for report()
-            if "bootstrap_metrics_ci" not in self._default_plots:
-                self._default_plots.append("bootstrap_metrics_ci")
-            if "selection_rate" not in self._default_plots:
-                self._default_plots.append("selection_rate")
+            for plot_key in (
+                "bootstrap_metrics_ic",
+                "bootstrap_metrics_entropy",
+                "selection_rate",
+            ):
+                if plot_key not in self._default_plots:
+                    self._default_plots.append(plot_key)
 
     @classmethod
     def create(
@@ -588,7 +597,7 @@ class LCA(RAPID):
                 'n_par':            int(npar),
                 'dof':              int(dof),
                 'converged':        converged,
-                'convergence_rate': 1.0 if converged else 0.0,
+                'convergence_rate': None,
             })
 
             model_objects[k] = model
@@ -687,6 +696,23 @@ class LCA(RAPID):
             pd.DataFrame(nested_rows) if nested_rows else pd.DataFrame()
         )
 
+        # Integrate Nested LRT into grid_results by n_clusters (LCA-01)
+        if not self.nested_models_lrt.empty:
+            lrt_by_k = self.nested_models_lrt.set_index('n_clusters')
+            self.grid_results['lrt_statistic'] = self.grid_results['n_clusters'].map(
+                lrt_by_k['lr_statistic']
+            )
+            self.grid_results['lrt_dof_diff'] = self.grid_results['n_clusters'].map(
+                lrt_by_k['dof_diff']
+            )
+            self.grid_results['lrt_p_value'] = self.grid_results['n_clusters'].map(
+                lrt_by_k['p_value']
+            )
+        else:
+            self.grid_results['lrt_statistic'] = np.nan
+            self.grid_results['lrt_dof_diff'] = np.nan
+            self.grid_results['lrt_p_value'] = np.nan
+
         # ── Bootstrapped LRT (only if bootstrap=True in fit()) ────────────
         # When bootstrap=True, _run_lrt() runs in a single pass:
         # BLRT + CI bootstrap + selection rate. _validate_bootstrap()
@@ -698,6 +724,40 @@ class LCA(RAPID):
             )
             if not self.nested_models_lrt.empty:
                 self.lrt_results['nested'] = self.nested_models_lrt
+
+            # Integrate BLRT p-values into grid_results by n_clusters (LCA-01)
+            blrt_df = self.lrt_results.get('blrt')
+            if (
+                blrt_df is not None
+                and not blrt_df.empty
+                and 'blrt_p_value' in blrt_df.columns
+            ):
+                tested_ks = set(self.model_objects.keys())
+                blrt_valid = blrt_df[
+                    blrt_df['n_clusters'].apply(lambda k: (int(k) - 1) in tested_ks)
+                ]
+                blrt_by_k = blrt_valid.set_index('n_clusters')['blrt_p_value']
+                self.grid_results['blrt_p_value'] = self.grid_results['n_clusters'].map(
+                    blrt_by_k
+                )
+            else:
+                self.grid_results['blrt_p_value'] = np.nan
+
+            # Populate replication convergence_rate from bootstrap_stats when available (LCA-02)
+            boot_stats = self.lrt_results.get('bootstrap_stats')
+            if (
+                boot_stats is not None
+                and not boot_stats.empty
+                and 'converged' in boot_stats.columns
+            ):
+                conv_by_k = (
+                    boot_stats.groupby('n_clusters')['converged']
+                    .mean()
+                    .astype(float)
+                )
+                self.grid_results['convergence_rate'] = self.grid_results['n_clusters'].map(
+                    conv_by_k
+                )
         else:
             self.lrt_results = {
                 'nested':          self.nested_models_lrt,
@@ -819,17 +879,6 @@ class LCA(RAPID):
 
             except Exception as e:
                 info["outcome_error"] = str(e)
-
-            # ============ ADICIONA LRT ============
-        if hasattr(self, 'lrt_results') and self.lrt_results:
-            nested = self.lrt_results.get('nested')
-            if nested is not None and not nested.empty:
-                info["lrt_nested"] = nested.to_dict(orient='records')
-
-            # BLRT só aparece no model_info se foi executado
-            blrt = self.lrt_results.get('blrt')
-            if blrt is not None and not blrt.empty:
-                info["lrt_blrt"] = blrt.to_dict(orient='records')
 
         if hasattr(self.fitted_model, 'converged_'):
             info["converged"] = bool(self.fitted_model.converged_)
@@ -1059,7 +1108,7 @@ class LCA(RAPID):
         X_arr = self.X.values if isinstance(self.X, pd.DataFrame) else self.X
         k_list = sorted(self.model_objects.keys())
 
-        if len(k_list) < 2:
+        if not k_list:
             return results
 
         # === Bootstrap paramétrico para cada k ===
@@ -1091,6 +1140,29 @@ class LCA(RAPID):
         ) if any(s is not None for s in bootstrap_stats_by_k.values()) else None
         results['bootstrap_stats'] = stats_concat
 
+        # === CI bias-corrected para cada k (independente do BLRT — LCA-05) ===
+        for k in k_list:
+            stats_k = bootstrap_stats_by_k.get(k)
+            if stats_k is None:
+                continue
+            model_k = self.model_objects[k]
+            try:
+                ci_k = bootstrap_ci_stepmix(
+                    fitted_estimator=model_k,
+                    stats_bootstrap=stats_k,
+                    X=X_arr,
+                )
+                if ci_k is not None and not ci_k.empty:
+                    ci_k['n_clusters'] = k
+                    ci_rows.append(ci_k)
+            except Exception as e:
+                import warnings
+                warnings.warn(
+                    f"[LCA] Bootstrap CI computation failed for k={k}: {e}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
         # === BLRT: k vs k-1 ===
         for i in range(1, len(k_list)):
             k_curr = k_list[i]
@@ -1100,49 +1172,38 @@ class LCA(RAPID):
             model_curr = self.model_objects[k_curr]
             model_prev = self.model_objects[k_prev]
 
-            if stats_curr is None or stats_prev is None:
-                blrt_rows.append({
-                    'n_clusters': k_curr,
-                    'blrt_p_value': np.nan,
-                    'n_bootstraps': n_bootstraps,
-                    'error': 'bootstrap failed for k or k-1',
-                })
-                continue
-
-            try:
-                p_value = bootstrap_lrt_stepmix(
-                    null_model=model_prev,
-                    alt_model=model_curr,
-                    stats_null=stats_prev,
-                    stats_alt=stats_curr,
-                    X=X_arr,
-                    Y=None,
-                    n_bootstrap=n_bootstraps,
-                )
-                blrt_rows.append({
-                    'n_clusters': k_curr,
-                    'blrt_p_value': p_value,
-                    'n_bootstraps': n_bootstraps,
-                })
-            except Exception as e:
-                blrt_rows.append({
-                    'n_clusters': k_curr,
-                    'blrt_p_value': np.nan,
-                    'n_bootstraps': n_bootstraps,
-                    'error': str(e),
-                })
-
-            # === CI bias-corrected para k_curr ===
-            try:
-                ci_k = bootstrap_ci_stepmix(
-                    fitted_estimator=model_curr,
-                    stats_bootstrap=stats_curr,
-                    X=X_arr,
-                )
-                ci_k['n_clusters'] = k_curr
-                ci_rows.append(ci_k)
-            except Exception as e:
-                pass
+            # BLRT compares k vs k-1; only compute when k_curr and k_prev are consecutive
+            if k_curr - k_prev == 1:
+                if stats_curr is None or stats_prev is None:
+                    blrt_rows.append({
+                        'n_clusters': k_curr,
+                        'blrt_p_value': np.nan,
+                        'n_bootstraps': n_bootstraps,
+                        'error': 'bootstrap failed for k or k-1',
+                    })
+                else:
+                    try:
+                        p_value = bootstrap_lrt_stepmix(
+                            null_model=model_prev,
+                            alt_model=model_curr,
+                            stats_null=stats_prev,
+                            stats_alt=stats_curr,
+                            X=X_arr,
+                            Y=None,
+                            n_bootstrap=n_bootstraps,
+                        )
+                        blrt_rows.append({
+                            'n_clusters': k_curr,
+                            'blrt_p_value': p_value,
+                            'n_bootstraps': n_bootstraps,
+                        })
+                    except Exception as e:
+                        blrt_rows.append({
+                            'n_clusters': k_curr,
+                            'blrt_p_value': np.nan,
+                            'n_bootstraps': n_bootstraps,
+                            'error': str(e),
+                        })
 
         if blrt_rows:
             results['blrt'] = pd.DataFrame(blrt_rows)
@@ -1163,18 +1224,8 @@ class LCA(RAPID):
 
         return results
 
-    def _bootstrap_metrics_ci(self, backend="plotly"):
-        """
-        Consolidated bootstrap CI plot for all available LCA metrics.
-
-        Shows observed values with bias-corrected CI bands for AIC, BIC,
-        CAIC, SABIC, entropy, and relative_entropy. CI type is labelled
-        in the plot title.
-
-        Requires bootstrap=True or bootstrap_likelihood=True in fit().
-        """
-        from isaric.visualization.lineplots import bootstrap_metrics_ci_plot
-
+    def _get_bootstrap_ci_context(self):
+        """Return (ci_df, type_label, reorder) for bootstrap CI plots."""
         if not hasattr(self, 'lrt_results') or not self.lrt_results:
             raise ValueError(
                 "No bootstrap results available. "
@@ -1198,8 +1249,36 @@ class LCA(RAPID):
         }.get(bootstrap_type, bootstrap_type.title())
 
         reorder = getattr(self, '_display_reorder', None)
+        return ci_df, type_label, reorder
 
-        return bootstrap_metrics_ci_plot(
+    def _bootstrap_metrics_ic(self, backend="plotly"):
+        """
+        Bootstrap CI plot for LCA Information Criteria (AIC, BIC, CAIC, SABIC).
+
+        Requires bootstrap=True in fit().
+        """
+        from isaric.visualization.lineplots import bootstrap_metrics_ic_plot
+
+        ci_df, type_label, reorder = self._get_bootstrap_ci_context()
+        return bootstrap_metrics_ic_plot(
+            ci_df=ci_df,
+            x_col='n_clusters',
+            xaxis_title='Number of Classes (k)',
+            bootstrap_type_label=type_label,
+            reorder=reorder,
+            backend=backend,
+        )
+
+    def _bootstrap_metrics_entropy(self, backend="plotly"):
+        """
+        Two-panel bootstrap CI plot for LCA Entropy and Relative Entropy.
+
+        Requires bootstrap=True in fit().
+        """
+        from isaric.visualization.lineplots import bootstrap_metrics_entropy_plot
+
+        ci_df, type_label, reorder = self._get_bootstrap_ci_context()
+        return bootstrap_metrics_entropy_plot(
             ci_df=ci_df,
             x_col='n_clusters',
             xaxis_title='Number of Classes (k)',

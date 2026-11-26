@@ -547,6 +547,142 @@ def bootstrap_metrics_ci_plot(
         )
 
 
+def bootstrap_metrics_ic_plot(
+    ci_df: pd.DataFrame,
+    x_col: str = "n_clusters",
+    metrics: Optional[List[str]] = None,
+    xaxis_title: str = "Number of Classes (k)",
+    yaxis_title: str = "Information Criterion Value",
+    bootstrap_type_label: str = "Bootstrap",
+    reorder: Optional[dict] = None,
+    height: int = 550,
+    width: int = 900,
+    backend: str = "plotly",
+):
+    """
+    Bootstrap CI plot for LCA Information Criteria (AIC, BIC, CAIC, SABIC).
+
+    Displays observed values with CI bands exclusively for information
+    criteria metrics on a compatible scale.
+
+    Args:
+        ci_df: DataFrame from bootstrap_ci_stepmix.
+        x_col: Column for x-axis (default "n_clusters").
+        metrics: IC metrics to include. Defaults to ["AIC", "BIC", "CAIC", "SABIC"].
+        xaxis_title: X-axis label.
+        yaxis_title: Y-axis label.
+        bootstrap_type_label: CI type string for title annotation.
+        reorder: Optional display reorder mapping.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+    """
+    ic_allowed = ["AIC", "BIC", "CAIC", "SABIC"]
+    if metrics is None:
+        metrics = list(ic_allowed)
+    else:
+        metrics = [m for m in metrics if m in ic_allowed]
+
+    if 'metric' not in ci_df.columns:
+        raise ValueError("ci_df must have a 'metric' column.")
+
+    metrics = [
+        m for m in metrics
+        if not ci_df[ci_df['metric'] == m]['theta_hat'].dropna().empty
+    ]
+    if not metrics:
+        raise ValueError(
+            f"None of the information criteria metrics {ic_allowed} found with valid data in ci_df."
+        )
+
+    title = f"Bootstrap CI ({bootstrap_type_label}) — Information Criteria"
+
+    if backend == "plotly":
+        return _bootstrap_metrics_ci_plotly(
+            ci_df, x_col, metrics, title, xaxis_title, height, width,
+            yaxis_title=yaxis_title,
+        )
+    elif backend == "matplotlib":
+        return _bootstrap_metrics_ci_matplotlib(
+            ci_df, x_col, metrics, title, xaxis_title, height, width,
+            yaxis_title=yaxis_title,
+        )
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: '{backend}'"
+        )
+
+
+def bootstrap_metrics_entropy_plot(
+    ci_df: pd.DataFrame,
+    x_col: str = "n_clusters",
+    metrics: Optional[List[str]] = None,
+    xaxis_title: str = "Number of Classes (k)",
+    bootstrap_type_label: str = "Bootstrap",
+    reorder: Optional[dict] = None,
+    height: int = 650,
+    width: int = 900,
+    backend: str = "plotly",
+):
+    """
+    Two-panel bootstrap CI plot for LCA Entropy and Relative Entropy.
+
+    Because absolute Shannon entropy (0 to N*ln(k)) and relative entropy
+    (bounded in [0, 1]) have incompatible scales, this visualization uses
+    two independent panels with separate, clearly labeled Y-axes without
+    normalizing or distorting the statistical values.
+
+    Args:
+        ci_df: DataFrame from bootstrap_ci_stepmix.
+        x_col: Column for x-axis (default "n_clusters").
+        metrics: Entropy metrics to include. Defaults to ["entropy", "relative_entropy"].
+        xaxis_title: X-axis label.
+        bootstrap_type_label: CI type string for title annotation.
+        reorder: Optional display reorder mapping.
+        height: Figure height in pixels.
+        width: Figure width in pixels.
+        backend: "plotly" or "matplotlib".
+
+    Returns:
+        Plotly Figure or Matplotlib Figure.
+    """
+    entropy_allowed = ["entropy", "relative_entropy"]
+    if metrics is None:
+        metrics = list(entropy_allowed)
+    else:
+        metrics = [m for m in metrics if m in entropy_allowed]
+
+    if 'metric' not in ci_df.columns:
+        raise ValueError("ci_df must have a 'metric' column.")
+
+    valid_metrics = [
+        m for m in metrics
+        if not ci_df[ci_df['metric'] == m]['theta_hat'].dropna().empty
+    ]
+    if not valid_metrics:
+        raise ValueError(
+            f"None of the entropy metrics {entropy_allowed} found with valid data in ci_df."
+        )
+
+    title = f"Bootstrap CI ({bootstrap_type_label}) — Entropy & Relative Entropy"
+
+    if backend == "plotly":
+        return _bootstrap_metrics_entropy_plotly(
+            ci_df, x_col, metrics, title, xaxis_title, height, width
+        )
+    elif backend == "matplotlib":
+        return _bootstrap_metrics_entropy_matplotlib(
+            ci_df, x_col, metrics, title, xaxis_title, height, width
+        )
+    else:
+        raise ValueError(
+            f"backend must be 'plotly' or 'matplotlib'. Received: '{backend}'"
+        )
+
+
 
 
 # ============================================================================
@@ -1043,7 +1179,8 @@ def _selection_rate_plotly(
 
 
 def _bootstrap_metrics_ci_plotly(
-    ci_df, x_col, metrics, title, xaxis_title, height, width
+    ci_df, x_col, metrics, title, xaxis_title, height, width,
+    yaxis_title: str = "Value",
 ) -> go.Figure:
     """Build Plotly consolidated bootstrap CI plot."""
     COLORS  = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261', '#8338ec']
@@ -1051,8 +1188,10 @@ def _bootstrap_metrics_ci_plotly(
 
     fig = go.Figure()
 
+    all_k = sorted(ci_df[x_col].dropna().unique().tolist()) if x_col in ci_df.columns else []
+
     for i, metric in enumerate(metrics):
-        sub = ci_df[ci_df['metric'] == metric].copy()
+        sub = ci_df[ci_df['metric'] == metric].dropna(subset=['theta_hat']).copy()
         if sub.empty:
             continue
 
@@ -1091,7 +1230,112 @@ def _bootstrap_metrics_ci_plotly(
     fig.update_layout(
         title=title,
         xaxis_title=xaxis_title,
-        yaxis_title='Value',
+        yaxis_title=yaxis_title,
+        height=height,
+        width=width,
+        template='plotly_white',
+        hovermode='x unified',
+        legend=dict(
+            title='Metric',
+            font=dict(size=10),
+        ),
+    )
+    if all_k:
+        fig.update_xaxes(tickmode='array', tickvals=all_k)
+
+    return fig
+
+
+def _bootstrap_metrics_entropy_plotly(
+    ci_df, x_col, metrics, title, xaxis_title, height, width
+) -> go.Figure:
+    """Build two-panel Plotly figure for entropy and relative_entropy with independent Y-axes."""
+    from plotly.subplots import make_subplots
+
+    PANEL_CONFIG = {
+        "entropy": {
+            "row": 1,
+            "color": "#f4a261",
+            "symbol": "cross",
+            "ylabel": "Entropy",
+            "panel_title": "Entropy (Absolute)",
+        },
+        "relative_entropy": {
+            "row": 2,
+            "color": "#8338ec",
+            "symbol": "star",
+            "ylabel": "Relative Entropy [0–1]",
+            "panel_title": "Relative Entropy (Scaled 0–1)",
+        },
+    }
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.14,
+        subplot_titles=(
+            PANEL_CONFIG["entropy"]["panel_title"],
+            PANEL_CONFIG["relative_entropy"]["panel_title"],
+        ),
+    )
+
+    all_k = sorted(ci_df[x_col].dropna().unique().tolist()) if x_col in ci_df.columns else []
+
+    for metric in metrics:
+        if metric not in PANEL_CONFIG:
+            continue
+        cfg = PANEL_CONFIG[metric]
+        sub = ci_df[ci_df['metric'] == metric].dropna(subset=['theta_hat']).copy()
+        if sub.empty:
+            continue
+
+        sub = sub.sort_values(x_col)
+        x_vals = sub[x_col].tolist()
+
+        # CI band
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals + x_vals[::-1],
+                y=sub['ci_high'].tolist() + sub['ci_low'].tolist()[::-1],
+                fill='toself',
+                fillcolor=cfg["color"],
+                opacity=0.15,
+                line=dict(color='rgba(255,255,255,0)'),
+                showlegend=False,
+                hoverinfo='skip',
+            ),
+            row=cfg["row"],
+            col=1,
+        )
+
+        # Observed line + markers
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=sub['theta_hat'].tolist(),
+                mode='lines+markers',
+                name=metric,
+                line=dict(color=cfg["color"], width=2),
+                marker=dict(color=cfg["color"], size=9, symbol=cfg["symbol"]),
+                hovertemplate=(
+                    f'{metric}<br>{xaxis_title}: %{{x}}'
+                    '<br>Observed: %{y:.3f}<extra></extra>'
+                ),
+            ),
+            row=cfg["row"],
+            col=1,
+        )
+
+    fig.update_yaxes(title_text=PANEL_CONFIG["entropy"]["ylabel"], row=1, col=1)
+    fig.update_yaxes(title_text=PANEL_CONFIG["relative_entropy"]["ylabel"], row=2, col=1)
+    fig.update_xaxes(title_text=xaxis_title, row=2, col=1)
+    if all_k:
+        fig.update_xaxes(tickmode='array', tickvals=all_k, row=1, col=1)
+        fig.update_xaxes(tickmode='array', tickvals=all_k, row=2, col=1)
+
+    fig.update_layout(
+        title=title,
         height=height,
         width=width,
         template='plotly_white',
@@ -1628,7 +1872,8 @@ def _selection_rate_plot_matplotlib(
     return fig
 
 def _bootstrap_metrics_ci_matplotlib(
-    ci_df, x_col, metrics, title, xaxis_title, height, width
+    ci_df, x_col, metrics, title, xaxis_title, height, width,
+    yaxis_title: str = "Value",
 ) -> plt.Figure:
     """Build Matplotlib consolidated bootstrap CI plot."""
     COLORS  = ['#2a9d8f', '#e76f51', '#264653', '#e9c46a', '#f4a261', '#8338ec']
@@ -1636,8 +1881,10 @@ def _bootstrap_metrics_ci_matplotlib(
 
     fig, ax = plt.subplots(figsize=(width / 100, height / 100))
 
+    all_k = sorted(ci_df[x_col].dropna().unique().tolist()) if x_col in ci_df.columns else []
+
     for i, metric in enumerate(metrics):
-        sub = ci_df[ci_df['metric'] == metric].copy()
+        sub = ci_df[ci_df['metric'] == metric].dropna(subset=['theta_hat']).copy()
         if sub.empty:
             continue
 
@@ -1655,14 +1902,61 @@ def _bootstrap_metrics_ci_matplotlib(
             markersize=7, label=metric,
         )
 
+    if all_k:
+        ax.set_xticks(all_k)
     ax.set_xlabel(xaxis_title)
-    ax.set_ylabel('Value')
+    ax.set_ylabel(yaxis_title)
     ax.set_title(title)
     ax.legend(title='Metric', fontsize=9)
     ax.grid(alpha=0.3)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
+    fig.tight_layout()
+    return fig
+
+
+def _bootstrap_metrics_entropy_matplotlib(
+    ci_df, x_col, metrics, title, xaxis_title, height, width
+) -> plt.Figure:
+    """Build two-panel Matplotlib figure for entropy and relative_entropy with independent Y-axes."""
+    PANEL_CONFIG = [
+        ("entropy", "#f4a261", "P", "Entropy", "Entropy (Absolute)"),
+        ("relative_entropy", "#8338ec", "*", "Relative Entropy [0–1]", "Relative Entropy (Scaled 0–1)"),
+    ]
+
+    fig, axes = plt.subplots(2, 1, figsize=(width / 100, height / 100), sharex=True)
+    all_k = sorted(ci_df[x_col].dropna().unique().tolist()) if x_col in ci_df.columns else []
+
+    for ax, (metric, color, marker, ylabel, panel_title) in zip(axes, PANEL_CONFIG):
+        if metric in metrics:
+            sub = ci_df[ci_df['metric'] == metric].dropna(subset=['theta_hat']).copy()
+            if not sub.empty:
+                sub = sub.sort_values(x_col)
+                ax.fill_between(
+                    sub[x_col], sub['ci_low'], sub['ci_high'],
+                    alpha=0.15, color=color,
+                )
+                ax.plot(
+                    sub[x_col], sub['theta_hat'],
+                    color=color, linewidth=2, marker=marker,
+                    markersize=7, label=metric,
+                )
+                ax.legend(loc='best', fontsize=9)
+
+        ax.set_ylabel(ylabel)
+        ax.set_title(panel_title, fontsize=10)
+        ax.grid(alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+    if all_k:
+        axes[-1].set_xticks(all_k)
+        if len(all_k) > 1:
+            pad = 0.25
+            axes[-1].set_xlim(min(all_k) - pad, max(all_k) + pad)
+    axes[-1].set_xlabel(xaxis_title)
+    fig.suptitle(title, fontsize=12)
     fig.tight_layout()
     return fig
 

@@ -256,6 +256,8 @@ from isaric.visualization.lineplots import (
     selection_rate_plot,
     bootstrap_ci_plot,
     bootstrap_metrics_ci_plot,
+    bootstrap_metrics_ic_plot,
+    bootstrap_metrics_entropy_plot,
     classification_roc_plot,
     calibration_plot_with_ci,
 )
@@ -414,6 +416,8 @@ __all__ = [
     "bootstrap_ci_stepmix",
     "bootstrap_ci_plot",
     "bootstrap_metrics_ci_plot",
+    "bootstrap_metrics_ic_plot",
+    "bootstrap_metrics_entropy_plot",
     "classification_roc_plot",
     "calibration_plot_with_ci",
     "bootstrap_selection_rate",
