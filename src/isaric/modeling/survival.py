@@ -41,15 +41,17 @@ def create_survival_model(
     """
     Configure a Cox Proportional Hazards model (not fitted).
 
-    Supports CDISC ADTTE conventions. Handles censoring_var → event_var
-    conversion automatically.
+    Supports CDISC ADTTE conventions.
 
     Args:
         data: Input DataFrame.
         duration_var: Time-to-event column (default "AVAL").
-        event_var: Event indicator (1=event). Computed from censoring_var
-            if not provided.
-        censoring_var: Censoring indicator (1=censored, CDISC CNSR).
+        event_var: Column with 1 for an observed event and 0 for censoring.
+            If both inputs are given, event_var takes precedence.
+        censoring_var: Alternative column with 1 for censoring and 0 for an
+            observed event (for example, binary CDISC CNSR). When event_var
+            is omitted, RAPID computes the internal event indicator as
+            1 minus the values in censoring_var.
         independent_vars: Covariate columns for Cox.
         formula: Patsy formula for Cox. If None, built from independent_vars.
         avalu_var: Time unit column (default "AVALU").
@@ -70,7 +72,9 @@ def create_survival_model(
     if censoring_var is not None and event_var is None:
         if censoring_var not in data.columns:
             raise ValueError(
-                f"Column '{censoring_var}' not found in DataFrame."
+                f"Censoring column '{censoring_var}' (censoring_var) not found. "
+                "Provide a binary censoring_var (1=censored) or pass "
+                "event_var (1=event). RAPID converts censoring_var with 1 - value."
             )
         event_var = "_event_computed"
         data = data.copy()
@@ -80,6 +84,8 @@ def create_survival_model(
         duration_var = "AVAL"
     if event_var is None:
         event_var = "event"
+
+    _check_event_column(data, event_var)
 
     # Build formula if not provided
     if formula is None and independent_vars:
@@ -128,8 +134,12 @@ def create_kaplan_meier_model(
     Args:
         data: Input DataFrame.
         duration_var: Time-to-event column (default "AVAL").
-        event_var: Event indicator (1=event).
-        censoring_var: Censoring indicator (1=censored).
+        event_var: Column with 1 for an observed event and 0 for censoring.
+            If both inputs are given, event_var takes precedence.
+        censoring_var: Alternative column with 1 for censoring and 0 for an
+            observed event (for example, binary CDISC CNSR). When event_var
+            is omitted, RAPID computes the internal event indicator as
+            1 minus the values in censoring_var.
         avalu_var: Time unit column (default "AVALU").
 
     Returns:
@@ -138,12 +148,15 @@ def create_kaplan_meier_model(
     if censoring_var is not None and event_var is None:
         if censoring_var not in data.columns:
             raise ValueError(
-                f"Column '{censoring_var}' not found in DataFrame."
+                f"Censoring column '{censoring_var}' (censoring_var) not found. "
+                "Provide a binary censoring_var (1=censored) or pass "
+                "event_var (1=event). RAPID converts censoring_var with 1 - value."
             )
         event_var = "_event_computed"
         data = data.copy()
         data[event_var] = 1 - data[censoring_var]
 
+    _check_event_column(data, event_var)
     for col in [duration_var, event_var]:
         if col not in data.columns:
             raise ValueError(f"Column '{col}' not found in DataFrame.")
@@ -163,6 +176,15 @@ def create_kaplan_meier_model(
 # ============================================================================
 # PRIVATE HELPERS
 # ============================================================================
+
+def _check_event_column(data: pd.DataFrame, event_var: Optional[str]) -> None:
+    if event_var not in data.columns:
+        raise ValueError(
+            f"Event column '{event_var}' (event_var) not found. "
+            "Provide event_var (1=event) or omit it and pass a binary "
+            "censoring_var (1=censored). RAPID converts censoring_var with 1 - value."
+        )
+
 
 def _prepare_model_data(
     data: pd.DataFrame,
@@ -344,9 +366,12 @@ class Survival(RAPID):
             data: Input DataFrame in ARC format.
             model: Must be "survival".
             duration_var: Time-to-event column (default "AVAL").
-            event_var: Event indicator (1=event). Computed from
-                censoring_var if not provided.
-            censoring_var: Censoring indicator (1=censored, CDISC CNSR).
+            event_var: Column with 1 for an observed event and 0 for censoring.
+                If both inputs are given, event_var takes precedence.
+            censoring_var: Alternative column with 1 for censoring and 0 for an
+                observed event (for example, binary CDISC CNSR). When event_var
+                is omitted, RAPID computes the internal event indicator as
+                1 minus the values in censoring_var.
             independent_vars: Covariate columns for Cox PH model.
             formula: Patsy formula for Cox. If None, built from
                 independent_vars.
@@ -597,7 +622,9 @@ class Survival(RAPID):
         K-fold cross-validation for Cox using Concordance Index.
 
         Uses formula-based fitting when formula is available, ensuring
-        correct handling of categorical variables and censoring_var.
+        correct handling of categorical variables. Folds use the internal
+        event_var, derived as 1 - censoring_var when censoring_var is supplied
+        in place of event_var.
         """
         from sklearn.model_selection import KFold
 
@@ -734,8 +761,9 @@ class Survival(RAPID):
         Bootstrap CIs for Cox hazard ratios.
 
         Passes formula to bootstrap_hazard_ratios() so formula-based
-        models (including those built from censoring_var) are correctly
-        handled in each bootstrap iteration.
+        models are handled in each bootstrap iteration. Bootstrap uses the
+        internal event_var, derived as 1 - censoring_var when censoring_var
+        is supplied in place of event_var.
 
         Returns:
             Dictionary with hazard_ratios DataFrame, bootstrap_type,

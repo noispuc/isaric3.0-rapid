@@ -709,6 +709,27 @@ def _classification_roc_matplotlib(
     return fig
 
 
+def cooks_distance_plot(residuals, distances, backend="plotly"):
+    """Plot Cook's distance against standardized residuals."""
+    title = "Cook's Distance vs. Standardized Residuals"
+    if backend == "plotly":
+        fig = go.Figure(go.Scatter(x=residuals, y=distances, mode="markers"))
+        fig.update_layout(
+            title=title,
+            xaxis_title="Standardized residual",
+            yaxis_title="Cook's distance",
+            template="plotly_white",
+        )
+        return fig
+    if backend == "matplotlib":
+        fig, ax = plt.subplots()
+        ax.scatter(residuals, distances, alpha=0.6)
+        ax.set(title=title, xlabel="Standardized residual", ylabel="Cook's distance")
+        fig.tight_layout()
+        return fig
+    raise ValueError(f"backend must be 'plotly' or 'matplotlib'. Received: {backend}")
+
+
 # ============================================================================
 # CALIBRATION PLOT WITH CI
 # ============================================================================
@@ -1152,12 +1173,12 @@ def _calibration_with_ci_plotly(
         title=title,
         xaxis=dict(
             title='Mean Predicted Probability',
-            range=[-0.02, 1.02],
+            range=[0, 1],
             tickformat='.1f',
         ),
         yaxis=dict(
             title='Observed Event Rate',
-            range=[-0.02, 1.02],
+            range=[0, 1],
             tickformat='.1f',
         ),
         legend=dict(
@@ -1683,8 +1704,8 @@ def _calibration_with_ci_matplotlib(
     ax.plot([0, 1], [0, 1], color='grey', lw=1.2, linestyle='--',
             label='Perfect calibration')
 
-    ax.set_xlim([-0.02, 1.02])
-    ax.set_ylim([-0.02, 1.02])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     ax.set_xlabel('Mean Predicted Probability')
     ax.set_ylabel('Observed Event Rate')
     ax.set_title(title)

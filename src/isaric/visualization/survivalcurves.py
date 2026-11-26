@@ -965,6 +965,8 @@ def _calibration_plotly(predicted_survival, observed_survival, target_time, titl
         title=title,
         xaxis_title="Predicted Survival",
         yaxis_title="Observed Survival (KM)",
+        xaxis_range=[0, 1],
+        yaxis_range=[0, 1],
         height=height, width=width,
         template='plotly_white'
     )
@@ -1014,6 +1016,8 @@ def _calibration_matplotlib(predicted_survival, observed_survival, target_time, 
     ax.plot([0, 1], [0, 1], color='gray', linestyle='--', linewidth=1, label='Perfect calibration')
     ax.set_xlabel("Predicted Survival")
     ax.set_ylabel("Observed Survival (KM)")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     ax.set_title(title)
     ax.legend()
     ax.grid(alpha=0.3)

@@ -39,6 +39,23 @@ from typing import Any, Dict, List, Optional, Union
 from pandas import DataFrame
 
 
+_METRIC_LABELS = {
+    "ppv": "ppv (Positive Predictive Value)",
+    "npv": "npv (Negative Predictive Value)",
+}
+
+
+def _logistic_result_formatters():
+    """Format parameter estimates for display while retaining numeric results."""
+    return {
+        **dict.fromkeys(
+            ("Coefficient", "OddsRatio", "std_error", "z_value", "LowerCI", "UpperCI"),
+            lambda value: f"{value:.4f}",
+        ),
+        "p-value": lambda value: f"{value:.2e}" if value < 0.001 else f"{value:.4f}",
+    }
+
+
 class RAPID(ABC):
     """
     Abstract base class for all RAPID analytical pipelines.
@@ -316,7 +333,7 @@ class RAPID(ABC):
         if all_metric_keys:
             rows = []
             for key in all_metric_keys:
-                row = {"Metric": key}
+                row = {"Metric": _METRIC_LABELS.get(key, key)}
                 for m in models:
                     val = (m.metrics or {}).get(key, None)
                     row[m.model_id] = (
@@ -430,6 +447,7 @@ class RAPID(ABC):
             from reportlab.lib.units import inch
             from reportlab.lib.pagesizes import A4
             from reportlab.lib.enums import TA_CENTER
+            from reportlab.pdfbase.pdfmetrics import stringWidth
         except ImportError:
             import warnings
             warnings.warn(
@@ -442,6 +460,7 @@ class RAPID(ABC):
 
         import os
         import tempfile
+        from xml.sax.saxutils import escape
         import isaric
         from datetime import datetime
 
@@ -487,6 +506,14 @@ class RAPID(ABC):
             'Note', parent=SS['Normal'],
             fontSize=8, textColor=colors.HexColor('#666666'),
             fontName='Helvetica-Oblique',
+        )
+
+        parameter_cell = ParagraphStyle(
+            "ParameterCell", parent=s_body, fontSize=8, leading=10, wordWrap="CJK",
+        )
+        parameter_header = ParagraphStyle(
+            "ParameterHeader", parent=parameter_cell,
+            fontName="Helvetica-Bold", textColor=colors.white,
         )
 
         # ── Table style helper ────────────────────────────────────────────
@@ -594,7 +621,7 @@ class RAPID(ABC):
                         if k == 'confusion_matrix':
                             continue
                         met.append([
-                            k,
+                            _METRIC_LABELS.get(k, k),
                             f"{v:.4f}" if isinstance(v, float) else str(v)
                         ])
                     t = Table(met, colWidths=[3*inch, 3*inch])
@@ -603,17 +630,51 @@ class RAPID(ABC):
                     story.append(Spacer(1, 0.15*inch))
 
                 # ── Parameter table ───────────────────────────────────────
-                if hasattr(model, 'result_df') and model.result_df is not None:
-                    story.append(Paragraph("Parameter Table", s_h2))
+                if (hasattr(model, 'result_df') and model.result_df is not None
+                        and len(model.result_df.columns) > 0):
+                    heading_style = ParagraphStyle(
+                        "ParameterTableHeading", parent=s_h2, keepWithNext=True,
+                    )
+                    story.append(Paragraph("Parameter Table", heading_style))
                     df = model.result_df.reset_index(drop=True)
-                    rows = [list(df.columns)]
-                    for _, row in df.iterrows():
-                        rows.append([
-                            f"{v:.4f}" if isinstance(v, float) else str(v)
-                            for v in row
-                        ])
-                    col_w = (PAGE_W - 2*inch) / len(rows[0])
-                    t = Table(rows, colWidths=[col_w] * len(rows[0]))
+                    formatters = (
+                        _logistic_result_formatters() if model.model_type == "logistic" else {}
+                    )
+                    rows = [[
+                        Paragraph(escape(str(column)), parameter_header)
+                        for column in df.columns
+                    ]]
+                    for row in df.itertuples(index=False, name=None):
+                        cells = []
+                        for column, value in zip(df.columns, row):
+                            if column in formatters:
+                                display = formatters[column](value)
+                            else:
+                                display = f"{value:.4f}" if isinstance(value, float) else str(value)
+                            cells.append(Paragraph(escape(display), parameter_cell))
+                        rows.append(cells)
+
+                    # Give labels more space than numeric columns.
+                    weights = [
+                        2 if column in ("Variable", "Feature") else 1
+                        for column in df.columns
+                    ]
+                    table_width = PAGE_W - 2 * inch - 12
+                    minimum_widths = [
+                        stringWidth(
+                            str(column), parameter_header.fontName, parameter_header.fontSize,
+                        ) + 14
+                        for column in df.columns
+                    ]
+                    remaining_width = table_width - sum(minimum_widths)
+                    if remaining_width >= 0:
+                        widths = [
+                            minimum + remaining_width * weight / sum(weights)
+                            for minimum, weight in zip(minimum_widths, weights)
+                        ]
+                    else:
+                        widths = [table_width * weight / sum(weights) for weight in weights]
+                    t = Table(rows, colWidths=widths, repeatRows=1)
                     t.setStyle(_tbl_style())
                     story.append(t)
                     story.append(Spacer(1, 0.15*inch))
@@ -761,13 +822,20 @@ class RAPID(ABC):
 
                 # ── Validation log ────────────────────────────────────────────
                 if model._validation_log:
-                    story.append(Paragraph("Validation Log", s_h2))
+                    validation_heading = ParagraphStyle(
+                        "ValidationLogHeading", parent=s_h2, keepWithNext=True,
+                    )
+                    validation_entry = ParagraphStyle(
+                        "ValidationLogEntry", parent=s_body, keepWithNext=True,
+                    )
+                    story.append(Paragraph("Validation Log", validation_heading))
                     for i, entry in enumerate(model._validation_log, 1):
+                        results = entry.get('results', {})
                         story.append(Paragraph(
                             f"Validation {i} — {entry.get('timestamp', '')}",
-                            s_body
+                            validation_entry if results else s_body,
                         ))
-                        for k, v in entry.get('results', {}).items():
+                        for k, v in results.items():
                             story.append(Paragraph(
                                 f"  {k}: {str(v)[:300]}", s_note
                             ))
@@ -847,7 +915,7 @@ class RAPID(ABC):
                     hdr = ["Metric"] + [m.model_id for m in models]
                     rows = [hdr]
                     for key in all_keys:
-                        row = [key]
+                        row = [_METRIC_LABELS.get(key, key)]
                         for m in models:
                             v = (m.metrics or {}).get(key, None)
                             row.append(
@@ -951,7 +1019,7 @@ class RAPID(ABC):
         Args:
             data: Input DataFrame in ARC format.
             model: Model type identifier.
-                Options: "logistic", "survival_cox", "survival_km", "glm",
+                Options: "logistic", "survival", "glm",
                         "lca", "decision_tree", "random_forest", "xgboost",
                         "lightgbm", "catboost", "lasso", "ridge",
                         "elastic_net", "svm", "logistic_l2", "kmeans",
@@ -1010,7 +1078,7 @@ class RAPID(ABC):
 
         if model in ["logistic", "glm"]:
             instance._register_library("statsmodels")
-        elif model in ["survival_cox", "survival_km"]:
+        elif model == "survival":
             instance._register_library("lifelines")
         elif model in ["lca"]:
             instance._register_library("stepmix")
@@ -1285,7 +1353,9 @@ class RAPID(ABC):
 
         Args:
             table_format: "full" or "short". Ignored in compare mode.
-            plots: List of plot names. Ignored in compare mode.
+            plots: List of plot names. Use [] to suppress summary plots.
+                By default, logistic regression displays its residual diagnostics.
+                Ignored in compare mode.
             compare: Optional list of additional RAPID instances to
                 compare against self. Self is always the reference.
                 All models must be fitted and from the same family.
@@ -1371,6 +1441,25 @@ class RAPID(ABC):
             print(info_df.to_string(index=False))
             print()
 
+        if self.model_type == "logistic" and self.metrics:
+            from pandas import DataFrame
+
+            display_keys = ("sensitivity", "specificity", "recall", "precision",
+                            "f1", "ppv", "npv")
+            metrics_df = DataFrame(
+                [
+                    (_METRIC_LABELS.get(key, key), f"{self.metrics[key]:.4f}")
+                    for key in display_keys
+                    if key in self.metrics
+                ],
+                columns=["Metric", "Value"],
+            )
+            print("=" * 80)
+            print("FIT METRICS")
+            print("=" * 80)
+            print(metrics_df.to_string(index=False))
+            print()
+
         # ======================================================================
         # 2. RESULTS
         # ======================================================================
@@ -1378,8 +1467,9 @@ class RAPID(ABC):
         print("RESULTS")
         print("=" * 80)
 
+        formatters = _logistic_result_formatters() if self.model_type == "logistic" else None
         if table_format == "full":
-            print(self.result_df.to_string(index=False))
+            print(self.result_df.to_string(index=False, formatters=formatters))
         elif table_format == "short":
             # Short: ratio columns take priority over raw Coefficient.
             # Shows: Variable + main effect + CI + p-value.
@@ -1398,9 +1488,9 @@ class RAPID(ABC):
 
             display_cols = [c for c in priority if c in self.result_df.columns]
             print(
-                self.result_df[display_cols].to_string(index=False)
-                if display_cols
-                else self.result_df.to_string(index=False)
+                self.result_df[display_cols or list(self.result_df.columns)].to_string(
+                    index=False, formatters=formatters,
+                )
             )
         else:
             raise ValueError(
@@ -1535,8 +1625,12 @@ class RAPID(ABC):
         # ======================================================================
         # 4. PLOTS
         # ======================================================================
-        if plots:
-            for plot in plots:
+        summary_plots = (
+            plots if plots is not None
+            else getattr(self, "_summary_default_plots", ())
+        )
+        if summary_plots:
+            for plot in summary_plots:
                 if plot in self.plots_map:
                     fig = self.plots_map[plot]()
                     if isinstance(fig, list):
@@ -1639,15 +1733,21 @@ class RAPID(ABC):
         """
         Validate the trained model using independent external data.
 
-        Reserved for performance assessment on independent datasets —
-        analogous to a TEST set in ML (TRAIN / VALIDATION / TEST split).
+        Pass data that was held apart from model fitting and selection,
+        such as observations from another site or a later time period.
+        Supply the outcome and predictors expected by the fitted model.
 
         Each call is accumulated in self._validation_log, allowing
         multiple validations (different datasets, different parameters)
         to be recorded and included in report().
 
-        Bootstrap confidence intervals are computed during fit()
-        via bootstrap=True, not here.
+        Use fit(bootstrap=True) for bootstrap confidence intervals and
+        fit(cross_validation=True) for cross-validation on the fitting data.
+
+        Example:
+            model.fit()
+            results = model.validation(external_data=external_df)
+            external_metrics = results["external"]
 
         Can be called any time after fit(). Does not require summary()
         to have been called first.
@@ -1732,12 +1832,13 @@ class RAPID(ABC):
 
         Args:
             models: List of fitted RAPID instances to include.
-                Single model: RAPID.report(models=[model])
-                Multiple:     RAPID.report(models=[m1, m2, m3])
+                Single model: model.report()
+                Multiple:     model.report(models=[m1, m2, m3])
             format: List of output formats. Options: "pdf", "csv", "png".
                 Default ["pdf"].
 
         Raises:
+            TypeError: If models contains anything other than RAPID instances.
             ValueError: If any model is not fitted, models list is empty,
                 or models are from different families.
         """
@@ -1748,6 +1849,13 @@ class RAPID(ABC):
         # Default: report self only
         if models is None:
             models = [self]
+        elif not isinstance(models, (list, tuple)) or any(
+            not isinstance(model, RAPID) for model in models
+        ):
+            raise TypeError(
+                "report(models=...) requires a list of fitted RAPID instances, "
+                "such as models=[model]. Model IDs are not accepted."
+            )
         elif not models:
             raise ValueError(
                 "models list is empty. "

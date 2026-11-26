@@ -13,6 +13,8 @@ Metrics Categories:
 - Information Criteria: AIC, BIC, McFadden R², Efron R².
 """
 
+import warnings
+
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
@@ -236,7 +238,15 @@ def compute_survival_metrics(
     Returns:
         Dictionary with C-index, AIC, BIC, LRT.
     """
-    c_index = fitted_model.concordance_index_
+    try:
+        c_index = fitted_model.concordance_index_
+    except ZeroDivisionError:
+        warnings.warn(
+            "C-index is undefined because there are no admissible survival pairs.",
+            UserWarning,
+            stacklevel=2,
+        )
+        c_index = np.nan
     aic = fitted_model.AIC_partial_
 
     n = model_data.shape[0]

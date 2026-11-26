@@ -540,17 +540,28 @@ class LogisticRegression(RAPID):
 
         super().__init__()
 
+    _summary_default_plots = ("binned_residuals", "cooks_distance")
+
     def _setup_plots_map(self):
         """Configure available plots for Logistic Regression."""
-        from isaric.visualization.forestplots import odds_ratio_plot
-        from isaric.visualization.heatmaps import confusion_matrix_heatmap
 
         self.plots_map = {
             "forest_plot": self._forest_plot,
             "confusion_matrix": self._confusion_matrix,
             "calibration_curve": self._calibration_plot,
             "binned_residuals": self._binned_residuals,
+            "cooks_distance": self._cooks_distance_plot,
         }
+
+    def _cooks_distance_plot(self, backend="plotly"):
+        """Plot Cook's distance against standardized residuals."""
+        from isaric.visualization.lineplots import cooks_distance_plot
+
+        influence = self.fitted_model.get_influence()
+        distances, _ = influence.cooks_distance
+        return cooks_distance_plot(
+            influence.resid_studentized, distances, backend=backend,
+        )
 
     def _binned_residuals(self, backend="plotly"):
         """Generate binned residual plot."""
@@ -654,18 +665,18 @@ class LogisticRegression(RAPID):
         from isaric.visualization.lineplots import line_with_ci
         from isaric.modelevaluation.calibration import calibration_curve
         import pandas as pd
-        
+
         y_prob = self.fitted_model.predict(self.X)
         calib = calibration_curve(self.y, y_prob)
-        
+
         data = pd.DataFrame({
             'predicted': calib['mean_predicted'],
             'observed': calib['fraction_positive'],
             'ci_lower': calib['fraction_positive'] * 0.9,
             'ci_upper': calib['fraction_positive'] * 1.1,
         })
-        
-        return line_with_ci(
+
+        fig = line_with_ci(
             data=data,
             x_col='predicted',
             y_col='observed',
@@ -676,6 +687,15 @@ class LogisticRegression(RAPID):
             yaxis_title="Observed Proportion",
             backend=backend
         )
+
+        if backend == "plotly":
+            fig.update_xaxes(range=[0, 1])
+            fig.update_yaxes(range=[0, 1])
+        else:
+            ax = fig.axes[0]
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+        return fig
 
     # ======================================================================
     # PRIVATE METHODS (CALLED BY fit() AND validation())
