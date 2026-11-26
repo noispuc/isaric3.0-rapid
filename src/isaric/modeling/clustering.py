@@ -258,6 +258,7 @@ class LCA(RAPID):
         self.result_df = None
         self.metrics = None
         self.plots_map = {}
+        self._auto_display_default_plots = True
 
         self._setup_plots_map()
 
@@ -271,9 +272,10 @@ class LCA(RAPID):
         Bootstrap plots are excluded here — they are added by
         _update_plots_map_after_fit() only when bootstrap data is available.
 
-        _default_plots defines which plots are included in report() when
-        summary() was called without explicit plots= argument.
-        Information criteria plots are always the default for LCA.
+        _default_plots defines which plots are displayed by summary() when
+        called without explicit plots= argument and included in report().
+        Information criteria curves and the reference class profile radar plot
+        are the essential defaults for LCA.
         """
         self.plots_map = {
             "profile_heatmap":      self._profile_heatmap,
@@ -286,13 +288,13 @@ class LCA(RAPID):
             "crosstab":             self._crosstab,
         }
 
-        # Default plots for report() when summary() is called without plots=
-        # User decides which additional plots to include explicitly
+        # Default plots for summary() and report() when plots= is not specified
         self._default_plots = [
             "information_criteria",
             "ll_curve",
             "entropy_curve",
             "relative_entropy_curve",
+            "radar_plot",
         ]
 
     def _update_plots_map_after_fit(self):
@@ -301,10 +303,9 @@ class LCA(RAPID):
 
         Called at the end of _calculate_metrics() so the state is known.
         - crosstab: only when outcome was provided in create().
-        - bootstrap_metrics_ci: replaces individual CI plots; available
-          when bootstrap data is present (bootstrap=True or
-          bootstrap_likelihood=True).
-        - selection_rate: available when bootstrap data is present.
+        - bootstrap_metrics_ic & bootstrap_metrics_entropy: available
+          when bootstrap CI data is present.
+        - selection_rate: available when bootstrap selection_rate data is present.
 
         Also updates _default_plots to include bootstrap plots when
         bootstrap data is available.
@@ -318,12 +319,18 @@ class LCA(RAPID):
 
         # Check bootstrap availability (from bootstrap=True OR bootstrap_likelihood=True)
         ci_bootstrap = None
+        sel_rate = None
         if hasattr(self, 'lrt_results') and self.lrt_results is not None:
             ci_bootstrap = self.lrt_results.get('ci_bootstrap')
+            sel_rate = self.lrt_results.get('selection_rate')
 
         bootstrap_available = (
             ci_bootstrap is not None
             and not (hasattr(ci_bootstrap, 'empty') and ci_bootstrap.empty)
+        )
+        selection_rate_available = (
+            sel_rate is not None
+            and not (hasattr(sel_rate, 'empty') and sel_rate.empty)
         )
 
         if bootstrap_available:
@@ -332,16 +339,15 @@ class LCA(RAPID):
             # - bootstrap_metrics_entropy: two-panel entropy & relative_entropy
             self.plots_map["bootstrap_metrics_ic"]      = self._bootstrap_metrics_ic
             self.plots_map["bootstrap_metrics_entropy"] = self._bootstrap_metrics_entropy
-            self.plots_map["selection_rate"]            = self._selection_rate
 
-            # Add to default plots for report()
-            for plot_key in (
-                "bootstrap_metrics_ic",
-                "bootstrap_metrics_entropy",
-                "selection_rate",
-            ):
+            for plot_key in ("bootstrap_metrics_ic", "bootstrap_metrics_entropy"):
                 if plot_key not in self._default_plots:
                     self._default_plots.append(plot_key)
+
+        if selection_rate_available:
+            self.plots_map["selection_rate"] = self._selection_rate
+            if "selection_rate" not in self._default_plots:
+                self._default_plots.append("selection_rate")
 
     @classmethod
     def create(
@@ -486,6 +492,9 @@ class LCA(RAPID):
 
         if selection_metric == "auto":
             selection_metric = "BIC"
+
+        self._effective_n_iterations = int(n_iterations) if bootstrap else None
+        self._selection_metric = selection_metric
 
         n_samples = self.X.shape[0]
         n_col = self.X.shape[1]
@@ -789,21 +798,42 @@ class LCA(RAPID):
         )
 
         # ============ MODEL INFO ============
+        effective_boot = bool(getattr(self, '_bootstrap', False))
+        effective_n_iter = (
+            getattr(self, '_effective_n_iterations', self._LCA_DEFAULT_N_ITERATIONS)
+            if effective_boot
+            else None
+        )
         info = {
+            "model_id": self.model_id,
             "model_type": self.model_type,
             "framework": "stepmix",
             "method": "Latent Class Analysis",
+            "fit_at": getattr(self, '_fit_at', None),
             "random_seed": self._random_seed,
             "N_observations": len(self.X),
             "N_variables": self.X.shape[1],
+            "N_missing_values": int(self.X.isna().sum().sum()) if self.X is not None else 0,
+            "missing_data_strategy": (
+                "none (complete-case preprocessing required from caller; "
+                "stepmix measurement='bernoulli' rejects NaN)"
+            ),
             "parameters": {
-                "measurement": "bernoulli",
+                "measurement": getattr(self.fitted_model, 'measurement', 'bernoulli'),
                 "n_init": getattr(self, '_n_init', 5),
                 "max_iter": getattr(self, '_max_iter', 500),
-                "n_clusters_tested": sorted(self.model_objects.keys()) if hasattr(self, 'model_objects') else self.n_clusters,
+                "abs_tol": float(getattr(self.fitted_model, 'abs_tol', 1e-10)),
+                "rel_tol": float(getattr(self.fitted_model, 'rel_tol', 0.0)),
+                "n_clusters_requested": self.n_clusters,
+                "n_clusters_tested": sorted(self.model_objects.keys()) if hasattr(self, 'model_objects') else [self.n_clusters],
                 "n_clusters_reference": self.fitted_model.n_components,
+                "selection_metric": getattr(self, '_selection_metric', 'BIC'),
+                "bootstrap": effective_boot,
+                "n_iterations": effective_n_iter,
             },
         }
+        if hasattr(self.fitted_model, 'n_iter_'):
+            info["reference_n_iter"] = int(self.fitted_model.n_iter_)
 
         # Diagnósticos do k de referência (fitted_model)
         if hasattr(self, 'grid_results') and self.grid_results is not None:
@@ -823,59 +853,24 @@ class LCA(RAPID):
                         )
 
         # ── Outcome crosstab (when outcome was provided in create()) ───────
-        self.outcome_crosstab_df  = None
-        self.outcome_test_result  = None
+        self.outcome_crosstab_df = None
+        self.outcome_test_result = None
 
         if self.outcome is not None and self.outcome_data is not None:
             try:
-                from scipy import stats as sps
-
-                pred   = self.fitted_model.predict(self.X)
-                labels = getattr(self, 'class_names', None)
-
-                if labels and len(labels) == self.fitted_model.n_components:
-                    class_labels = [labels[int(c)] for c in pred]
-                else:
-                    class_labels = [f"Class_{int(c)+1}" for c in pred]
-
-                df_ct     = pd.DataFrame({'class': class_labels, 'outcome': self.outcome_data.values})
-                ct        = pd.crosstab(df_ct['class'], df_ct['outcome'], normalize='index').round(4)
-                ct_counts = pd.crosstab(df_ct['class'], df_ct['outcome'])
-
-                outcome_is_categorical = (
-                    not pd.api.types.is_numeric_dtype(self.outcome_data)
-                    or self.outcome_data.nunique() <= 10
+                ct, test_result = self._compute_outcome_for_solution(
+                    model_k=self.fitted_model,
+                    class_names=getattr(self, 'class_names', None),
                 )
-
-                if outcome_is_categorical:
-                    chi2, p, dof, _ = sps.chi2_contingency(ct_counts)
-                    test_result = {
-                        'test':      'chi-square',
-                        'statistic': float(chi2),
-                        'p_value':   float(p),
-                        'dof':       int(dof),
-                    }
-                else:
-                    groups = [
-                        self.outcome_data.values[pred == c]
-                        for c in sorted(set(pred))
-                    ]
-                    f_stat, p = sps.f_oneway(*groups)
-                    test_result = {
-                        'test':      'ANOVA',
-                        'statistic': float(f_stat),
-                        'p_value':   float(p),
-                    }
-
                 self.outcome_crosstab_df = ct
                 self.outcome_test_result = test_result
 
-                # Keep light reference in model_info
-                info["outcome_test"] = (
-                    f"{test_result['test']}: "
-                    f"stat={test_result['statistic']:.4f}, "
-                    f"p={test_result['p_value']:.4f}"
-                )
+                if test_result is not None:
+                    info["outcome_test"] = (
+                        f"{test_result['test']}: "
+                        f"stat={test_result['statistic']:.4f}, "
+                        f"p={test_result['p_value']:.4f}"
+                    )
 
             except Exception as e:
                 info["outcome_error"] = str(e)
@@ -1251,11 +1246,11 @@ class LCA(RAPID):
         reorder = getattr(self, '_display_reorder', None)
         return ci_df, type_label, reorder
 
-    def _bootstrap_metrics_ic(self, backend="plotly"):
+    def _bootstrap_metrics_ic(self, backend="plotly", k: Optional[int] = None):
         """
         Bootstrap CI plot for LCA Information Criteria (AIC, BIC, CAIC, SABIC).
 
-        Requires bootstrap=True in fit().
+        Requires bootstrap=True in fit(). Always displays the full enumeration.
         """
         from isaric.visualization.lineplots import bootstrap_metrics_ic_plot
 
@@ -1269,11 +1264,11 @@ class LCA(RAPID):
             backend=backend,
         )
 
-    def _bootstrap_metrics_entropy(self, backend="plotly"):
+    def _bootstrap_metrics_entropy(self, backend="plotly", k: Optional[int] = None):
         """
         Two-panel bootstrap CI plot for LCA Entropy and Relative Entropy.
 
-        Requires bootstrap=True in fit().
+        Requires bootstrap=True in fit(). Always displays the full enumeration.
         """
         from isaric.visualization.lineplots import bootstrap_metrics_entropy_plot
 
@@ -1287,8 +1282,8 @@ class LCA(RAPID):
             backend=backend,
         )
 
-    def _selection_rate(self, backend="plotly"):
-        """Plot bootstrap selection rate per metric and k."""
+    def _selection_rate(self, backend="plotly", k: Optional[int] = None):
+        """Plot bootstrap selection rate per metric and k (full enumeration)."""
         from isaric.visualization.lineplots import selection_rate_plot
 
         if not hasattr(self, 'lrt_results') or not self.lrt_results:
@@ -1307,8 +1302,8 @@ class LCA(RAPID):
             backend=backend
         )
 
-    def _crosstab(self, backend="plotly"):
-        """Generate crosstab heatmap between classes and outcome."""
+    def _crosstab(self, backend="plotly", k: Optional[int] = None):
+        """Generate crosstab heatmap between classes and outcome for reference or exploratory k."""
         from isaric.visualization.heatmaps import crosstab_heatmap
 
         if self.outcome is None or self.outcome_data is None:
@@ -1317,13 +1312,13 @@ class LCA(RAPID):
                 "Pass `outcome=<column_name>` in create()."
             )
 
-        # Predict classes para o modelo ativo
-        pred = self.fitted_model.predict(self.X)
+        sol = self._resolve_k_solution(k)
+        pred = sol["model"].predict(self.X)
+        class_names = sol["class_names"]
+        target_k = sol["k"]
 
-        labels = getattr(self, 'class_names', None)
-        k = self.fitted_model.n_components
-        if labels and len(labels) == k:
-            class_labels = [labels[int(c)] for c in pred]
+        if class_names and len(class_names) == target_k:
+            class_labels = [class_names[int(c)] for c in pred]
         else:
             class_labels = [f"Class_{int(c)+1}" for c in pred]
 
@@ -1331,144 +1326,754 @@ class LCA(RAPID):
             'class':   class_labels,
             'outcome': self.outcome_data.values,
         })
-        ct = pd.crosstab(df['class'], df['outcome'])
-        ct = ct.sort_index()
+        ct = pd.crosstab(df['class'], df['outcome']).sort_index()
 
         return crosstab_heatmap(
             crosstab=ct,
-            title=f"Crosstab: Classes vs {self.outcome}",
+            title=f"Crosstab: Classes vs {self.outcome} ({sol['label_tag']})",
             normalize=True,
             backend=backend
         )
 
     # ======================================================================
+    # LCA-SPECIFIC SUMMARY & K-RESOLUTION HELPERS (GEN-03, LCA-06, LCA-07)
+    # ======================================================================
+
+    def _resolve_k_solution(self, k: Optional[int] = None) -> dict:
+        """
+        Resolve and validate a fitted LCA class solution without mutating model state.
+
+        When k is None, resolves the active reference solution (self.fitted_model).
+        When k is an integer, validates that k was fitted during enumeration and
+        retrieves the corresponding StepMix estimator from self.model_objects.
+
+        Args:
+            k: Optional integer number of latent classes to inspect.
+
+        Returns:
+            Dictionary containing the immutable presentation context for k:
+            - k (int): Resolved number of classes.
+            - ref_k (int): Reference model number of classes.
+            - available_ks (List[int]): Sorted list of all fitted k values.
+            - is_exploratory (bool): True when an explicit k was requested.
+            - model (StepMix): Fitted StepMix estimator for k.
+            - class_names (Optional[List[str]]): Display names if applicable to k.
+            - profiles_df (pd.DataFrame): Class profile table of shape (k, n_vars).
+            - grid_row (Optional[pd.Series]): Row from grid_results for k.
+            - ave_pp_row (Optional[pd.Series]): Row from DiagClass['ave_pp'] for k.
+            - occ_row (Optional[pd.Series]): Row from DiagClass['occ_ratios'] for k.
+            - label_tag (str): Human-readable label ('Reference k=...' or 'Exploratory k=...').
+
+        Raises:
+            ValueError: If model is not fitted, k is not a valid integer (or is bool),
+                or k is not in self.model_objects.
+        """
+        self._check_state(self._STATE_FITTED, "summary")
+        if (
+            self.fitted_model is None
+            or not hasattr(self, "model_objects")
+            or not self.model_objects
+        ):
+            raise ValueError(
+                "LCA model has no fitted class solutions. Call fit() before summary()."
+            )
+
+        ref_k = int(self.fitted_model.n_components)
+        available_ks = sorted(int(kk) for kk in self.model_objects.keys())
+
+        if k is not None:
+            if isinstance(k, bool) or not isinstance(k, (int, np.integer)):
+                raise ValueError(
+                    f"Parameter 'k' must be an integer (not {type(k).__name__}). "
+                    f"Received: {k!r}. Available fitted k values: {available_ks}."
+                )
+            target_k = int(k)
+            if target_k < 1 or target_k not in self.model_objects:
+                raise ValueError(
+                    f"Requested k={target_k} is not available in the fitted LCA solutions. "
+                    f"Available fitted k values: {available_ks}."
+                )
+            is_exploratory = True
+            model_k = self.model_objects[target_k]
+        else:
+            target_k = ref_k
+            is_exploratory = False
+            model_k = self.fitted_model
+
+        # Only apply custom class_names when target_k matches reference k and length matches
+        effective_class_names = (
+            list(self.class_names)
+            if (
+                target_k == ref_k
+                and self.class_names is not None
+                and len(self.class_names) == target_k
+            )
+            else None
+        )
+
+        if (
+            not is_exploratory
+            and self.result_df is not None
+            and len(self.result_df) == target_k
+            and (
+                effective_class_names is None
+                or list(self.result_df.index) == effective_class_names
+            )
+        ):
+            profiles_df = self.result_df
+        else:
+            profiles_df = _build_result_df(
+                model=model_k,
+                X=self.X,
+                feature_names=self.measurement_vars,
+                class_names=effective_class_names,
+            )
+
+        grid_row = None
+        if hasattr(self, "grid_results") and self.grid_results is not None:
+            matched = self.grid_results[self.grid_results["n_clusters"] == target_k]
+            if not matched.empty:
+                grid_row = matched.iloc[0]
+
+        ave_pp_row = None
+        occ_row = None
+        if hasattr(self, "DiagClass") and self.DiagClass:
+            ave_df = self.DiagClass.get("ave_pp")
+            if ave_df is not None and target_k in ave_df.index:
+                ave_pp_row = ave_df.loc[target_k]
+            occ_df = self.DiagClass.get("occ_ratios")
+            if occ_df is not None and target_k in occ_df.index:
+                occ_row = occ_df.loc[target_k]
+
+        label_tag = (
+            f"Exploratory k={target_k}"
+            if is_exploratory
+            else f"Reference k={ref_k}"
+        )
+
+        return {
+            "k": target_k,
+            "ref_k": ref_k,
+            "available_ks": available_ks,
+            "is_exploratory": is_exploratory,
+            "model": model_k,
+            "class_names": effective_class_names,
+            "profiles_df": profiles_df,
+            "grid_row": grid_row,
+            "ave_pp_row": ave_pp_row,
+            "occ_row": occ_row,
+            "label_tag": label_tag,
+        }
+
+    def _compute_outcome_for_solution(
+        self,
+        model_k: StepMix,
+        class_names: Optional[List[str]] = None,
+    ) -> Tuple[Optional[pd.DataFrame], Optional[dict]]:
+        """
+        Compute row-normalized outcome crosstab and hypothesis test for a fitted StepMix model
+        without mutating cached reference outcome attributes.
+        """
+        if self.outcome is None or self.outcome_data is None:
+            return None, None
+
+        from scipy import stats as sps
+
+        pred = model_k.predict(self.X)
+        k_val = int(model_k.n_components)
+        if class_names and len(class_names) == k_val:
+            class_labels = [class_names[int(c)] for c in pred]
+        else:
+            class_labels = [f"Class_{int(c)+1}" for c in pred]
+
+        df_ct = pd.DataFrame({"class": class_labels, "outcome": self.outcome_data.values})
+        ct = pd.crosstab(df_ct["class"], df_ct["outcome"], normalize="index").round(4)
+        ct_counts = pd.crosstab(df_ct["class"], df_ct["outcome"])
+
+        if k_val < 2 or ct_counts.shape[0] < 2:
+            return ct, None
+
+        outcome_is_categorical = (
+            not pd.api.types.is_numeric_dtype(self.outcome_data)
+            or self.outcome_data.nunique() <= 10
+        )
+
+        test_result = None
+        if outcome_is_categorical:
+            if (
+                ct_counts.shape[0] >= 2
+                and ct_counts.shape[1] >= 2
+                and (ct_counts.sum(axis=1) > 0).all()
+                and (ct_counts.sum(axis=0) > 0).all()
+            ):
+                chi2, p, dof, _ = sps.chi2_contingency(ct_counts)
+                test_result = {
+                    "test": "chi-square",
+                    "statistic": float(chi2),
+                    "p_value": float(p),
+                    "dof": int(dof),
+                }
+        else:
+            groups = []
+            for c in sorted(set(pred)):
+                vals = pd.Series(self.outcome_data.values[pred == c]).dropna().values
+                if len(vals) > 0:
+                    groups.append(vals)
+            total_n = sum(len(g) for g in groups)
+            if len(groups) >= 2 and total_n > len(groups):
+                f_stat, p = sps.f_oneway(*groups)
+                if np.isfinite(f_stat) and np.isfinite(p):
+                    test_result = {
+                        "test": "ANOVA",
+                        "statistic": float(f_stat),
+                        "p_value": float(p),
+                    }
+
+        return ct, test_result
+
+    def _build_indicator_frequency_df(
+        self,
+        data: Optional[pd.DataFrame] = None,
+        measurement_vars: Optional[List[str]] = None,
+    ) -> pd.DataFrame:
+        """
+        Build frequency table of binary measurement indicators.
+
+        For each indicator, computes:
+        - N_Valid: number of non-missing observations.
+        - N_Missing: number of missing (NaN) observations.
+        - Positive_n: number of positive (== 1) observations among N_Valid.
+        - Positive_%: percentage of positive observations using N_Valid as
+          denominator (missing values are never treated as zeros).
+
+        If a column contains non-binary values, Positive_n and Positive_%
+        are set to NaN to avoid misleading binary prevalence calculations.
+        """
+        df_source = data if data is not None else self.X
+        vars_list = measurement_vars if measurement_vars is not None else self.measurement_vars
+
+        valid_binary = {0, 1, 0.0, 1.0, True, False}
+        rows = []
+        has_non_binary = False
+
+        for col in vars_list:
+            if col not in df_source.columns:
+                continue
+            s = df_source[col]
+            n_valid = int(s.notna().sum())
+            n_missing = int(s.isna().sum())
+            s_valid = s.dropna()
+            unique_vals = set(s_valid.unique())
+            is_binary = unique_vals.issubset(valid_binary)
+
+            if is_binary and n_valid > 0:
+                pos_n = int((s_valid == 1).sum())
+                pos_pct = float(pos_n / n_valid * 100.0)
+                note = ""
+            elif not is_binary:
+                has_non_binary = True
+                pos_n = np.nan
+                pos_pct = np.nan
+                note = "Non-binary values detected; binary prevalence omitted"
+            else:
+                pos_n = np.nan
+                pos_pct = np.nan
+                note = "All observations missing"
+
+            row_dict = {
+                "Indicator": col,
+                "N_Valid": n_valid,
+                "N_Missing": n_missing,
+                "Positive_n": pos_n,
+                "Positive_%": round(pos_pct, 2) if pd.notna(pos_pct) else np.nan,
+            }
+            if has_non_binary:
+                row_dict["Note"] = note
+            rows.append(row_dict)
+
+        df_freq = pd.DataFrame(rows)
+        if not has_non_binary and "Note" in df_freq.columns:
+            df_freq = df_freq.drop(columns=["Note"])
+        return df_freq
+
+    def _build_solution_fit_metrics_df(
+        self,
+        solution: dict,
+        is_short: bool = False,
+    ) -> Optional[pd.DataFrame]:
+        """Build 1-row fit metrics DataFrame for the resolved k solution."""
+        grid_row = solution.get("grid_row")
+        if grid_row is None:
+            return None
+
+        candidate_cols = (
+            ["n_clusters", "AIC", "BIC", "SABIC", "entropy", "relative_entropy"]
+            if is_short
+            else ["n_clusters", "LL", "AIC", "BIC", "CAIC", "SABIC", "entropy", "relative_entropy"]
+        )
+        metric_cols = [
+            c for c in candidate_cols
+            if c in grid_row.index and pd.notna(grid_row[c])
+        ]
+        if not metric_cols:
+            return None
+        return pd.DataFrame([grid_row[metric_cols].to_dict()])
+
+    def _build_class_prevalence_df(
+        self,
+        solution: dict,
+        is_short: bool = False,
+    ) -> Optional[pd.DataFrame]:
+        """Build class prevalence and classification diagnostics (AvePP, OCC) DataFrame for k."""
+        model_k = solution.get("model")
+        if model_k is None or not hasattr(model_k, "weights_"):
+            return None
+
+        weights = model_k.weights_
+        n_obs = len(self.X) if self.X is not None else 0
+        profiles_df = solution.get("profiles_df")
+        class_labels = (
+            list(profiles_df.index)
+            if profiles_df is not None and len(profiles_df) == len(weights)
+            else [f"Class_{i+1}" for i in range(len(weights))]
+        )
+        ave_pp_row = None if is_short else solution.get("ave_pp_row")
+        occ_row = None if is_short else solution.get("occ_row")
+
+        class_rows = []
+        for idx, (lbl, w) in enumerate(zip(class_labels, weights)):
+            col_key = f"Class_{idx+1}"
+            row_entry = {
+                "Class": lbl,
+                "Prevalence": round(float(w), 4),
+                "Prevalence_%": round(float(w * 100.0), 2),
+                "Est_N": int(round(float(w) * n_obs)),
+            }
+            if ave_pp_row is not None and col_key in ave_pp_row.index:
+                val_pp = ave_pp_row[col_key]
+                row_entry["AvePP"] = round(float(val_pp), 4) if pd.notna(val_pp) else np.nan
+            if occ_row is not None and col_key in occ_row.index:
+                val_occ = occ_row[col_key]
+                row_entry["OCC"] = round(float(val_occ), 4) if pd.notna(val_occ) else np.nan
+            class_rows.append(row_entry)
+
+        return pd.DataFrame(class_rows)
+
+    def _print_lca_metadata_section(
+        self,
+        solution: dict,
+        is_short: bool,
+        width: int = 80,
+    ) -> None:
+        """Display Section A: MODEL INFORMATION metadata."""
+        if not hasattr(self, "model_info") or not self.model_info:
+            return
+
+        print("=" * width)
+        print("MODEL INFORMATION")
+        print("=" * width)
+
+        def _fmt_info(v):
+            if isinstance(v, float):
+                return f"{v:.4f}"
+            if isinstance(v, dict):
+                parts = [f"{kk}={vv}" for kk, vv in v.items() if vv is not None]
+                return " | ".join(parts)
+            return str(v)
+
+        display_info = dict(self.model_info)
+        if solution["is_exploratory"]:
+            target_k = solution["k"]
+            ref_k = solution["ref_k"]
+            display_info["exploratory_k"] = target_k
+            display_info["note"] = (
+                f"Exploring k={target_k} solution (reference k={ref_k} "
+                f"remains unchanged; k={target_k} is NOT formally selected)."
+            )
+
+        short_info_keys = {
+            "model_id",
+            "model_type",
+            "framework",
+            "method",
+            "random_seed",
+            "N_observations",
+            "N_variables",
+            "missing_data_strategy",
+            "parameters",
+            "reference_k",
+            "exploratory_k",
+            "converged",
+            "note",
+        }
+        info_rows = [
+            {"Key": key, "Value": _fmt_info(val)}
+            for key, val in display_info.items()
+            if val is not None and (not is_short or key in short_info_keys)
+        ]
+        info_df = pd.DataFrame(info_rows, columns=["Key", "Value"])
+        print(info_df.to_string(index=False))
+        print()
+
+    def _print_lca_indicator_frequency_section(
+        self,
+        is_short: bool,
+        width: int = 80,
+    ) -> None:
+        """Display Section B: BINARY INDICATOR FREQUENCY TABLE."""
+        if self.X is None or not self.measurement_vars:
+            return
+
+        print("=" * width)
+        print("BINARY INDICATOR FREQUENCY TABLE")
+        print("=" * width)
+        freq_df = self._build_indicator_frequency_df()
+        if (
+            is_short
+            and "N_Missing" in freq_df.columns
+            and (freq_df["N_Missing"] == 0).all()
+        ):
+            freq_df = freq_df.drop(columns=["N_Missing"])
+        print(freq_df.to_string(index=False))
+        print()
+
+    def _print_lca_enumeration_section(
+        self,
+        is_short: bool,
+        width: int = 80,
+    ) -> None:
+        """Display Section C: GRID SEARCH RESULTS (CLASS ENUMERATION)."""
+        if not hasattr(self, "grid_results") or self.grid_results is None:
+            return
+
+        print("=" * width)
+        print("GRID SEARCH RESULTS (CLASS ENUMERATION)")
+        print("=" * width)
+        grid_display = self.grid_results
+        if "convergence_rate" in grid_display.columns:
+            conv_vals = grid_display["convergence_rate"].dropna()
+            if conv_vals.empty or (conv_vals == 1.0).all():
+                grid_display = grid_display.drop(columns=["convergence_rate"])
+        if is_short:
+            short_grid_cols = [
+                c for c in [
+                    "n_clusters",
+                    "LL",
+                    "AIC",
+                    "BIC",
+                    "SABIC",
+                    "entropy",
+                    "relative_entropy",
+                    "converged",
+                    "convergence_rate",
+                    "lrt_p_value",
+                    "blrt_p_value",
+                ]
+                if c in grid_display.columns
+            ]
+            grid_display = grid_display[short_grid_cols]
+        print(grid_display.to_string(index=False))
+        print()
+
+    def _print_lca_convergence_section(
+        self,
+        solution: dict,
+        width: int = 80,
+    ) -> None:
+        """Display Section D: CONVERGENCE DIAGNOSTICS."""
+        ref_k = solution["ref_k"]
+        target_k = solution["k"]
+        model_k = solution["model"]
+
+        print("=" * width)
+        print("CONVERGENCE DIAGNOSTICS")
+        print("=" * width)
+        n_init = getattr(self, "_n_init", 5)
+        max_iter = getattr(self, "_max_iter", 500)
+        print(f"  EM settings             : n_init={n_init}, max_iter={max_iter}")
+        if (
+            hasattr(self, "grid_results")
+            and self.grid_results is not None
+            and "converged" in self.grid_results.columns
+        ):
+            g_conv = self.grid_results[["n_clusters", "converged"]]
+            conv_ks = g_conv.loc[g_conv["converged"] == True, "n_clusters"].astype(int).tolist()
+            fail_ks = g_conv.loc[g_conv["converged"] != True, "n_clusters"].astype(int).tolist()
+            print(f"  Enumeration converged   : {len(conv_ks)}/{len(g_conv)} models (k={conv_ks})")
+            if fail_ks:
+                print(f"  Non-converged k         : {fail_ks}")
+
+        ref_conv = getattr(self.fitted_model, "converged_", None)
+        ref_n_iter = getattr(self.fitted_model, "n_iter_", None)
+        iter_note = f" (EM iterations={int(ref_n_iter)})" if ref_n_iter is not None else ""
+        print(f"  Reference model (k={ref_k}) : converged={bool(ref_conv)}{iter_note}")
+
+        if solution["is_exploratory"]:
+            exp_conv = getattr(model_k, "converged_", None)
+            exp_n_iter = getattr(model_k, "n_iter_", None)
+            exp_iter_note = f" (EM iterations={int(exp_n_iter)})" if exp_n_iter is not None else ""
+            print(f"  Exploratory model (k={target_k}) : converged={bool(exp_conv)}{exp_iter_note}")
+
+        if (
+            getattr(self, "_bootstrap", False)
+            and hasattr(self, "grid_results")
+            and self.grid_results is not None
+            and "convergence_rate" in self.grid_results.columns
+        ):
+            conv_rates = self.grid_results[["n_clusters", "convergence_rate"]].dropna()
+            if not conv_rates.empty and (conv_rates["convergence_rate"] < 1.0).any():
+                rates_str = ", ".join(
+                    f"k={int(r['n_clusters'])}: {float(r['convergence_rate']):.2%}"
+                    for _, r in conv_rates.iterrows()
+                )
+                print(f"  Bootstrap convergence_rate : {rates_str}")
+        print()
+
+    def _print_lca_solution_results_section(
+        self,
+        solution: dict,
+        is_short: bool,
+        width: int = 80,
+    ) -> None:
+        """Display Section E: Fit metrics, class prevalence/diagnostics, and profiles for k."""
+        target_k = solution["k"]
+        ref_k = solution["ref_k"]
+        is_exploratory = solution["is_exploratory"]
+        profiles_df = solution["profiles_df"]
+
+        print("=" * width)
+        if is_exploratory:
+            print(f"EXPLORATORY MODEL RESULTS (k={target_k} — Reference k={ref_k})")
+            print("=" * width)
+            print(
+                f"Note: Exploring k={target_k} solution. Reference model remains "
+                f"k={ref_k} (no formal model selection performed)."
+            )
+            mode_prefix = "Exploratory Model"
+        else:
+            print(f"REFERENCE MODEL RESULTS (Reference k = {ref_k} — Not Automatically Selected)")
+            print("=" * width)
+            print(
+                f"Note: k={ref_k} is the reference model pointer from create(), "
+                f"not an automatically selected optimal solution."
+            )
+            mode_prefix = "Reference Model"
+        print()
+
+        # E1. Fit Metrics for target_k
+        metrics_df = self._build_solution_fit_metrics_df(solution, is_short=is_short)
+        if metrics_df is not None:
+            print(f"--- {mode_prefix} Fit Metrics (k={target_k}) ---")
+            print(metrics_df.to_string(index=False))
+            print()
+
+        # E2. Class Prevalence & Classification Diagnostics (AvePP, OCC)
+        prevalence_df = self._build_class_prevalence_df(solution, is_short=is_short)
+        if prevalence_df is not None:
+            print(f"--- {mode_prefix} Class Prevalence & Diagnostics (k={target_k}) ---")
+            print(prevalence_df.to_string(index=False))
+            print()
+
+        # E3. Item-Response Probabilities (Class Profiles)
+        if profiles_df is not None:
+            print(f"--- Item-Response Probabilities (Class Profiles, {solution['label_tag']}) ---")
+            prof_display = profiles_df.round(3).copy() if is_short else profiles_df.copy()
+            prof_display.insert(0, "Class", list(prof_display.index))
+            print(prof_display.to_string(index=False))
+            print()
+
+    def _print_lca_outcome_section(
+        self,
+        solution: dict,
+        width: int = 80,
+    ) -> None:
+        """Display Section F: OUTCOME BY CLASS for the reference or exploratory k."""
+        if self.outcome is None or self.outcome_data is None:
+            return
+
+        is_exploratory = solution["is_exploratory"]
+        target_k = solution["k"]
+        ref_k = solution["ref_k"]
+
+        if (
+            not is_exploratory
+            and hasattr(self, "outcome_crosstab_df")
+            and self.outcome_crosstab_df is not None
+        ):
+            ct_df = self.outcome_crosstab_df
+            test_res = getattr(self, "outcome_test_result", None)
+        else:
+            ct_df, test_res = self._compute_outcome_for_solution(
+                model_k=solution["model"],
+                class_names=solution["class_names"],
+            )
+
+        if ct_df is None:
+            return
+
+        outcome_name = getattr(self, "outcome", "outcome")
+        header_k_label = (
+            f"Exploratory k = {target_k}"
+            if is_exploratory
+            else f"Reference k = {ref_k}"
+        )
+        print("=" * width)
+        print(f"OUTCOME BY CLASS — {outcome_name} ({header_k_label})")
+        print("=" * width)
+        print(ct_df.to_string())
+        if test_res:
+            print(
+                f"\n  {test_res.get('test', '')}: "
+                f"statistic={test_res.get('statistic', float('nan')):.4f}, "
+                f"p-value={test_res.get('p_value', float('nan')):.4f}"
+            )
+        else:
+            print("\n  Statistical test: not applicable (single class or insufficient observations)")
+        print()
+
+    def _summary_model_specific(
+        self,
+        table_format: str = "full",
+        k: Optional[int] = None,
+    ) -> None:
+        """
+        Display LCA-specific summary sections (GEN-03, LCA-06, LCA-07).
+
+        Presents in coherent analytical order:
+        A. Model Metadata (MODEL INFORMATION)
+        B. Binary Indicator Frequency Table
+        C. Class Enumeration Results (GRID SEARCH RESULTS)
+        D. Convergence Diagnostics
+        E. Class-Specific Model Results (Reference k or Exploratory k)
+        F. Outcome Crosstab & LCA Diagnostic Notes (when applicable)
+        """
+        width = 80
+        is_short = (table_format == "short")
+        solution = self._resolve_k_solution(k)
+
+        self._print_lca_metadata_section(solution, is_short=is_short, width=width)
+        self._print_lca_indicator_frequency_section(is_short=is_short, width=width)
+        self._print_lca_enumeration_section(is_short=is_short, width=width)
+        self._print_lca_convergence_section(solution, width=width)
+        self._print_lca_solution_results_section(solution, is_short=is_short, width=width)
+        self._print_lca_outcome_section(solution, width=width)
+
+    # ======================================================================
     # PLOT METHODS (CALLED BY plots_map)
     # ======================================================================
 
-    def _profile_heatmap(self, backend="plotly"):
-        """Generate LCA class profiles heatmap."""
+    def _profile_heatmap(self, backend="plotly", k: Optional[int] = None):
+        """Generate LCA class profiles heatmap for the reference or exploratory k."""
         from isaric.visualization.heatmaps import lca_profile_heatmap
 
+        sol = self._resolve_k_solution(k)
         return lca_profile_heatmap(
-            self.result_df,
-            n_clusters=self.n_clusters,  # ← padronizado
-            title="LCA Class Profiles",
+            sol["profiles_df"],
+            n_clusters=None,
+            title=f"LCA Class Profiles ({sol['label_tag']})",
             backend=backend
         )
     
-    def _cluster_distribution(self, backend="plotly"):
-        """Generate cluster distribution bar plot."""
+    def _cluster_distribution(self, backend="plotly", k: Optional[int] = None):
+        """Generate cluster distribution bar plot for the reference or exploratory k."""
         from isaric.visualization.barplots import simple_bar_plot
 
-        cluster_labels = self.fitted_model.predict(self.X)
-        cluster_counts = pd.Series(cluster_labels).value_counts()
+        sol = self._resolve_k_solution(k)
+        pred = sol["model"].predict(self.X)
+        class_labels = list(sol["profiles_df"].index)
+        counts = [int((pred == i).sum()) for i in range(sol["k"])]
         cluster_df = pd.DataFrame({
-            'Class': [f'Class_{i+1}' for i in range(len(cluster_counts))],
-            'Count': cluster_counts.values
+            'Class': class_labels,
+            'Count': counts,
         })
 
         return simple_bar_plot(
             cluster_df,
             x_col='Class',
             y_col='Count',
-            title="Latent Class Distribution",
+            title=f"Latent Class Distribution ({sol['label_tag']})",
             backend=backend
         )
 
-    def _radar_plot(self, backend="plotly"):
-        """Generate LCA radar plot."""
+    def _radar_plot(self, backend="plotly", k: Optional[int] = None):
+        """Generate LCA radar plot for the reference or exploratory k."""
         from isaric.visualization.heatmaps import lca_radar_plot
 
+        sol = self._resolve_k_solution(k)
         return lca_radar_plot(
-            self.result_df,
-            n_clusters=self.n_clusters,
-            title="LCA Class Profiles (Radar)",
-            class_names=self.class_names,
+            sol["profiles_df"],
+            n_clusters=None,
+            title=f"LCA Class Profiles — Radar ({sol['label_tag']})",
+            class_names=sol["class_names"],
             backend=backend
         )
 
-    def _information_criteria(self, backend="plotly"):
-        """Generate information criteria plot from grid search results."""
+    def _plot_enumeration_curve(
+        self,
+        metrics: List[str],
+        title: str,
+        yaxis_title: str,
+        plot_label: str,
+        backend: str = "plotly",
+    ):
+        """Render a class-enumeration line plot across all fitted k values in grid_results."""
         from isaric.visualization.lineplots import grid_search_metric_plot
 
-        if not hasattr(self, 'grid_results') or self.grid_results is None:
+        if not hasattr(self, "grid_results") or self.grid_results is None:
             raise ValueError(
-                "Information criteria plot requires grid search. "
-                "Call fit(grid_search=True) or fit(param_grid={...})."
+                f"{plot_label} requires grid search. "
+                f"Call fit(grid_search=True) or fit(param_grid={{...}})."
             )
 
         return grid_search_metric_plot(
             grid_results=self.grid_results,
+            metrics=metrics,
+            x_col="n_clusters",
+            convergence_col="converged",
+            title=title,
+            xaxis_title="Number of Classes (k)",
+            yaxis_title=yaxis_title,
+            backend=backend,
+        )
+
+    def _information_criteria(self, backend="plotly", k: Optional[int] = None):
+        """Generate information criteria plot from grid search results (full enumeration)."""
+        return self._plot_enumeration_curve(
             metrics=["AIC", "BIC", "CAIC", "SABIC"],
-            x_col="n_clusters",
-            convergence_col="converged",
             title="Information Criteria by Number of Classes",
-            xaxis_title="Number of Classes (k)",
             yaxis_title="Information Criteria Value",
-            backend=backend
+            plot_label="Information criteria plot",
+            backend=backend,
         )
 
-    def _ll_curve(self, backend="plotly"):
-        """Generate LL vs k curve from grid search results."""
-        from isaric.visualization.lineplots import grid_search_metric_plot
-
-        if not hasattr(self, 'grid_results') or self.grid_results is None:
-            raise ValueError(
-                "LL curve requires grid search. "
-                "Call fit(grid_search=True) or fit(param_grid={...})."
-            )
-
-        return grid_search_metric_plot(
-            grid_results=self.grid_results,
+    def _ll_curve(self, backend="plotly", k: Optional[int] = None):
+        """Generate LL vs k curve from grid search results (full enumeration)."""
+        return self._plot_enumeration_curve(
             metrics=["LL"],
-            x_col="n_clusters",
-            convergence_col="converged",
             title="Log-Likelihood by Number of Classes",
-            xaxis_title="Number of Classes (k)",
             yaxis_title="Log-Likelihood",
-            backend=backend
+            plot_label="LL curve",
+            backend=backend,
         )
 
-    def _entropy_curve(self, backend="plotly"):
-        """Generate entropy vs k curve."""
-        from isaric.visualization.lineplots import grid_search_metric_plot
-
-        if not hasattr(self, 'grid_results') or self.grid_results is None:
-            raise ValueError(
-                "Entropy curve requires grid search. "
-                "Call fit(grid_search=True) or fit(param_grid={...})."
-            )
-
-        return grid_search_metric_plot(
-            grid_results=self.grid_results,
+    def _entropy_curve(self, backend="plotly", k: Optional[int] = None):
+        """Generate entropy vs k curve (full enumeration)."""
+        return self._plot_enumeration_curve(
             metrics=["entropy"],
-            x_col="n_clusters",
-            convergence_col="converged",
             title="Entropy by Number of Classes",
-            xaxis_title="Number of Classes (k)",
             yaxis_title="Entropy",
-            backend=backend
+            plot_label="Entropy curve",
+            backend=backend,
         )
 
-    def _relative_entropy_curve(self, backend="plotly"):
-        """Generate relative entropy vs k curve."""
-        from isaric.visualization.lineplots import grid_search_metric_plot
-
-        if not hasattr(self, 'grid_results') or self.grid_results is None:
-            raise ValueError(
-                "Relative entropy curve requires grid search. "
-                "Call fit(grid_search=True) or fit(param_grid={...})."
-            )
-
-        return grid_search_metric_plot(
-            grid_results=self.grid_results,
+    def _relative_entropy_curve(self, backend="plotly", k: Optional[int] = None):
+        """Generate relative entropy vs k curve (full enumeration)."""
+        return self._plot_enumeration_curve(
             metrics=["relative_entropy"],
-            x_col="n_clusters",
-            convergence_col="converged",
             title="Relative Entropy by Number of Classes",
-            xaxis_title="Number of Classes (k)",
             yaxis_title="Relative Entropy",
-            backend=backend
+            plot_label="Relative entropy curve",
+            backend=backend,
         )
 
 

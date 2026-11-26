@@ -490,6 +490,7 @@ def test_lca_refit_without_bootstrap_clears_bootstrap_plots(
         "ll_curve",
         "entropy_curve",
         "relative_entropy_curve",
+        "radar_plot",
     ]
 
 

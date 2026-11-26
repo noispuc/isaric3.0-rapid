@@ -5,10 +5,22 @@ Pytest fixtures for LCA baseline and regression testing.
 from pathlib import Path
 from typing import List
 import pandas as pd
+import plotly.graph_objs as go
 import pytest
 
 import isaric as isa
 from tests.lca.synthetic_data import LCA_SYMPTOM_VARS, generate_synthetic_lca_data
+
+
+@pytest.fixture(autouse=True)
+def _prevent_plotly_browser_popup(monkeypatch):
+    """
+    Prevent Plotly fig.show() from launching external desktop browser tabs
+    during automated pytest runs. Individual tests can override go.Figure.show
+    via monkeypatch to capture rendered figures.
+    """
+    monkeypatch.setattr(go.Figure, "show", lambda self, *a, **kw: None)
+
 
 
 @pytest.fixture(scope="session")

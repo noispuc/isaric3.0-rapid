@@ -333,18 +333,37 @@ def test_xfail_lca02_no_convergence_rate_without_bootstrap(model_no_bootstrap, c
     assert "convergence_rate" not in out
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="LCA-03 known issue: summary() without plots= does not render default plots automatically.",
-)
 def test_xfail_lca03_summary_automatically_displays_default_plots(
-    model_no_bootstrap, monkeypatch
+    model_no_bootstrap, monkeypatch, capsys
 ):
     """
-    Expected target for LCA-03: calling summary() with no arguments should
-    automatically render the default enumeration plots.
+    Verify LCA-03 & GEN-03: calling summary() with no arguments automatically
+    renders all default LCA plots (including radar_plot for the reference k)
+    and outputs LCA-specific sections (Binary Indicator Frequency Table,
+    Class Enumeration, Convergence Diagnostics, Reference Model Results).
     """
     shown_figures = []
     monkeypatch.setattr(go.Figure, "show", lambda self, *a, **kw: shown_figures.append(self))
     model_no_bootstrap.summary()
-    assert len(shown_figures) > 0
+    out = capsys.readouterr().out
+
+    assert len(shown_figures) == 5
+    assert model_no_bootstrap._displayed_plots == [
+        "information_criteria",
+        "ll_curve",
+        "entropy_curve",
+        "relative_entropy_curve",
+        "radar_plot",
+    ]
+    titles = [fig.layout.title.text for fig in shown_figures]
+    assert "Information Criteria" in titles[0]
+    assert "Log-Likelihood" in titles[1]
+    assert "Entropy by Number of Classes" in titles[2]
+    assert "Relative Entropy" in titles[3]
+    assert "Radar (Reference k=4)" in titles[4]
+
+    assert "MODEL INFORMATION" in out
+    assert "BINARY INDICATOR FREQUENCY TABLE" in out
+    assert "GRID SEARCH RESULTS (CLASS ENUMERATION)" in out
+    assert "CONVERGENCE DIAGNOSTICS" in out
+    assert "REFERENCE MODEL RESULTS (Reference k = 4" in out

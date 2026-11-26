@@ -100,7 +100,7 @@ class RAPID(ABC):
         self.model_id = None        # set by create() — auto-generated
         self._validation_log = []   # accumulates each validation() call
         self._decision = None       # set by decide() — documents selection
-        self._displayed_plots = []  # set by summary() — used by report()
+        self._displayed_plots = None  # set by summary() — used by report() (None = unconfigured)
 
         # Train/test split (set by fit() when test_size is provided)
         self.X_train      = None
@@ -801,7 +801,7 @@ class RAPID(ABC):
                 # ── Figures ───────────────────────────────────────────────
                 plots_to_use = (
                     model._displayed_plots
-                    if model._displayed_plots
+                    if model._displayed_plots is not None
                     else list(model.plots_map.keys())
                 )
                 if plots_to_use:
@@ -1160,6 +1160,7 @@ class RAPID(ABC):
         from sklearn.model_selection import train_test_split as _sklearn_split
 
         # ── Store params ──────────────────────────────────────────────────
+        self._displayed_plots = None
         self._bootstrap      = bootstrap
         self._bootstrap_type = bootstrap_type
         self._n_iterations   = n_iterations
@@ -1286,6 +1287,7 @@ class RAPID(ABC):
         plots: Optional[List[str]] = None,
         compare: Optional[List["RAPID"]] = None,
         reorder: Optional[Dict] = None,
+        k: Optional[int] = None,
     ) -> None:
         """
         Display results in tabular and graphical format.
@@ -1301,12 +1303,25 @@ class RAPID(ABC):
             compare: Optional list of additional RAPID instances to
                 compare against self. Self is always the reference.
                 All models must be fitted and from the same family.
+            reorder: Optional mapping for reordering display labels.
+            k: Optional integer number of latent classes to explore
+                (supported for LCA models after enumeration). Exploring
+                a specific k inspects that fitted solution without
+                formally selecting it or mutating the reference model.
 
         Raises:
             ValueError: If state is incorrect, models are from different
-                families, or any compared model is not fitted.
+                families, any compared model is not fitted, or k is invalid.
         """
         
+        # ── Reject ambiguous simultaneous use of compare and k ────────────
+        if compare is not None and k is not None:
+            raise ValueError(
+                "Cannot specify both 'compare' and 'k' in summary(). "
+                "Use summary(compare=[...]) to compare RAPID model instances "
+                "or summary(k=...) to explore a specific LCA class solution."
+            )
+
         # ── Comparative mode ──────────────────────────────────────────────
         if compare is not None:
             all_models = [self] + list(compare)
@@ -1342,14 +1357,40 @@ class RAPID(ABC):
             self._summary_comparative(all_models)
             return
 
+        self._check_state(self._STATE_FITTED, "summary")
+
+        if k is not None:
+            if hasattr(self, '_resolve_k_solution') and callable(self._resolve_k_solution):
+                self._resolve_k_solution(k)
+            else:
+                raise ValueError(
+                    f"Parameter 'k' is only supported for LCA models, "
+                    f"not '{getattr(self, 'model_type', type(self).__name__)}'."
+                )
+
+        if table_format not in ("full", "short"):
+            raise ValueError(
+                f"table_format must be 'full' or 'short'. "
+                f"Received: '{table_format}'"
+            )
+
         # Store reorder mapping for display (plots and tables)
         if reorder is not None:
             self._display_reorder = reorder
 
-        # Store displayed plots for report()
-        # Priority: explicit plots > model _default_plots > all plots_map keys
+        # Validate explicit plots if provided and store displayed plots for report()
+        # Priority: explicit plots (including plots=[]) > model _default_plots > all plots_map keys
         if plots is not None:
-            self._displayed_plots = plots
+            for plot in plots:
+                if plot not in self.plots_map:
+                    if plot == "bootstrap_metrics_ci":
+                        raise ValueError(
+                            "Unknown plot: 'bootstrap_metrics_ci'. "
+                            "It has been replaced by 'bootstrap_metrics_ic' "
+                            "and 'bootstrap_metrics_entropy'."
+                        )
+                    raise ValueError(f"Unknown plot: {plot}")
+            self._displayed_plots = list(plots)
         elif hasattr(self, '_default_plots') and self._default_plots:
             self._displayed_plots = [
                 p for p in self._default_plots
@@ -1358,217 +1399,212 @@ class RAPID(ABC):
         else:
             self._displayed_plots = list(self.plots_map.keys())
 
-        # ======================================================================
-        # 1. MODEL INFORMATION
-        # ======================================================================
-        if hasattr(self, 'model_info') and self.model_info:
-            print("=" * 80)
-            print("MODEL INFORMATION")
-            print("=" * 80)
-
-            # Converte dict para DataFrame para exibição uniforme
-            import pandas as pd
-            info_df = pd.DataFrame(
-                list(self.model_info.items()),
-                columns=["Key", "Value"]
-            )
-
-            # Formata valores: float → 4 casas decimais, outros → str
-            def _fmt(v):
-                if isinstance(v, float):
-                    return f"{v:.4f}"
-                return str(v)
-
-            info_df["Value"] = info_df["Value"].apply(_fmt)
-            print(info_df.to_string(index=False))
-            print()
-
-        # ======================================================================
-        # 2. RESULTS
-        # ======================================================================
-        print("=" * 80)
-        print("RESULTS")
-        print("=" * 80)
-
-        if table_format == "full":
-            print(self.result_df.to_string(index=False))
-        elif table_format == "short":
-            # Short: ratio columns take priority over raw Coefficient.
-            # Shows: Variable + main effect + CI + p-value.
-            ratio_cols = ['OddsRatio', 'HazardRatio', 'MeanRatio']
-            has_ratio  = any(c in self.result_df.columns for c in ratio_cols)
-
-            priority = ['Variable']
-            priority += [c for c in ratio_cols if c in self.result_df.columns]
-            if not has_ratio and 'Coefficient' in self.result_df.columns:
-                priority.append('Coefficient')
-            if 'Importance' in self.result_df.columns:
-                priority.append('Importance')
-            for c in ['LowerCI', 'UpperCI', 'p-value']:
-                if c in self.result_df.columns:
-                    priority.append(c)
-
-            display_cols = [c for c in priority if c in self.result_df.columns]
-            print(
-                self.result_df[display_cols].to_string(index=False)
-                if display_cols
-                else self.result_df.to_string(index=False)
-            )
+        if hasattr(self, '_summary_model_specific') and callable(self._summary_model_specific):
+            self._summary_model_specific(table_format=table_format, k=k)
         else:
-            raise ValueError(
-                f"table_format must be 'full' or 'short'. "
-                f"Received: '{table_format}'"
-            )
-        print()
+            # ======================================================================
+            # 1. MODEL INFORMATION
+            # ======================================================================
+            if hasattr(self, 'model_info') and self.model_info:
+                print("=" * 80)
+                print("MODEL INFORMATION")
+                print("=" * 80)
 
-        # ======================================================================
-        # 2b. BOOTSTRAP CONFIDENCE INTERVALS (when bootstrap=True in fit())
-        # ======================================================================
-        if (hasattr(self, 'bootstrap_results')
-                and self.bootstrap_results is not None):
-            btype = self.bootstrap_results.get('bootstrap_type', 'unknown')
-            n_it  = self.bootstrap_results.get('n_iterations', '?')
+                # Converte dict para DataFrame para exibição uniforme
+                import pandas as pd
+                info_df = pd.DataFrame(
+                    list(self.model_info.items()),
+                    columns=["Key", "Value"]
+                )
+
+                # Formata valores: float → 4 casas decimais, outros → str
+                def _fmt(v):
+                    if isinstance(v, float):
+                        return f"{v:.4f}"
+                    return str(v)
+
+                info_df["Value"] = info_df["Value"].apply(_fmt)
+                print(info_df.to_string(index=False))
+                print()
+
+            # ======================================================================
+            # 2. RESULTS
+            # ======================================================================
             print("=" * 80)
-            print(
-                f"BOOTSTRAP CONFIDENCE INTERVALS"
-                f" — {btype.upper()} (n={n_it})"
-            )
+            print("RESULTS")
             print("=" * 80)
 
-            # Regression / Predictive — coefficients
-            # Omits bootstrap_mean and bootstrap_se (confusing, Rec 10).
-            # Shows OR CIs when available (Rec 11).
-            boot_df = self.bootstrap_results.get('coefficients')
-            if boot_df is not None and not boot_df.empty:
-                # Prefer OR scale when available (logistic); fall back to coef scale
-                if 'odds_ratio' in boot_df.columns:
-                    show_cols = [
-                        c for c in [
-                            'variable', 'odds_ratio',
-                            'or_ci_lower', 'or_ci_upper',
-                            'bootstrap_p_value',
-                        ]
-                        if c in boot_df.columns
-                    ]
-                else:
-                    show_cols = [
-                        c for c in [
-                            'variable', 'observed',
-                            'ci_lower', 'ci_upper',
-                            'bootstrap_p_value',
-                        ]
-                        if c in boot_df.columns
-                    ]
-                print(boot_df[show_cols].to_string(index=False))
+            if table_format == "full":
+                print(self.result_df.to_string(index=False))
+            elif table_format == "short":
+                # Short: ratio columns take priority over raw Coefficient.
+                # Shows: Variable + main effect + CI + p-value.
+                ratio_cols = ['OddsRatio', 'HazardRatio', 'MeanRatio']
+                has_ratio  = any(c in self.result_df.columns for c in ratio_cols)
 
-            # Survival — hazard ratios
-            elif self.bootstrap_results.get('hazard_ratios') is not None:
-                boot_df = self.bootstrap_results['hazard_ratios']
-                show_cols = [
-                    c for c in [
-                        'variable', 'observed_hr', 'hr_ci_lower',
-                        'hr_ci_upper', 'bootstrap_p_value',
-                    ]
-                    if c in boot_df.columns
-                ]
-                print(boot_df[show_cols].to_string(index=False))
+                priority = ['Variable']
+                priority += [c for c in ratio_cols if c in self.result_df.columns]
+                if not has_ratio and 'Coefficient' in self.result_df.columns:
+                    priority.append('Coefficient')
+                if 'Importance' in self.result_df.columns:
+                    priority.append('Importance')
+                for c in ['LowerCI', 'UpperCI', 'p-value']:
+                    if c in self.result_df.columns:
+                        priority.append(c)
 
-            # Tree-based — feature importances
-            elif self.bootstrap_results.get('importances') is not None:
-                boot_df = self.bootstrap_results['importances']
-                show_cols = [
-                    c for c in [
-                        'Feature', 'observed_importance',
-                        'ci_lower', 'ci_upper',
-                    ]
-                    if c in boot_df.columns
-                ]
-                print(boot_df[show_cols].to_string(index=False))
-
-            print()
-
-        # ======================================================================
-        # 3. GRID SEARCH RESULTS
-        # ======================================================================
-        if hasattr(self, 'grid_results') and self.grid_results is not None:
-            print("=" * 80)
-            print("GRID SEARCH RESULTS")
-            print("=" * 80)
-            grid_display = self.grid_results
-            if 'convergence_rate' in grid_display.columns:
-                conv_vals = grid_display['convergence_rate'].dropna()
-                if conv_vals.empty or (conv_vals == 1.0).all():
-                    grid_display = grid_display.drop(columns=['convergence_rate'])
-            print(grid_display.to_string(index=False))
-
-            if hasattr(self, 'best_params') and self.best_params:
-                print(f"\nBest parameters: {self.best_params}")
-            print()
-
-        # ======================================================================
-        # 3b. OUTCOME CROSSTAB (when outcome was provided in create())
-        # ======================================================================
-        if (hasattr(self, 'outcome_crosstab_df')
-                and self.outcome_crosstab_df is not None):
-            outcome_name = getattr(self, 'outcome', 'outcome')
-            print("=" * 80)
-            print(f"OUTCOME BY CLASS — {outcome_name}")
-            print("=" * 80)
-            print(self.outcome_crosstab_df.to_string())
-            if (hasattr(self, 'outcome_test_result')
-                    and self.outcome_test_result):
-                t = self.outcome_test_result
+                display_cols = [c for c in priority if c in self.result_df.columns]
                 print(
-                    f"\n  {t.get('test', '')}: "
-                    f"statistic={t.get('statistic', float('nan')):.4f}, "
-                    f"p-value={t.get('p_value', float('nan')):.4f}"
+                    self.result_df[display_cols].to_string(index=False)
+                    if display_cols
+                    else self.result_df.to_string(index=False)
                 )
             print()
 
-        # ======================================================================
-        # 3c. LOG-RANK TEST (when group_var was provided in create())
-        # ======================================================================
-        if (hasattr(self, 'logrank_results')
-                and self.logrank_results is not None
-                and 'error' not in self.logrank_results):
-            print("=" * 80)
-            print("LOG-RANK TEST")
-            print("=" * 80)
-            groups = self.logrank_results.get('groups', [])
-            stat   = self.logrank_results.get('test_statistic', float('nan'))
-            pval   = self.logrank_results.get('p_value', float('nan'))
-            print(f"  Groups compared : {', '.join(str(g) for g in groups)}")
-            print(f"  Test statistic  : {stat:.4f}")
-            pval_str = f"{pval:.4f}" if pval >= 0.001 else f"{pval:.2e}"
-            print(f"  p-value         : {pval_str}")
-            if pval < 0.05:
-                print(f"  Interpretation  : Significant difference in survival"
-                      f" between groups (p < 0.05)")
-            else:
-                print(f"  Interpretation  : No significant difference in survival"
-                      f" between groups (p ≥ 0.05)")
-            print()
+            # ======================================================================
+            # 2b. BOOTSTRAP CONFIDENCE INTERVALS (when bootstrap=True in fit())
+            # ======================================================================
+            if (hasattr(self, 'bootstrap_results')
+                    and self.bootstrap_results is not None):
+                btype = self.bootstrap_results.get('bootstrap_type', 'unknown')
+                n_it  = self.bootstrap_results.get('n_iterations', '?')
+                print("=" * 80)
+                print(
+                    f"BOOTSTRAP CONFIDENCE INTERVALS"
+                    f" — {btype.upper()} (n={n_it})"
+                )
+                print("=" * 80)
+
+                # Regression / Predictive — coefficients
+                # Omits bootstrap_mean and bootstrap_se (confusing, Rec 10).
+                # Shows OR CIs when available (Rec 11).
+                boot_df = self.bootstrap_results.get('coefficients')
+                if boot_df is not None and not boot_df.empty:
+                    # Prefer OR scale when available (logistic); fall back to coef scale
+                    if 'odds_ratio' in boot_df.columns:
+                        show_cols = [
+                            c for c in [
+                                'variable', 'odds_ratio',
+                                'or_ci_lower', 'or_ci_upper',
+                                'bootstrap_p_value',
+                            ]
+                            if c in boot_df.columns
+                        ]
+                    else:
+                        show_cols = [
+                            c for c in [
+                                'variable', 'observed',
+                                'ci_lower', 'ci_upper',
+                                'bootstrap_p_value',
+                            ]
+                            if c in boot_df.columns
+                        ]
+                    print(boot_df[show_cols].to_string(index=False))
+
+                # Survival — hazard ratios
+                elif self.bootstrap_results.get('hazard_ratios') is not None:
+                    boot_df = self.bootstrap_results['hazard_ratios']
+                    show_cols = [
+                        c for c in [
+                            'variable', 'observed_hr', 'hr_ci_lower',
+                            'hr_ci_upper', 'bootstrap_p_value',
+                        ]
+                        if c in boot_df.columns
+                    ]
+                    print(boot_df[show_cols].to_string(index=False))
+
+                # Tree-based — feature importances
+                elif self.bootstrap_results.get('importances') is not None:
+                    boot_df = self.bootstrap_results['importances']
+                    show_cols = [
+                        c for c in [
+                            'Feature', 'observed_importance',
+                            'ci_lower', 'ci_upper',
+                        ]
+                        if c in boot_df.columns
+                    ]
+                    print(boot_df[show_cols].to_string(index=False))
+
+                print()
+
+            # ======================================================================
+            # 3. GRID SEARCH RESULTS
+            # ======================================================================
+            if hasattr(self, 'grid_results') and self.grid_results is not None:
+                print("=" * 80)
+                print("GRID SEARCH RESULTS")
+                print("=" * 80)
+                grid_display = self.grid_results
+                if 'convergence_rate' in grid_display.columns:
+                    conv_vals = grid_display['convergence_rate'].dropna()
+                    if conv_vals.empty or (conv_vals == 1.0).all():
+                        grid_display = grid_display.drop(columns=['convergence_rate'])
+                print(grid_display.to_string(index=False))
+
+                if hasattr(self, 'best_params') and self.best_params:
+                    print(f"\nBest parameters: {self.best_params}")
+                print()
+
+            # ======================================================================
+            # 3b. OUTCOME CROSSTAB (when outcome was provided in create())
+            # ======================================================================
+            if (hasattr(self, 'outcome_crosstab_df')
+                    and self.outcome_crosstab_df is not None):
+                outcome_name = getattr(self, 'outcome', 'outcome')
+                print("=" * 80)
+                print(f"OUTCOME BY CLASS — {outcome_name}")
+                print("=" * 80)
+                print(self.outcome_crosstab_df.to_string())
+                if (hasattr(self, 'outcome_test_result')
+                        and self.outcome_test_result):
+                    t = self.outcome_test_result
+                    print(
+                        f"\n  {t.get('test', '')}: "
+                        f"statistic={t.get('statistic', float('nan')):.4f}, "
+                        f"p-value={t.get('p_value', float('nan')):.4f}"
+                    )
+                print()
+
+            # ======================================================================
+            # 3c. LOG-RANK TEST (when group_var was provided in create())
+            # ======================================================================
+            if (hasattr(self, 'logrank_results')
+                    and self.logrank_results is not None
+                    and 'error' not in self.logrank_results):
+                print("=" * 80)
+                print("LOG-RANK TEST")
+                print("=" * 80)
+                groups = self.logrank_results.get('groups', [])
+                stat   = self.logrank_results.get('test_statistic', float('nan'))
+                pval   = self.logrank_results.get('p_value', float('nan'))
+                print(f"  Groups compared : {', '.join(str(g) for g in groups)}")
+                print(f"  Test statistic  : {stat:.4f}")
+                pval_str = f"{pval:.4f}" if pval >= 0.001 else f"{pval:.2e}"
+                print(f"  p-value         : {pval_str}")
+                if pval < 0.05:
+                    print(f"  Interpretation  : Significant difference in survival"
+                          f" between groups (p < 0.05)")
+                else:
+                    print(f"  Interpretation  : No significant difference in survival"
+                          f" between groups (p ≥ 0.05)")
+                print()
 
         # ======================================================================
         # 4. PLOTS
         # ======================================================================
-        if plots:
-            for plot in plots:
-                if plot in self.plots_map:
-                    fig = self.plots_map[plot]()
-                    if isinstance(fig, list):
-                        for f in fig:
-                            f.show()
-                    else:
-                        fig.show()
+        plots_to_render = (
+            self._displayed_plots
+            if (plots is not None or getattr(self, '_auto_display_default_plots', False))
+            else []
+        )
+        for plot in plots_to_render:
+            if plot in self.plots_map:
+                plot_fn = self.plots_map[plot]
+                fig = plot_fn(k=k) if k is not None else plot_fn()
+                if isinstance(fig, list):
+                    for f in fig:
+                        f.show()
                 else:
-                    if plot == "bootstrap_metrics_ci":
-                        raise ValueError(
-                            "Unknown plot: 'bootstrap_metrics_ci'. "
-                            "It has been replaced by 'bootstrap_metrics_ic' "
-                            "and 'bootstrap_metrics_entropy'."
-                        )
-                    raise ValueError(f"Unknown plot: {plot}")
+                    fig.show()
 
     def save(self) -> "RAPID":
         """
@@ -1855,7 +1891,7 @@ class RAPID(ABC):
                 prefix = f"{model.model_id}-{timestamp}"
                 plots_to_export = (
                     model._displayed_plots
-                    if model._displayed_plots
+                    if model._displayed_plots is not None
                     else list(model.plots_map.keys())
                 )
                 for plot_name in plots_to_export:
